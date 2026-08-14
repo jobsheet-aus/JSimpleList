@@ -107,11 +107,11 @@ Build:
 
 Install debug APK:
 
-    "C:\Users\Josh\AppData\Local\Android\Sdk\platform-tools\adb.exe" install -r D:\simplelist\app\build\outputs\apk\debug\app-debug.apk
+    "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r D:\simplelist\app\build\outputs\apk\debug\app-debug.apk
 
 Check connected Android device:
 
-    "C:\Users\Josh\AppData\Local\Android\Sdk\platform-tools\adb.exe" devices
+    "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" devices
 
 Check whitespace:
 
