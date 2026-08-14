@@ -1,4 +1,4 @@
-package au.com.jobsheet.simplelist.ui.theme
+package au.com.jobsheet.jsimplelist.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

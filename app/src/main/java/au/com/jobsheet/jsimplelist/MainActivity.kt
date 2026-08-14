@@ -1,4 +1,4 @@
-package au.com.jobsheet.simplelist
+package au.com.jobsheet.jsimplelist
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -61,7 +61,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import au.com.jobsheet.simplelist.ui.theme.SimpleListTheme
+import au.com.jobsheet.jsimplelist.ui.theme.SimpleListTheme
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {

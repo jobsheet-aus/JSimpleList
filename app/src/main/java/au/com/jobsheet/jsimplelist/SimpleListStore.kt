@@ -1,4 +1,4 @@
-package au.com.jobsheet.simplelist
+package au.com.jobsheet.jsimplelist
 
 import android.content.Context
 import org.json.JSONArray

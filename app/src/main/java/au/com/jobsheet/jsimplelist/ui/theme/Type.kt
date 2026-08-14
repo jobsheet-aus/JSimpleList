@@ -1,4 +1,4 @@
-package au.com.jobsheet.simplelist.ui.theme
+package au.com.jobsheet.jsimplelist.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
@@ -6,7 +6,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import au.com.jobsheet.simplelist.R
+import au.com.jobsheet.jsimplelist.R
 
 val ManropeFontFamily = FontFamily(
     Font(R.font.manrope_regular, FontWeight.Normal),
