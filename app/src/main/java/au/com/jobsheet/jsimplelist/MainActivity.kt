@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
@@ -51,6 +52,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -96,6 +98,8 @@ private fun SimpleListApp() {
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var fontScale by remember { mutableFloatStateOf(store.loadFontScale()) }
+    var showAbout by remember { mutableStateOf(false) }
+    val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(fontScale) {
         delay(250)
@@ -115,7 +119,7 @@ private fun SimpleListApp() {
             modifier = Modifier.padding(
                 start = 16.dp,
                 top = 10.dp,
-                end = 16.dp,
+                end = 8.dp,
                 bottom = 8.dp
             )
         ) {
@@ -129,6 +133,79 @@ private fun SimpleListApp() {
                 text = "JSimpleList",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.SemiBold
+            )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            TextButton(
+                onClick = { showAbout = true }
+            ) {
+                Text(
+                    text = "ⓘ",
+                    fontSize = 22.sp
+                )
+            }
+        }
+
+        if (showAbout) {
+            AlertDialog(
+                onDismissRequest = { showAbout = false },
+                title = {
+                    Text(
+                        text = "JSimpleList",
+                        fontWeight = FontWeight.SemiBold
+                    )
+                },
+                text = {
+                    Column {
+                        Text("Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                        Text("Build date ${BuildConfig.BUILD_DATE}")
+                        Text("Package ${BuildConfig.APPLICATION_ID}")
+
+                        Text(
+                            text = "Produced by JobSheet",
+                            modifier = Modifier.padding(top = 16.dp)
+                        )
+
+                        TextButton(
+                            onClick = {
+                                uriHandler.openUri("https://www.jobsheet.com.au")
+                            }
+                        ) {
+                            Text("www.jobsheet.com.au")
+                        }
+
+                        Text(
+                            text = "Local-only\nNo account, advertising, analytics or internet access",
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+
+                        Text(
+                            text = "Source code",
+                            modifier = Modifier.padding(top = 16.dp)
+                        )
+
+                        TextButton(
+                            onClick = {
+                                uriHandler.openUri("https://github.com/jobsheet-aus/JSimpleList")
+                            }
+                        ) {
+                            Text("github.com/jobsheet-aus/JSimpleList")
+                        }
+
+                        Text(
+                            text = "Licence: MIT",
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { showAbout = false }
+                    ) {
+                        Text("Close")
+                    }
+                }
             )
         }
 

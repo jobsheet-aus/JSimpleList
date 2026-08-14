@@ -3,8 +3,9 @@ JSimpleList_CONTEXT.txt
 PROJECT
 -------
 Name: JSimpleList
-Package: au.com.jobsheet.simplelist
+Package: au.com.jobsheet.jsimplelist
 Local project: D:\simplelist
+Public repository: https://github.com/jobsheet-aus/JSimpleList
 Purpose: Very small native Android app providing Todo and Shopping lists.
 Shopping differs from Todo by having a Qty field.
 
@@ -26,7 +27,7 @@ Manrope is bundled with the APK
 
 CURRENT STATE
 -------------
-Working debug app is installed and tested on Android.
+The app is working on a real Android phone.
 
 Features implemented:
 - Todo tab
@@ -53,6 +54,9 @@ Features implemented:
 - JSimpleList logo appears in the top-left header
 - JSimpleList launcher icon implemented
 - Visible app name is JSimpleList
+- About control has been added at the top-right of the title bar
+- About dialog includes version/build/package details, JobSheet website, local-only/privacy summary, GitHub source link and MIT licence
+- No public support email is shown in the app
 
 DESIGN / BEHAVIOUR DECISIONS
 ----------------------------
@@ -69,15 +73,22 @@ DESIGN / BEHAVIOUR DECISIONS
 - Keep list rows compact without making controls fiddly.
 - Use Manrope throughout the app.
 - Use the JSimpleList logo blue/cyan colour family throughout.
-- Keep package ID au.com.jobsheet.simplelist; visible/public name is JSimpleList.
-- Repository is intended to become public on GitHub.
-- APK is intended to be distributed from jobsheet.com.au.
+- Final package ID is au.com.jobsheet.jsimplelist.
+- Visible/public name is JSimpleList.
+- Repository is public on GitHub under jobsheet-aus/JSimpleList.
+- APK is intended to be distributed from jobsheet.com.au as well as Google Play.
+- Do not expose an easy direct support-email channel in the app.
+- GitHub and jobsheet.com.au are the preferred public information links.
 
 SOURCE EDITING RULE
 -------------------
-Run source inspections from D:\jobsheet and use the root audit shortcut:
+Run source inspections with the audit shortcut.
+
+From D:\jobsheet:
 
     audit --range <start>:<end> --path D:\simplelist\<file>
+
+A local D:\simplelist\audit.cmd wrapper also exists for convenience and calls the JobSheet audit tool from the correct working directory.
 
 Inspect current source with audit before code edits wherever possible.
 
@@ -98,20 +109,129 @@ WORKING STYLE
 - Use git diff --check before commits.
 - Keep unrelated Android Studio / .idea noise out of functional commits.
 - deploymentTargetSelector.xml is ignored as local run-target state.
+- Avoid Android Studio signing-wizard work where command-line Gradle can do the job.
+- Keep signing secrets local and ignored by Git.
+- Do not create or replace the permanent signing key casually.
+
+PUBLIC REPOSITORY
+-----------------
+Repository:
+    https://github.com/jobsheet-aus/JSimpleList
+
+Branch:
+    main
+
+The repository is public.
+
+MIT licence is included.
+
+README identifies JSimpleList as originally produced by JobSheet and describes the app as local-only with no account, advertising, analytics or server connection.
+
+The repository was checked for obvious credentials/private paths before public release.
+
+SIGNING / RELEASE
+-----------------
+Permanent local signing key:
+    D:\simplelist\keys\jsimplelist-release.jks
+
+Alias:
+    jsimplelist
+
+The keys directory and signing-property file are ignored by Git.
+
+Never commit:
+- the .jks file
+- signing.properties
+- keystore passwords
+- key passwords
+
+Release certificate SHA-256:
+    fc11217128f365366d4c3f988a2536d40251f6e71b5275b611896c749206af59
+
+Verified release package:
+    au.com.jobsheet.jsimplelist
+
+Current release metadata:
+    versionCode 1
+    versionName 1.0
+    build date 14 Aug 2026
+
+Gradle is configured to read local signing details from:
+    D:\simplelist\signing.properties
+
+This means normal signed release builds no longer require the Android Studio signing wizard.
+
+Build signed release APK:
+
+    D:\simplelist\gradlew.bat -p D:\simplelist assembleRelease
+
+Signed Gradle APK:
+
+    D:\simplelist\app\build\outputs\apk\release\app-release.apk
+
+Verify signature:
+
+    "%LOCALAPPDATA%\Android\Sdk\build-tools\36.1.0\apksigner.bat" verify --verbose --print-certs D:\simplelist\app\build\outputs\apk\release\app-release.apk
+
+Install/update signed release APK while preserving app data:
+
+    "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r D:\simplelist\app\build\outputs\apk\release\app-release.apk
+
+Combined build/install:
+
+    D:\simplelist\gradlew.bat -p D:\simplelist assembleRelease && "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r D:\simplelist\app\build\outputs\apk\release\app-release.apk
+
+The old package au.com.jobsheet.simplelist was superseded by au.com.jobsheet.jsimplelist.
+Android treats them as different apps. The old package was removed from the test phone.
+Do not change the package ID again unless there is a compelling reason.
+
+GOOGLE PLAY / DEVELOPER VERIFICATION
+------------------------------------
+A Google Play Console organisation developer account has been created for JobSheet / 21 TWELVE CONSULTING PTY LTD.
+
+Public developer name:
+    JobSheet
+
+Legal organisation:
+    21 TWELVE CONSULTING PTY LTD
+
+The organisation was found successfully in Dun & Bradstreet and the Play Console organisation/payments-profile setup was completed.
+
+jobsheet.com.au ownership was verified through Google Search Console using a DNS TXT record.
+Keep the Google Search Console verification TXT record in DNS.
+
+Organisation and authorised-representative identity verification were submitted to Google and were still under review at session close.
+
+Phone-number verification in Play Console may remain blocked until Google completes the organisation/identity review.
+
+Package registration with Google should use:
+    au.com.jobsheet.jsimplelist
+
+Use the same permanent JSimpleList signing key/certificate already created above when Google later requests the package certificate/signing identity.
+
+Google Play verification is separate from local APK signing. The existing signing key remains valid while Google review is pending.
 
 USEFUL COMMANDS
 ---------------
-Build:
+Build debug:
 
     D:\simplelist\gradlew.bat -p D:\simplelist assembleDebug
 
-Install debug APK:
+Build signed release:
 
-    "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r D:\simplelist\app\build\outputs\apk\debug\app-debug.apk
+    D:\simplelist\gradlew.bat -p D:\simplelist assembleRelease
+
+Install signed release:
+
+    "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r D:\simplelist\app\build\outputs\apk\release\app-release.apk
 
 Check connected Android device:
 
     "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" devices
+
+Check package inside APK:
+
+    "%LOCALAPPDATA%\Android\Sdk\build-tools\36.1.0\aapt.exe" dump badging D:\simplelist\app\build\outputs\apk\release\app-release.apk | findstr /b "package:"
 
 Check whitespace:
 
@@ -127,19 +247,63 @@ Recent commits:
 
 CURRENT GIT HISTORY
 -------------------
+18cd3e0 Rename JSimpleList package
+5b02b37 Ignore signing keys
+8d0a817 Prepare JSimpleList for public release
+9113066 Add JSimpleList project context
 50022ed Add JSimpleList launcher icon
 599e1fe Record Android Studio project settings
 7a768a9 Refine shopping quantity entry and list density
 e4525ba Build first working JSimpleList app
 3407abd Initial Android project
 
+SESSION CLOSEOUT - 14 AUG 2026
+------------------------------
+Major work completed this session:
+- Created public GitHub repository jobsheet-aus/JSimpleList and pushed main branch.
+- Added public-release README and MIT licence.
+- Added signing-key exclusions to .gitignore.
+- Changed final Android package from au.com.jobsheet.simplelist to au.com.jobsheet.jsimplelist.
+- Built successfully after package rename.
+- Created permanent JSimpleList release keystore.
+- Generated and verified signed release APK.
+- Verified signing certificate and final package ID.
+- Installed signed release APK on the real Android phone.
+- Created Google Play Console organisation developer account.
+- Matched organisation identity to 21 TWELVE CONSULTING PTY LTD.
+- Located existing Dun & Bradstreet company record.
+- Verified jobsheet.com.au through Google Search Console/DNS.
+- Submitted organisation and authorised-representative identity verification to Google; review pending.
+- Added About UI in the top-right title bar with version, build date, package, JobSheet site, local-only statement, GitHub source and MIT licence.
+- Chose not to expose a public support email in the app.
+- Configured Gradle command-line release signing so future signed APK builds do not require the Android Studio signing wizard.
+- Verified the Gradle-built release APK uses the same permanent signing certificate.
+
+SESSION CLOSEOUT FILE SAFETY
+----------------------------
+The closeout commit includes the intended project changes for:
+- .gitignore
+- app/build.gradle.kts
+- app/src/main/java/au/com/jobsheet/jsimplelist/MainActivity.kt
+- docs/chatgpt/JSimpleList_CONTEXT.txt
+
+Local-only files/directories must remain untracked/ignored:
+- signing.properties
+- keys/
+- app/release/
+- .idea/inspectionProfiles/
+- audit.cmd
+
+Never use a broad add command if it risks staging signing secrets or generated APK output. Prefer explicitly naming the intended files.
+
 NEXT TASK
 ---------
-1. Add this context document to the repository.
-2. Commit the context document.
-3. Prepare the repository for public GitHub:
-   - README
-   - licence
-   - final check for local/private files
-4. Create/push the public GitHub repository.
-5. Later produce a signed release APK and host it from jobsheet.com.au.
+1. On next session, verify the About dialog visually on the real phone if not already done.
+3. Check Google Play Console identity-review status.
+4. When Google verification clears:
+   - verify remaining phone number(s)
+   - register package au.com.jobsheet.jsimplelist
+   - associate the correct signing certificate
+   - create the JSimpleList Play app entry
+5. Prepare direct APK distribution from jobsheet.com.au.
+6. Decide whether to create a GitHub Release for version 1.0 and attach the signed APK.

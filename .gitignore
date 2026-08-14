@@ -18,3 +18,9 @@ local.properties
 *.jks
 *.keystore
 /keys/
+/signing.properties
+
+# Local build and IDE files
+/app/release/
+/.idea/inspectionProfiles/
+/audit.cmd
