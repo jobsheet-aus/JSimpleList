@@ -1,0 +1,145 @@
+JSimpleList_CONTEXT.txt
+
+PROJECT
+-------
+Name: JSimpleList
+Package: au.com.jobsheet.simplelist
+Local project: D:\simplelist
+Purpose: Very small native Android app providing Todo and Shopping lists.
+Shopping differs from Todo by having a Qty field.
+
+STACK
+-----
+Android native app
+Kotlin + Jetpack Compose
+Gradle wrapper
+Minimum SDK: 26
+Target SDK: 36
+Compile SDK: 36.1
+AndroidX Core KTX pinned to 1.18.0 because 1.19.0 requires compile SDK 37.
+Android Studio bundled JDK 21
+Local persistence via SharedPreferences + JSON
+No login
+No server dependency
+No internet permission
+Manrope is bundled with the APK
+
+CURRENT STATE
+-------------
+Working debug app is installed and tested on Android.
+
+Features implemented:
+- Todo tab
+- Shopping tab
+- Shopping Qty field
+- Add items
+- Tick / untick items
+- Delete items
+- Edit existing Todo items
+- Edit Shopping description and Qty
+- Qty defaults to 1
+- Qty selects existing value on focus, ready to overwrite
+- Completed items remain visible and are sorted below incomplete items
+- Local persistence across app restarts
+- Pinch gesture changes list/content text size
+- Font scale is persisted
+- Pinch hint is fixed-size and disappears once the active list has 5 or more items
+- Main heading and Todo / Shopping tab headings do not resize with pinch
+- List rows are compact/dense
+- Item text stays vertically centred with checkbox and Delete
+- System status bar, soft navigation buttons / gesture area and keyboard insets are respected
+- JSimpleList uses a blue/cyan colour scheme matching the logo
+- App uses bundled Manrope
+- JSimpleList logo appears in the top-left header
+- JSimpleList launcher icon implemented
+- Visible app name is JSimpleList
+
+DESIGN / BEHAVIOUR DECISIONS
+----------------------------
+- Keep the app deliberately small and local-only.
+- Todo item fields: description + completed.
+- Shopping item fields: Qty + description + completed.
+- Shopping Qty defaults to 1.
+- Completed items remain visible so they can be unticked.
+- Pinch resizes content text, not the app title, tabs or hint.
+- Pinch must work regardless of pinch direction; diagonal pinch is normal.
+- Use Compose transformable handling rather than custom gesture accumulation.
+- Hide the pinch hint once the active list contains 5 or more items.
+- Existing items are edited inline.
+- Keep list rows compact without making controls fiddly.
+- Use Manrope throughout the app.
+- Use the JSimpleList logo blue/cyan colour family throughout.
+- Keep package ID au.com.jobsheet.simplelist; visible/public name is JSimpleList.
+- Repository is intended to become public on GitHub.
+- APK is intended to be distributed from jobsheet.com.au.
+
+SOURCE EDITING RULE
+-------------------
+Run source inspections from D:\jobsheet and use the root audit shortcut:
+
+    audit --range <start>:<end> --path D:\simplelist\<file>
+
+Inspect current source with audit before code edits wherever possible.
+
+All find-and-replace instructions must use exact literal source copied from current audit output.
+
+Never provide approximate blocks, inferred indentation, guessed spacing, or paraphrased search text.
+
+If exact current source has not been inspected, inspect it first.
+
+This rule is mandatory for future JSimpleList sessions.
+
+WORKING STYLE
+-------------
+- Prefer the smallest practical change.
+- Bundle related UI tweaks into as few iterations as practical.
+- Build before committing.
+- Test important UI behaviour on the real Android phone before committing.
+- Use git diff --check before commits.
+- Keep unrelated Android Studio / .idea noise out of functional commits.
+- deploymentTargetSelector.xml is ignored as local run-target state.
+
+USEFUL COMMANDS
+---------------
+Build:
+
+    D:\simplelist\gradlew.bat -p D:\simplelist assembleDebug
+
+Install debug APK:
+
+    "C:\Users\Josh\AppData\Local\Android\Sdk\platform-tools\adb.exe" install -r D:\simplelist\app\build\outputs\apk\debug\app-debug.apk
+
+Check connected Android device:
+
+    "C:\Users\Josh\AppData\Local\Android\Sdk\platform-tools\adb.exe" devices
+
+Check whitespace:
+
+    git -C D:\simplelist diff --check
+
+Git status:
+
+    git -C D:\simplelist status --short
+
+Recent commits:
+
+    git -C D:\simplelist --no-pager log --oneline -5
+
+CURRENT GIT HISTORY
+-------------------
+50022ed Add JSimpleList launcher icon
+599e1fe Record Android Studio project settings
+7a768a9 Refine shopping quantity entry and list density
+e4525ba Build first working JSimpleList app
+3407abd Initial Android project
+
+NEXT TASK
+---------
+1. Add this context document to the repository.
+2. Commit the context document.
+3. Prepare the repository for public GitHub:
+   - README
+   - licence
+   - final check for local/private files
+4. Create/push the public GitHub repository.
+5. Later produce a signed release APK and host it from jobsheet.com.au.
