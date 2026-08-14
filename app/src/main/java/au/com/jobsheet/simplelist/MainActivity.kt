@@ -48,13 +48,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -357,6 +360,15 @@ private fun EntryRow(
     fontScale: Float,
     onAdd: () -> Unit
 ) {
+    var quantityFieldValue by remember(quantityText) {
+        mutableStateOf(
+            TextFieldValue(
+                text = quantityText,
+                selection = TextRange(quantityText.length)
+            )
+        )
+    }
+
     val textFieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = MaterialTheme.colorScheme.onSurface,
         unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -379,8 +391,20 @@ private fun EntryRow(
         if (kind == ListKind.SHOPPING) {
             OutlinedTextField(
                 colors = textFieldColors,
-                value = quantityText,
-                onValueChange = onQuantityChange,
+                value = quantityFieldValue,
+                onValueChange = { newValue ->
+                    val digits = newValue.text.filter(Char::isDigit)
+
+                    quantityFieldValue = newValue.copy(
+                        text = digits,
+                        selection = TextRange(
+                            newValue.selection.start.coerceAtMost(digits.length),
+                            newValue.selection.end.coerceAtMost(digits.length)
+                        )
+                    )
+
+                    onQuantityChange(digits)
+                },
                 singleLine = true,
                 textStyle = TextStyle(
                     fontSize = scaledSp(16f, fontScale)
@@ -394,7 +418,18 @@ private fun EntryRow(
                         descriptionFocusRequester.requestFocus()
                     }
                 ),
-                modifier = Modifier.width(72.dp)
+                modifier = Modifier
+                    .width(72.dp)
+                    .onFocusChanged { focusState ->
+                        if (focusState.isFocused) {
+                            quantityFieldValue = quantityFieldValue.copy(
+                                selection = TextRange(
+                                    0,
+                                    quantityFieldValue.text.length
+                                )
+                            )
+                        }
+                    }
             )
         }
 
@@ -452,6 +487,16 @@ private fun ListItemRow(
     var editQuantity by remember(item.id, item.quantity) {
         mutableStateOf(item.quantity?.toString().orEmpty())
     }
+    var editQuantityFieldValue by remember(item.id, item.quantity) {
+        val initialValue = item.quantity?.toString().orEmpty()
+
+        mutableStateOf(
+            TextFieldValue(
+                text = initialValue,
+                selection = TextRange(initialValue.length)
+            )
+        )
+    }
 
     fun saveEdit() {
         val newDescription = editDescription.trim()
@@ -475,7 +520,7 @@ private fun ListItemRow(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .padding(horizontal = 8.dp, vertical = 3.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -494,9 +539,19 @@ private fun ListItemRow(
 
                 if (kind == ListKind.SHOPPING) {
                     OutlinedTextField(
-                        value = editQuantity,
-                        onValueChange = { value ->
-                            editQuantity = value.filter(Char::isDigit)
+                        value = editQuantityFieldValue,
+                        onValueChange = { newValue ->
+                            val digits = newValue.text.filter(Char::isDigit)
+
+                            editQuantityFieldValue = newValue.copy(
+                                text = digits,
+                                selection = TextRange(
+                                    newValue.selection.start.coerceAtMost(digits.length),
+                                    newValue.selection.end.coerceAtMost(digits.length)
+                                )
+                            )
+
+                            editQuantity = digits
                         },
                         singleLine = true,
                         textStyle = TextStyle(
@@ -506,7 +561,18 @@ private fun ListItemRow(
                             keyboardType = KeyboardType.Number,
                             imeAction = ImeAction.Next
                         ),
-                        modifier = Modifier.width(72.dp)
+                        modifier = Modifier
+                            .width(72.dp)
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused) {
+                                    editQuantityFieldValue = editQuantityFieldValue.copy(
+                                        selection = TextRange(
+                                            0,
+                                            editQuantityFieldValue.text.length
+                                        )
+                                    )
+                                }
+                            }
                     )
                 }
 
@@ -535,6 +601,10 @@ private fun ListItemRow(
                     onClick = {
                         editDescription = item.description
                         editQuantity = item.quantity?.toString().orEmpty()
+                        editQuantityFieldValue = TextFieldValue(
+                            text = editQuantity,
+                            selection = TextRange(editQuantity.length)
+                        )
                         editing = false
                     }
                 ) {
@@ -556,7 +626,7 @@ private fun ListItemRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = 8.dp, vertical = 0.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Checkbox(
