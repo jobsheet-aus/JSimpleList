@@ -4,16 +4,21 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -21,6 +26,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -39,10 +45,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,6 +60,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextRange
@@ -65,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import au.com.jobsheet.jsimplelist.ui.theme.SimpleListTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -96,7 +104,8 @@ private fun SimpleListApp() {
         }
     }
 
-    var selectedTab by remember { mutableIntStateOf(0) }
+    val pagerState = rememberPagerState(pageCount = { 2 })
+    val pagerScope = rememberCoroutineScope()
     var fontScale by remember { mutableFloatStateOf(store.loadFontScale()) }
     var showAbout by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
@@ -209,53 +218,87 @@ private fun SimpleListApp() {
             )
         }
 
-        PrimaryTabRow(selectedTabIndex = selectedTab) {
+        PrimaryTabRow(selectedTabIndex = pagerState.currentPage) {
             Tab(
-                selected = selectedTab == 0,
-                onClick = { selectedTab = 0 },
+                selected = pagerState.currentPage == 0,
+                onClick = {
+                    pagerScope.launch {
+                        pagerState.animateScrollToPage(0)
+                    }
+                },
                 text = {
-                    Text(
-                        text = "Todo",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium
+                    ListTabLabel(
+                        title = "Todo",
+                        itemCount = todoItems.count { !it.completed }
                     )
                 }
             )
 
             Tab(
-                selected = selectedTab == 1,
-                onClick = { selectedTab = 1 },
+                selected = pagerState.currentPage == 1,
+                onClick = {
+                    pagerScope.launch {
+                        pagerState.animateScrollToPage(1)
+                    }
+                },
                 text = {
-                    Text(
-                        text = "Shopping",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium
+                    ListTabLabel(
+                        title = "Shopping",
+                        itemCount = shoppingItems.count { !it.completed }
                     )
                 }
             )
         }
 
-        when (selectedTab) {
-            0 -> ListScreen(
-                kind = ListKind.TODO,
-                items = todoItems,
-                fontScale = fontScale,
-                onFontScaleChange = { fontScale = it },
-                onItemsChanged = {
-                    store.saveItems(ListKind.TODO, todoItems)
-                }
-            )
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.weight(1f)
+        ) { page ->
+            when (page) {
+                0 -> ListScreen(
+                    kind = ListKind.TODO,
+                    items = todoItems,
+                    fontScale = fontScale,
+                    onFontScaleChange = { fontScale = it },
+                    onItemsChanged = {
+                        store.saveItems(ListKind.TODO, todoItems)
+                    }
+                )
 
-            else -> ListScreen(
-                kind = ListKind.SHOPPING,
-                items = shoppingItems,
-                fontScale = fontScale,
-                onFontScaleChange = { fontScale = it },
-                onItemsChanged = {
-                    store.saveItems(ListKind.SHOPPING, shoppingItems)
-                }
-            )
+                else -> ListScreen(
+                    kind = ListKind.SHOPPING,
+                    items = shoppingItems,
+                    fontScale = fontScale,
+                    onFontScaleChange = { fontScale = it },
+                    onItemsChanged = {
+                        store.saveItems(ListKind.SHOPPING, shoppingItems)
+                    }
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun ListTabLabel(
+    title: String,
+    itemCount: Int
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = title,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium
+        )
+
+        Text(
+            text = itemCount.toString(),
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -275,13 +318,40 @@ private fun ListScreen(
     val currentScale by rememberUpdatedState(fontScale)
     val currentOnScaleChange by rememberUpdatedState(onFontScaleChange)
 
-    val transformState = rememberTransformableState { zoomChange, _, _ ->
-        currentOnScaleChange(
-            (currentScale * zoomChange).coerceIn(
-                SimpleListStore.MIN_FONT_SCALE,
-                SimpleListStore.MAX_FONT_SCALE
-            )
-        )
+    val pinchModifier = Modifier.pointerInput(Unit) {
+        awaitEachGesture {
+            var pinching = false
+            var gestureScale = currentScale
+
+            while (true) {
+                val event = awaitPointerEvent()
+                val pressedCount = event.changes.count { it.pressed }
+
+                if (pressedCount >= 2) {
+                    if (!pinching) {
+                        pinching = true
+                        gestureScale = currentScale
+                    }
+
+                    gestureScale = (
+                        gestureScale * event.calculateZoom()
+                    ).coerceIn(
+                        SimpleListStore.MIN_FONT_SCALE,
+                        SimpleListStore.MAX_FONT_SCALE
+                    )
+
+                    currentOnScaleChange(gestureScale)
+                }
+
+                if (pinching) {
+                    event.changes.forEach { it.consume() }
+                }
+
+                if (event.changes.none { it.pressed }) {
+                    break
+                }
+            }
+        }
     }
 
     fun addItem() {
@@ -318,7 +388,7 @@ private fun ListScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .transformable(state = transformState)
+            .then(pinchModifier)
     ) {
         EntryRow(
             kind = kind,
@@ -337,20 +407,20 @@ private fun ListScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .padding(horizontal = 4.dp, vertical = 6.dp)
             ) {
                 Spacer(modifier = Modifier.width(48.dp))
 
                 Text(
                     text = "Qty",
-                    fontSize = scaledSp(12f, fontScale),
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.width(48.dp)
                 )
 
                 Text(
                     text = "Item",
-                    fontSize = scaledSp(12f, fontScale),
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
@@ -446,28 +516,24 @@ private fun EntryRow(
         )
     }
 
-    val textFieldColors = OutlinedTextFieldDefaults.colors(
-        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-        focusedContainerColor = MaterialTheme.colorScheme.surface,
-        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-        disabledContainerColor = MaterialTheme.colorScheme.surface,
-        focusedBorderColor = MaterialTheme.colorScheme.primary,
-        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-        cursorColor = MaterialTheme.colorScheme.primary,
-        focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
+    var quantityFocused by remember { mutableStateOf(false) }
+    var descriptionFocused by remember { mutableStateOf(false) }
+
+    val entryTextStyle = TextStyle(
+        color = MaterialTheme.colorScheme.onSurface,
+        fontSize = entryFieldSp(16f, fontScale),
+        lineHeight = entryFieldSp(16f, fontScale)
     )
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(horizontal = 6.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         if (kind == ListKind.SHOPPING) {
-            OutlinedTextField(
-                colors = textFieldColors,
+            BasicTextField(
                 value = quantityFieldValue,
                 onValueChange = { newValue ->
                     val digits = newValue.text.filter(Char::isDigit)
@@ -483,9 +549,8 @@ private fun EntryRow(
                     onQuantityChange(digits)
                 },
                 singleLine = true,
-                textStyle = TextStyle(
-                    fontSize = scaledSp(16f, fontScale)
-                ),
+                textStyle = entryTextStyle,
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Number,
                     imeAction = ImeAction.Next
@@ -496,8 +561,20 @@ private fun EntryRow(
                     }
                 ),
                 modifier = Modifier
-                    .width(72.dp)
+                    .width(48.dp)
+                    .height(48.dp)
+                    .border(
+                        width = if (quantityFocused) 2.dp else 1.dp,
+                        color = if (quantityFocused) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        },
+                        shape = MaterialTheme.shapes.small
+                    )
                     .onFocusChanged { focusState ->
+                        quantityFocused = focusState.isFocused
+
                         if (focusState.isFocused) {
                             quantityFieldValue = quantityFieldValue.copy(
                                 selection = TextRange(
@@ -506,28 +583,26 @@ private fun EntryRow(
                                 )
                             )
                         }
+                    },
+                decorationBox = { innerTextField ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        innerTextField()
                     }
+                }
             )
         }
 
-        OutlinedTextField(
-            colors = textFieldColors,
+        BasicTextField(
             value = description,
             onValueChange = onDescriptionChange,
             singleLine = true,
-            placeholder = {
-                Text(
-                    text = if (kind == ListKind.SHOPPING) {
-                        "Item"
-                    } else {
-                        "Todo item"
-                    },
-                    fontSize = scaledSp(16f, fontScale)
-                )
-            },
-            textStyle = TextStyle(
-                fontSize = scaledSp(16f, fontScale)
-            ),
+            textStyle = entryTextStyle,
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             keyboardOptions = KeyboardOptions(
                 imeAction = ImeAction.Done
             ),
@@ -536,13 +611,52 @@ private fun EntryRow(
             ),
             modifier = Modifier
                 .weight(1f)
+                .height(48.dp)
+                .border(
+                    width = if (descriptionFocused) 2.dp else 1.dp,
+                    color = if (descriptionFocused) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.outline
+                    },
+                    shape = MaterialTheme.shapes.small
+                )
                 .focusRequester(descriptionFocusRequester)
+                .onFocusChanged { focusState ->
+                    descriptionFocused = focusState.isFocused
+                },
+            decorationBox = { innerTextField ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (description.isEmpty()) {
+                        Text(
+                            text = if (kind == ListKind.SHOPPING) {
+                                "Item"
+                            } else {
+                                "Todo item"
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = entryFieldSp(16f, fontScale),
+                            lineHeight = entryFieldSp(16f, fontScale)
+                        )
+                    }
+
+                    innerTextField()
+                }
+            }
         )
 
-        Button(onClick = onAdd) {
+        Button(
+            onClick = onAdd,
+            modifier = Modifier.height(40.dp)
+        ) {
             Text(
                 text = "Add",
-                fontSize = scaledSp(14f, fontScale)
+                fontSize = 11.sp
             )
         }
     }
@@ -703,7 +817,7 @@ private fun ListItemRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 0.dp),
+                .padding(horizontal = 4.dp, vertical = 0.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Checkbox(
@@ -721,6 +835,11 @@ private fun ListItemRow(
                     text = item.quantity?.toString().orEmpty(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = scaledSp(16f, fontScale),
+                    textDecoration = if (item.completed) {
+                        TextDecoration.LineThrough
+                    } else {
+                        TextDecoration.None
+                    },
                     modifier = Modifier
                         .width(48.dp)
                         .clickable { editing = true }
@@ -749,12 +868,17 @@ private fun ListItemRow(
             TextButton(onClick = onDelete) {
                 Text(
                     text = "Delete",
-                    fontSize = scaledSp(13f, fontScale)
+                    fontSize = 12.sp
                 )
             }
         }
     }
 }
+
+private fun entryFieldSp(
+    baseSize: Float,
+    scale: Float
+) = (baseSize * scale).coerceAtMost(22f).sp
 
 private fun scaledSp(
     baseSize: Float,
