@@ -2,7 +2,7 @@
 
 JSimpleList is a small, straightforward Android app for Todo and Shopping lists.
 
-JSimpleList was originally produced by JobSheet (www.jobsheet.com.au).
+JSimpleList was originally produced by JobSheet (www.jobsheet.com.au) and is copyright © 2026 21 TWELVE CONSULTING PTY LTD.
 
 It is deliberately local-only: no account, no advertising, no analytics and no server connection.
 
@@ -40,4 +40,8 @@ It does not require an account and does not send list contents to a server.
 
 ## Licence
 
-JSimpleList is released under the MIT Licence.
+Copyright © 2026 21 TWELVE CONSULTING PTY LTD.
+
+JSimpleList is currently released under the MIT Licence.
+
+The copyright owner may choose different licensing terms for future versions. Existing versions already released under the MIT Licence remain available under those terms.

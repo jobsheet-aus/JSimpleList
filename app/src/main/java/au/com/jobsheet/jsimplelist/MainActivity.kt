@@ -173,38 +173,45 @@ private fun SimpleListApp() {
 
                         Text(
                             text = "Produced by JobSheet",
-                            modifier = Modifier.padding(top = 16.dp)
+                            modifier = Modifier.padding(top = 12.dp)
                         )
 
                         TextButton(
                             onClick = {
                                 uriHandler.openUri("https://www.jobsheet.com.au")
-                            }
+                            },
+                            modifier = Modifier.padding(top = 2.dp)
                         ) {
-                            Text("www.jobsheet.com.au")
+                            Text("jobsheet.com.au")
                         }
 
                         Text(
                             text = "Local-only\nNo account, advertising, analytics or internet access",
-                            modifier = Modifier.padding(top = 8.dp)
+                            modifier = Modifier.padding(top = 6.dp)
                         )
 
                         Text(
                             text = "Source code",
-                            modifier = Modifier.padding(top = 16.dp)
+                            modifier = Modifier.padding(top = 12.dp)
                         )
 
                         TextButton(
                             onClick = {
                                 uriHandler.openUri("https://github.com/jobsheet-aus/JSimpleList")
-                            }
+                            },
+                            modifier = Modifier.padding(top = 2.dp)
                         ) {
-                            Text("github.com/jobsheet-aus/JSimpleList")
+                            Text("GitHub repository")
                         }
 
                         Text(
-                            text = "Licence: MIT",
-                            modifier = Modifier.padding(top = 8.dp)
+                            text = "Copyright © 2026 21 TWELVE CONSULTING PTY LTD",
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+
+                        Text(
+                            text = "Licensed under the MIT Licence",
+                            modifier = Modifier.padding(top = 4.dp)
                         )
                     }
                 },
