@@ -167,51 +167,66 @@ private fun SimpleListApp() {
                 },
                 text = {
                     Column {
-                        Text("Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
-                        Text("Build date ${BuildConfig.BUILD_DATE}")
-                        Text("Package ${BuildConfig.APPLICATION_ID}")
-
-                        Text(
-                            text = "Produced by JobSheet",
-                            modifier = Modifier.padding(top = 12.dp)
-                        )
-
-                        TextButton(
-                            onClick = {
-                                uriHandler.openUri("https://www.jobsheet.com.au")
-                            },
-                            modifier = Modifier.padding(top = 2.dp)
-                        ) {
-                            Text("jobsheet.com.au")
+                        Row {
+                            Text(
+                                text = "Version",
+                                modifier = Modifier.width(64.dp)
+                            )
+                            Text(BuildConfig.VERSION_NAME)
                         }
 
+                        Row {
+                            Text(
+                                text = "Built",
+                                modifier = Modifier.width(64.dp)
+                            )
+                            Text(BuildConfig.BUILD_DATE)
+                        }
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
                         Text(
-                            text = "Local-only\nNo account, advertising, analytics or internet access",
-                            modifier = Modifier.padding(top = 6.dp)
+                            text = "Simple Todo and Shopping lists",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text("Lists are stored locally on this device")
+                        Text("Completely free and without ads")
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        Text("Produced by JobSheet")
+                        Text(
+                            text = "www.jobsheet.com.au",
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .clickable {
+                                    uriHandler.openUri("https://www.jobsheet.com.au")
+                                }
                         )
 
                         Text(
                             text = "Source code",
                             modifier = Modifier.padding(top = 12.dp)
                         )
-
-                        TextButton(
-                            onClick = {
-                                uriHandler.openUri("https://github.com/jobsheet-aus/JSimpleList")
-                            },
-                            modifier = Modifier.padding(top = 2.dp)
-                        ) {
-                            Text("GitHub repository")
-                        }
-
                         Text(
-                            text = "Copyright © 2026 21 TWELVE CONSULTING PTY LTD",
-                            modifier = Modifier.padding(top = 10.dp)
+                            text = "GitHub repository",
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .clickable {
+                                    uriHandler.openUri("https://github.com/jobsheet-aus/JSimpleList")
+                                }
                         )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text("Copyright © 2026")
+                        Text("21 Twelve Consulting Pty Ltd")
 
                         Text(
                             text = "Licensed under the MIT Licence",
-                            modifier = Modifier.padding(top = 4.dp)
+                            modifier = Modifier.padding(top = 8.dp)
                         )
                     }
                 },

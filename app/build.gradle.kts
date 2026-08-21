@@ -24,9 +24,9 @@ android {
         applicationId = "au.com.jobsheet.jsimplelist"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
-        buildConfigField("String", "BUILD_DATE", "\"14 Aug 2026\"")
+        versionCode = 2
+        versionName = "1.1"
+        buildConfigField("String", "BUILD_DATE", "\"21 August 2026\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

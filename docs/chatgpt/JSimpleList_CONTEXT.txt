@@ -24,14 +24,15 @@ No login
 No server dependency
 No internet permission
 Manrope is bundled with the APK
+Compose Foundation is an explicit dependency for HorizontalPager.
 
 CURRENT STATE
 -------------
 The app is working on a real Android phone.
 
 Features implemented:
-- Todo tab
-- Shopping tab
+- Todo list/tab
+- Shopping list/tab
 - Shopping Qty field
 - Add items
 - Tick / untick items
@@ -41,54 +42,159 @@ Features implemented:
 - Qty defaults to 1
 - Qty selects existing value on focus, ready to overwrite
 - Completed items remain visible and are sorted below incomplete items
+- Completed Shopping Qty and description both show strike-through
 - Local persistence across app restarts
 - Pinch gesture changes list/content text size
+- Pinch behaviour was substantially improved on 20 Aug 2026 and tested successfully on the real phone
+- Pinch uses explicit two-finger pointer handling so one-finger horizontal paging and vertical scrolling are not consumed by pinch handling
 - Font scale is persisted
 - Pinch hint is fixed-size and disappears once the active list has 5 or more items
-- Main heading and Todo / Shopping tab headings do not resize with pinch
+- Main heading, Todo / Shopping tab headings, Qty / Item headings, Add text and Delete text do not resize with pinch
+- Horizontal swipe changes between Todo and Shopping using Compose HorizontalPager
+- Tapping Todo / Shopping headings still changes pages and stays synchronized with the pager
+- Todo and Shopping headings show the current count of incomplete items
 - List rows are compact/dense
-- Item text stays vertically centred with checkbox and Delete
+- Entry controls were compacted and aligned using BasicTextField rather than Material OutlinedTextField
+- Shopping Qty entry box is 48 x 48 dp
+- Item/Todo entry field is 48 dp high
+- Entry-field text remains pinch-scaled but is capped at 22 sp to avoid clipping
+- Qty and Item/Todo entry text is vertically centred explicitly
+- Add button remains compact, has fixed-size text, and is vertically centred beside the entry fields
+- Delete uses fixed 12 sp text and no longer becomes visually dominant at large pinch sizes
+- Normal list rows use reduced horizontal padding to make better use of phone width
+- Qty / Item headings are fixed-size and aligned with the list columns
 - System status bar, soft navigation buttons / gesture area and keyboard insets are respected
 - JSimpleList uses a blue/cyan colour scheme matching the logo
 - App uses bundled Manrope
 - JSimpleList logo appears in the top-left header
 - JSimpleList launcher icon implemented
 - Visible app name is JSimpleList
-- About control has been added at the top-right of the title bar
-- About dialog includes version/build/package details, JobSheet website, local-only/privacy summary, GitHub source link and MIT licence
+- About control is at the top-right of the title bar
+- About dialog shows the version name and build date from BuildConfig; Android versionCode and package ID are not shown to the user
+- About dialog describes JSimpleList as simple Todo and Shopping lists, states that lists are stored locally on the device, and states that the app is completely free and without ads
+- About dialog links to jobsheet.com.au and the public GitHub repository
+- About dialog shows copyright © 2026 21 Twelve Consulting Pty Ltd and "Licensed under the MIT Licence"
 - No public support email is shown in the app
 
 DESIGN / BEHAVIOUR DECISIONS
 ----------------------------
-- Keep the app deliberately small and local-only.
+- Keep the app deliberately small and local-first.
 - Todo item fields: description + completed.
 - Shopping item fields: Qty + description + completed.
 - Shopping Qty defaults to 1.
 - Completed items remain visible so they can be unticked.
-- Pinch resizes content text, not the app title, tabs or hint.
+- Completed Shopping Qty and description should both show strike-through.
+- Pinch resizes content text, not structural UI such as the app title, tabs, Qty / Item headings, Add/Delete text or hint.
 - Pinch must work regardless of pinch direction; diagonal pinch is normal.
-- Use Compose transformable handling rather than custom gesture accumulation.
+- Do not use whole-screen transformable handling now that horizontal paging exists.
+- Two-finger pinch handling must leave one-finger horizontal pager gestures and vertical list scrolling available.
+- Horizontal swiping changes lists; tapping list headings must continue to work as well.
+- List headings show incomplete-item counts.
+- Future shared-list headings should also be able to show a small red unseen-activity marker/star beside the count.
 - Hide the pinch hint once the active list contains 5 or more items.
 - Existing items are edited inline.
 - Keep list rows compact without making controls fiddly.
+- Be greedy with horizontal occupancy on phone screens: avoid unnecessary outer padding and use available width for item text.
+- Keep Add and Delete visually secondary to list content.
 - Use Manrope throughout the app.
 - Use the JSimpleList logo blue/cyan colour family throughout.
 - Final package ID is au.com.jobsheet.jsimplelist.
 - Visible/public name is JSimpleList.
 - Repository is public on GitHub under jobsheet-aus/JSimpleList.
-- APK is intended to be distributed from jobsheet.com.au as well as Google Play.
+- Google Play is the intended public distribution channel; direct APK distribution from jobsheet.com.au is no longer planned.
 - Do not expose an easy direct support-email channel in the app.
 - GitHub and jobsheet.com.au are the preferred public information links.
+
+FUTURE SHARED LIST DESIGN
+-------------------------
+This is a wishlist/future feature and is not implemented yet.
+
+Core decision:
+- A shared list should be a list in its own right, not a special shared-items section inside an otherwise private Shopping list.
+- Household and business/work examples should use the same underlying model.
+- Example household list: "Home Shopping" shared by Josh and Kate.
+- Example work list: a fittings/materials list shared by multiple plumbers.
+
+Expected behaviour:
+- Local Todo and Shopping must continue to work without login or internet.
+- Sharing should be optional and should not force registration on ordinary users.
+- Shared lists should remain locally cached/offline-capable and synchronize when connectivity returns.
+- Shared-list membership belongs directly to each list initially; do not build a global team/group hierarchy unless it becomes genuinely useful.
+- A shared list may have an owner and one or more members.
+- When another member adds or changes an item, the user's list heading should show a small red unseen-activity star/marker beside the item count.
+- A user's own changes do not create an unseen marker for that user.
+- The unseen marker should clear when that user actually views the updated list/page.
+- The per-user state should be modelled as something like last_seen_at rather than a single global has_notification flag.
+- Initially use the in-app unseen marker rather than Android push notifications.
+- Android push notifications may be considered later if they prove worthwhile.
+- Shared lists should include a manual refresh/reload action for user confidence and recovery.
+- Manual refresh must genuinely query server state and reconcile the local copy.
+- On successful manual refresh show a short transient message such as "List refreshed".
+- On failure show a concise failure message and retain the local cached list.
+- Realtime synchronization should normally happen silently; manual refresh is a user-controlled sanity check.
+
+Possible server/backend direction:
+- Supabase/PostgreSQL is the leading candidate because it provides authentication, relational membership, Row Level Security and realtime capabilities without requiring a custom Flask service.
+- No final backend choice has been committed yet.
+- If sharing is built, authentication should be optional and lightweight; email magic-link/one-time-code style authentication is preferred over forcing another password if practical.
+- Likely data concepts: users, lists, list_members, items.
+- Server-side authorization must ensure only members of a list can read/change that list.
+- A future move from SharedPreferences + JSON to Room may become worthwhile for robust item-level synchronization, but do not refactor persistence merely in anticipation of sharing.
+
+SETTINGS / PREFERENCES PLAN
+---------------------------
+Do not add a Settings screen merely to expose options that are not genuinely useful.
+
+Current decisions:
+- Keep pinch-to-resize text as-is. It works well and does not need a text-size lock/reset setting at present.
+- Keep the current opening-list behaviour rather than adding a default-list preference. This should also generalise cleanly when lists become dynamic.
+- Keep completed items sorted below incomplete items as normal list behaviour rather than a preference.
+- List ordering is the first credible future preference once dynamic list creation exists.
+- Likely list-order choices are creation order and alphabetical order.
+- Creation order should be the default.
+- Manual list ordering may be considered later if there is a real need.
+
+Settings will become more relevant when sharing exists.
+
+Future sharing-related Settings areas, only when sharing exists:
+- Sharing & sync status.
+- Sign in / sign out.
+- Shared-list invitations.
+- Shared-list members.
+- Leave list / remove member where permitted.
+- Manual refresh/sync controls if not placed directly in the shared-list UI.
+
+Do not add empty Account, Sharing or Groups sections before those features exist.
+About remains a separate top-right control.
+
+LICENSING / CONTRIBUTIONS
+-------------------------
+Current licence: MIT.
+
+Copyright owner wording:
+    Copyright (c) 2026 21 TWELVE CONSULTING PTY LTD
+
+Important licensing decision:
+- Future versions may be released under different licensing terms if the copyright owner chooses.
+- Existing versions already released under MIT remain available under those MIT terms; previously granted MIT rights cannot be withdrawn retroactively.
+- Future relicensing flexibility can become complicated if substantial third-party code is accepted without appropriate contributor terms.
+- CONTRIBUTING.md now states that substantial code contributions may be used, modified, distributed and relicensed by 21 TWELVE CONSULTING PTY LTD as part of JSimpleList, including under different licensing terms.
+- Contributors retain copyright in their own contributions.
+- If substantial external contributions ever become important commercially, obtain proper legal advice / consider a formal contributor licence agreement rather than relying only on CONTRIBUTING.md.
 
 SOURCE EDITING RULE
 -------------------
 Run source inspections with the audit shortcut.
 
-From D:\jobsheet:
+The local D:\simplelist\audit.cmd wrapper exists for convenience and calls the JobSheet audit tool.
+
+Important path behaviour discovered 20 Aug 2026:
+- When running CMD from D:\SimpleList, normal Gradle/git/ADB commands can use short relative paths.
+- The audit wrapper still requires absolute source paths such as D:\simplelist\app\...; relative --path values returned "Files scanned: 0".
+
+Example from D:\SimpleList:
 
     audit --range <start>:<end> --path D:\simplelist\<file>
-
-A local D:\simplelist\audit.cmd wrapper also exists for convenience and calls the JobSheet audit tool from the correct working directory.
 
 Inspect current source with audit before code edits wherever possible.
 
@@ -112,6 +218,10 @@ WORKING STYLE
 - Avoid Android Studio signing-wizard work where command-line Gradle can do the job.
 - Keep signing secrets local and ignored by Git.
 - Do not create or replace the permanent signing key casually.
+- Current phone test data is disposable during development.
+- Current development loop uses the debug APK for faster iteration.
+- The release-signed installed app cannot be replaced by a debug-signed APK because Android rejects signature mismatch; uninstalling was acceptable because current phone data was disposable.
+- Do not assume an APK installed after a failed Gradle build is the new build: an old APK can remain at the output path. Verify BUILD SUCCESSFUL before install when a build has failed.
 
 PUBLIC REPOSITORY
 -----------------
@@ -125,7 +235,15 @@ The repository is public.
 
 MIT licence is included.
 
-README identifies JSimpleList as originally produced by JobSheet and describes the app as local-only with no account, advertising, analytics or server connection.
+LICENSE now names 21 TWELVE CONSULTING PTY LTD as copyright owner.
+
+README identifies JSimpleList as originally produced by JobSheet and states copyright ownership by 21 TWELVE CONSULTING PTY LTD.
+
+README states that JSimpleList is currently released under MIT and that future versions may use different licensing terms while existing MIT releases retain their MIT terms.
+
+CONTRIBUTING.md was added to preserve practical future relicensing flexibility before accepting substantial third-party code.
+
+README still describes the currently released app as local-only with no account, advertising, analytics or server connection. This wording must be updated if optional shared-list networking is later implemented.
 
 The repository was checked for obvious credentials/private paths before public release.
 
@@ -151,10 +269,14 @@ Release certificate SHA-256:
 Verified release package:
     au.com.jobsheet.jsimplelist
 
-Current release metadata:
-    versionCode 1
-    versionName 1.0
-    build date 14 Aug 2026
+Prepared Google Play release metadata:
+    versionCode 2
+    versionName 1.1
+    build date 21 August 2026
+
+Versioning policy:
+- versionName uses simple user-facing releases such as 1.0, 1.1, 1.2 and eventually 2.0 rather than unnecessary patch-level numbering for this small app
+- versionCode is an internal monotonically increasing Android/Google Play build number and is not displayed in the About screen
 
 Gradle is configured to read local signing details from:
     D:\simplelist\signing.properties
@@ -163,26 +285,22 @@ This means normal signed release builds no longer require the Android Studio sig
 
 Build signed release APK:
 
-    D:\simplelist\gradlew.bat -p D:\simplelist assembleRelease
+    gradlew.bat assembleRelease
 
 Signed Gradle APK:
 
-    D:\simplelist\app\build\outputs\apk\release\app-release.apk
+    app\build\outputs\apk\release\app-release.apk
 
 Verify signature:
 
-    "%LOCALAPPDATA%\Android\Sdk\build-tools\36.1.0\apksigner.bat" verify --verbose --print-certs D:\simplelist\app\build\outputs\apk\release\app-release.apk
+    "%LOCALAPPDATA%\Android\Sdk\build-tools\36.1.0\apksigner.bat" verify --verbose --print-certs app\build\outputs\apk\release\app-release.apk
 
 Install/update signed release APK while preserving app data:
 
-    "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r D:\simplelist\app\build\outputs\apk\release\app-release.apk
-
-Combined build/install:
-
-    D:\simplelist\gradlew.bat -p D:\simplelist assembleRelease && "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r D:\simplelist\app\build\outputs\apk\release\app-release.apk
+    "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r app\build\outputs\apk\release\app-release.apk
 
 The old package au.com.jobsheet.simplelist was superseded by au.com.jobsheet.jsimplelist.
-Android treats them as different apps. The old package was removed from the test phone.
+Android treats them as different apps.
 Do not change the package ID again unless there is a compelling reason.
 
 GOOGLE PLAY / DEVELOPER VERIFICATION
@@ -200,30 +318,47 @@ The organisation was found successfully in Dun & Bradstreet and the Play Console
 jobsheet.com.au ownership was verified through Google Search Console using a DNS TXT record.
 Keep the Google Search Console verification TXT record in DNS.
 
-Organisation and authorised-representative identity verification were submitted to Google and were still under review at session close.
+Google Play organisation/developer verification has been approved.
 
-Phone-number verification in Play Console may remain blocked until Google completes the organisation/identity review.
+The developer account is ready for use.
 
 Package registration with Google should use:
     au.com.jobsheet.jsimplelist
 
-Use the same permanent JSimpleList signing key/certificate already created above when Google later requests the package certificate/signing identity.
+JSimpleList 1.1 has been built successfully as both a signed release APK and an Android App Bundle.
 
-Google Play verification is separate from local APK signing. The existing signing key remains valid while Google review is pending.
+The release APK has been installed and visually checked on the real phone; the final About screen is approved.
+
+Google Play App Signing may use the normal/default Play workflow because Google Play is now the intended public distribution channel.
 
 USEFUL COMMANDS
 ---------------
+Assume CMD is normally running from:
+    D:\SimpleList>
+
 Build debug:
 
-    D:\simplelist\gradlew.bat -p D:\simplelist assembleDebug
+    gradlew.bat assembleDebug
+
+Build/install debug during development:
+
+    gradlew.bat assembleDebug && "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r app\build\outputs\apk\debug\app-debug.apk
+
+After any failed build, prefer separating build and install so an old APK is not accidentally installed:
+
+    gradlew.bat assembleDebug
+
+then only after BUILD SUCCESSFUL:
+
+    git diff --check && "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r app\build\outputs\apk\debug\app-debug.apk
 
 Build signed release:
 
-    D:\simplelist\gradlew.bat -p D:\simplelist assembleRelease
+    gradlew.bat assembleRelease
 
 Install signed release:
 
-    "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r D:\simplelist\app\build\outputs\apk\release\app-release.apk
+    "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r app\build\outputs\apk\release\app-release.apk
 
 Check connected Android device:
 
@@ -231,22 +366,29 @@ Check connected Android device:
 
 Check package inside APK:
 
-    "%LOCALAPPDATA%\Android\Sdk\build-tools\36.1.0\aapt.exe" dump badging D:\simplelist\app\build\outputs\apk\release\app-release.apk | findstr /b "package:"
+    "%LOCALAPPDATA%\Android\Sdk\build-tools\36.1.0\aapt.exe" dump badging app\build\outputs\apk\release\app-release.apk | findstr /b "package:"
 
 Check whitespace:
 
-    git -C D:\simplelist diff --check
+    git diff --check
 
 Git status:
 
-    git -C D:\simplelist status --short
+    git status --short
 
 Recent commits:
 
-    git -C D:\simplelist --no-pager log --oneline -5
+    git --no-pager log --oneline -5
+
+Audit source from D:\SimpleList (absolute --path still required):
+
+    audit --range <start>:<end> --path D:\simplelist\<file>
 
 CURRENT GIT HISTORY
 -------------------
+8d881ac Clarify JSimpleList ownership and licensing
+25703d5 Improve list gestures and layout
+6348b9e Add About screen and release signing workflow
 18cd3e0 Rename JSimpleList package
 5b02b37 Ignore signing keys
 8d0a817 Prepare JSimpleList for public release
@@ -257,36 +399,48 @@ CURRENT GIT HISTORY
 e4525ba Build first working JSimpleList app
 3407abd Initial Android project
 
-SESSION CLOSEOUT - 14 AUG 2026
-------------------------------
+Latest pushed commit at session close:
+    8d881ac Clarify JSimpleList ownership and licensing
+
+SESSION CLOSEOUT - 20/21 AUG 2026
+---------------------------------
 Major work completed this session:
-- Created public GitHub repository jobsheet-aus/JSimpleList and pushed main branch.
-- Added public-release README and MIT licence.
-- Added signing-key exclusions to .gitignore.
-- Changed final Android package from au.com.jobsheet.simplelist to au.com.jobsheet.jsimplelist.
-- Built successfully after package rename.
-- Created permanent JSimpleList release keystore.
-- Generated and verified signed release APK.
-- Verified signing certificate and final package ID.
-- Installed signed release APK on the real Android phone.
-- Created Google Play Console organisation developer account.
-- Matched organisation identity to 21 TWELVE CONSULTING PTY LTD.
-- Located existing Dun & Bradstreet company record.
-- Verified jobsheet.com.au through Google Search Console/DNS.
-- Submitted organisation and authorised-representative identity verification to Google; review pending.
-- Added About UI in the top-right title bar with version, build date, package, JobSheet site, local-only statement, GitHub source and MIT licence.
-- Chose not to expose a public support email in the app.
-- Configured Gradle command-line release signing so future signed APK builds do not require the Android Studio signing wizard.
-- Verified the Gradle-built release APK uses the same permanent signing certificate.
+- Reworked pinch handling because previous behaviour remained glitchy.
+- Replaced whole-screen transformable gesture handling with explicit two-finger pinch handling.
+- Confirmed pinch now works very well on the real phone, including diagonal pinch.
+- Added horizontal swipe navigation between Todo and Shopping using HorizontalPager.
+- Kept Todo / Shopping tab taps working and synchronized with the pager.
+- Added incomplete-item counts beside Todo and Shopping headings.
+- Decided future shared lists should show a small red unseen-activity star beside the item count when another member has changed the list.
+- Redesigned entry geometry for compactness and better horizontal use of the phone screen.
+- Replaced entry OutlinedTextField controls with BasicTextField + explicit border/centering to remove excess vertical padding and fix vertical text alignment.
+- Shopping Qty entry is now square 48 x 48 dp; Item/Todo entry field is 48 dp high.
+- Entry text still scales with pinch but is capped at 22 sp.
+- Kept Add compact with fixed-size text and reduced height.
+- Made Delete fixed-size and visually secondary instead of scaling with list text.
+- Made Qty / Item column headings fixed-size and aligned them more closely with list columns.
+- Reduced horizontal row padding to use more of the phone width.
+- Added strike-through to completed Shopping Qty values as well as descriptions.
+- Refined About dialog spacing and wording.
+- About now distinguishes JobSheet as producer/brand from 21 TWELVE CONSULTING PTY LTD as copyright owner.
+- Updated LICENSE copyright owner from JobSheet to 21 TWELVE CONSULTING PTY LTD.
+- Updated README licensing wording to preserve the option of different licensing terms for future versions while acknowledging existing MIT grants remain valid.
+- Added CONTRIBUTING.md with contributor/relicensing terms intended to preserve practical future relicensing flexibility.
+- Built and tested successfully on the real phone.
+- Committed and pushed all work to origin/main.
+
+Shared-list design decisions recorded this session:
+- Shared list is its own list, not a section inside private Shopping.
+- Optional sharing should not compromise local-first/no-login use for ordinary Todo/Shopping.
+- Household and work/plumber use cases should share the same list-membership model.
+- Unseen remote activity gets a per-user red star/marker beside the list count.
+- Marker clears when that user actually views the updated list.
+- Manual refresh should query server state and show "List refreshed" on success.
+- Supabase is the leading backend candidate but has not been selected definitively.
+- Settings will eventually administer sharing/account/list membership, but empty sharing sections should not be added before the feature exists.
 
 SESSION CLOSEOUT FILE SAFETY
 ----------------------------
-The closeout commit includes the intended project changes for:
-- .gitignore
-- app/build.gradle.kts
-- app/src/main/java/au/com/jobsheet/jsimplelist/MainActivity.kt
-- docs/chatgpt/JSimpleList_CONTEXT.txt
-
 Local-only files/directories must remain untracked/ignored:
 - signing.properties
 - keys/
@@ -294,16 +448,19 @@ Local-only files/directories must remain untracked/ignored:
 - .idea/inspectionProfiles/
 - audit.cmd
 
-Never use a broad add command if it risks staging signing secrets or generated APK output. Prefer explicitly naming the intended files.
+Never use a broad add command if it risks staging signing secrets or generated APK output. Prefer explicitly naming intended files.
 
 NEXT TASK
 ---------
-1. On next session, verify the About dialog visually on the real phone if not already done.
-3. Check Google Play Console identity-review status.
-4. When Google verification clears:
-   - verify remaining phone number(s)
-   - register package au.com.jobsheet.jsimplelist
-   - associate the correct signing certificate
-   - create the JSimpleList Play app entry
-5. Prepare direct APK distribution from jobsheet.com.au.
-6. Decide whether to create a GitHub Release for version 1.0 and attach the signed APK.
+1. Submit JSimpleList 1.1 to Google Play.
+2. Create the Play Console app entry using package au.com.jobsheet.jsimplelist.
+3. Complete the required Play declarations, Data safety information, content rating and store listing.
+4. Publish a simple JSimpleList privacy-policy page suitable for the Play listing.
+5. Prepare screenshots and any required Play Store graphics.
+6. Upload the 1.1 Android App Bundle and complete Play App Signing setup.
+7. Submit 1.1 for Google review.
+8. Do not add further features before the 1.1 submission unless a genuine release blocker is discovered.
+9. After 1.1 submission, begin generalising the fixed Todo/Shopping implementation into a dynamic list model.
+10. The next major release is expected to include list sharing and may reasonably become version 2.0.
+11. Before publishing 2.0, explicitly test upgrade/migration from an installed 1.1 release with existing Todo/Shopping data, completed states, quantities and persisted text scale.
+12. Normal Android/Play updates should preserve SharedPreferences data; uninstalling the app removes that data.
