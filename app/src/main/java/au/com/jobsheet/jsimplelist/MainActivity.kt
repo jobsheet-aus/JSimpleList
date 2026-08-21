@@ -186,7 +186,7 @@ private fun SimpleListApp() {
                         Spacer(modifier = Modifier.height(20.dp))
 
                         Text(
-                            text = "Simple Todo and Shopping lists",
+                            text = "Simple To-do and Shopping lists",
                             fontWeight = FontWeight.SemiBold
                         )
                         Text("Lists are stored locally on this device")
@@ -250,7 +250,7 @@ private fun SimpleListApp() {
                 },
                 text = {
                     ListTabLabel(
-                        title = "Todo",
+                        title = "To-do",
                         itemCount = todoItems.count { !it.completed }
                     )
                 }
@@ -659,7 +659,7 @@ private fun EntryRow(
                             text = if (kind == ListKind.SHOPPING) {
                                 "Item"
                             } else {
-                                "Todo item"
+                                "To-do item"
                             },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = entryFieldSp(16f, fontScale),
