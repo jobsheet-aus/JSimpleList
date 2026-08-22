@@ -3,10 +3,14 @@ package au.com.jobsheet.jsimplelist
 import androidx.room3.Dao
 import androidx.room3.Insert
 import androidx.room3.Query
+import androidx.room3.Transaction
 import androidx.room3.Update
 
 @Dao
 interface JSimpleListDao {
+    @Query("SELECT COUNT(*) FROM lists")
+    suspend fun countLists(): Int
+
     @Query("SELECT * FROM lists ORDER BY position, createdAt")
     suspend fun loadLists(): List<ListEntity>
 
@@ -23,6 +27,9 @@ interface JSimpleListDao {
     suspend fun insertList(list: ListEntity)
 
     @Insert
+    suspend fun insertLists(lists: List<ListEntity>)
+
+    @Insert
     suspend fun insertItems(items: List<ItemEntity>)
 
     @Update
@@ -36,4 +43,22 @@ interface JSimpleListDao {
 
     @Query("DELETE FROM items WHERE id = :itemId")
     suspend fun deleteItem(itemId: String)
+
+    @Transaction
+    suspend fun insertInitialDataIfEmpty(
+        lists: List<ListEntity>,
+        items: List<ItemEntity>
+    ): Boolean {
+        if (countLists() > 0) {
+            return false
+        }
+
+        insertLists(lists)
+
+        if (items.isNotEmpty()) {
+            insertItems(items)
+        }
+
+        return true
+    }
 }
