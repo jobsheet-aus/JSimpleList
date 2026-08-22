@@ -49,12 +49,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -108,10 +110,10 @@ private fun SimpleListApp() {
     }
 
     val dao = remember(database) { database.dao() }
-    val todoItems = remember { mutableStateListOf<ItemEntity>() }
-    val shoppingItems = remember { mutableStateListOf<ItemEntity>() }
-    var todoList by remember { mutableStateOf<ListEntity?>(null) }
-    var shoppingList by remember { mutableStateOf<ListEntity?>(null) }
+    val lists = remember { mutableStateListOf<ListEntity>() }
+    val itemsByList = remember {
+        mutableStateMapOf<String, SnapshotStateList<ItemEntity>>()
+    }
 
     LaunchedEffect(database) {
         LegacyDataImporter(
@@ -119,28 +121,23 @@ private fun SimpleListApp() {
             dao = dao
         ).importIfNeeded()
 
-        val lists = dao.loadLists()
+        val loadedLists = dao.loadLists()
 
-        todoList = lists.firstOrNull {
-            it.kind == ListKind.TODO.name
-        }
-        shoppingList = lists.firstOrNull {
-            it.kind == ListKind.SHOPPING.name
-        }
+        lists.clear()
+        itemsByList.clear()
 
-        todoItems.clear()
-        shoppingItems.clear()
-
-        todoList?.let { list ->
-            todoItems.addAll(dao.loadItems(list.id))
-        }
-
-        shoppingList?.let { list ->
-            shoppingItems.addAll(dao.loadItems(list.id))
+        loadedLists.forEach { list ->
+            lists.add(list)
+            itemsByList[list.id] =
+                mutableStateListOf<ItemEntity>().apply {
+                    addAll(dao.loadItems(list.id))
+                }
         }
     }
 
-    val pagerState = rememberPagerState(pageCount = { 2 })
+    val pagerState = rememberPagerState(
+        pageCount = { lists.size }
+    )
     val coroutineScope = rememberCoroutineScope()
     var fontScale by remember { mutableFloatStateOf(store.loadFontScale()) }
     var showAbout by remember { mutableStateOf(false) }
@@ -276,73 +273,45 @@ private fun SimpleListApp() {
             )
         }
 
-        PrimaryTabRow(selectedTabIndex = pagerState.currentPage) {
-            Tab(
-                selected = pagerState.currentPage == 0,
-                onClick = {
-                    coroutineScope.launch {
-                        pagerState.animateScrollToPage(0)
-                    }
-                },
-                text = {
-                    ListTabLabel(
-                        title = "To-do",
-                        itemCount = todoItems.count { !it.completed }
-                    )
-                }
-            )
+        if (lists.isNotEmpty()) {
+            PrimaryTabRow(
+                selectedTabIndex =
+                    pagerState.currentPage.coerceIn(0, lists.lastIndex)
+            ) {
+                lists.forEachIndexed { index, list ->
+                    val items = itemsByList[list.id]
 
-            Tab(
-                selected = pagerState.currentPage == 1,
-                onClick = {
-                    coroutineScope.launch {
-                        pagerState.animateScrollToPage(1)
-                    }
-                },
-                text = {
-                    ListTabLabel(
-                        title = "Shopping",
-                        itemCount = shoppingItems.count { !it.completed }
-                    )
-                }
-            )
-        }
-
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.weight(1f)
-        ) { page ->
-            when (page) {
-                0 -> todoList?.let { list ->
-                    ListScreen(
-                        listId = list.id,
-                        kind = ListKind.TODO,
-                        items = todoItems,
-                        fontScale = fontScale,
-                        onFontScaleChange = { fontScale = it },
-                        onItemAdded = { item ->
+                    Tab(
+                        selected = pagerState.currentPage == index,
+                        onClick = {
                             coroutineScope.launch {
-                                dao.insertItem(item)
+                                pagerState.animateScrollToPage(index)
                             }
                         },
-                        onItemUpdated = { item ->
-                            coroutineScope.launch {
-                                dao.updateItem(item)
-                            }
-                        },
-                        onItemDeleted = { itemId ->
-                            coroutineScope.launch {
-                                dao.deleteItem(itemId)
-                            }
+                        text = {
+                            ListTabLabel(
+                                title = list.name,
+                                itemCount =
+                                    items?.count { !it.completed } ?: 0
+                            )
                         }
                     )
                 }
+            }
 
-                else -> shoppingList?.let { list ->
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.weight(1f)
+            ) { page ->
+                val list = lists[page]
+                val items = itemsByList[list.id]
+                val kind = ListKind.valueOf(list.kind)
+
+                if (items != null) {
                     ListScreen(
                         listId = list.id,
-                        kind = ListKind.SHOPPING,
-                        items = shoppingItems,
+                        kind = kind,
+                        items = items,
                         fontScale = fontScale,
                         onFontScaleChange = { fontScale = it },
                         onItemAdded = { item ->
