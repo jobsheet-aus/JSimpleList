@@ -3,11 +3,6 @@ package au.com.jobsheet.jsimplelist
 import android.content.Context
 import org.json.JSONArray
 
-enum class ListKind {
-    TODO,
-    SHOPPING
-}
-
 data class LegacySimpleListItem(
     val id: Long,
     val description: String,
@@ -65,6 +60,8 @@ class SimpleListStore(context: Context) {
         when (kind) {
             ListKind.TODO -> KEY_TODO_ITEMS
             ListKind.SHOPPING -> KEY_SHOPPING_ITEMS
+            ListKind.DISCUSSION ->
+                error("Discussion lists do not exist in legacy storage")
         }
 
     companion object {
