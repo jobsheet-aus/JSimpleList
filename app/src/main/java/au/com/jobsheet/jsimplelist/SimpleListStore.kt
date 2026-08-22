@@ -2,14 +2,13 @@ package au.com.jobsheet.jsimplelist
 
 import android.content.Context
 import org.json.JSONArray
-import org.json.JSONObject
 
 enum class ListKind {
     TODO,
     SHOPPING
 }
 
-data class SimpleListItem(
+data class LegacySimpleListItem(
     val id: Long,
     val description: String,
     val quantity: Int? = null,
@@ -20,7 +19,7 @@ class SimpleListStore(context: Context) {
     private val preferences =
         context.getSharedPreferences("simple_list", Context.MODE_PRIVATE)
 
-    fun loadItems(kind: ListKind): List<SimpleListItem> {
+    fun loadItems(kind: ListKind): List<LegacySimpleListItem> {
         val raw = preferences.getString(itemsKey(kind), null) ?: return emptyList()
 
         return try {
@@ -31,7 +30,7 @@ class SimpleListStore(context: Context) {
                     val item = array.getJSONObject(index)
 
                     add(
-                        SimpleListItem(
+                        LegacySimpleListItem(
                             id = item.getLong("id"),
                             description = item.getString("description"),
                             quantity = if (item.isNull("quantity")) {
@@ -47,31 +46,6 @@ class SimpleListStore(context: Context) {
         } catch (_: Exception) {
             emptyList()
         }
-    }
-
-    fun saveItems(kind: ListKind, items: List<SimpleListItem>) {
-        val array = JSONArray()
-
-        items.forEach { item ->
-            array.put(
-                JSONObject().apply {
-                    put("id", item.id)
-                    put("description", item.description)
-
-                    if (item.quantity == null) {
-                        put("quantity", JSONObject.NULL)
-                    } else {
-                        put("quantity", item.quantity)
-                    }
-
-                    put("completed", item.completed)
-                }
-            )
-        }
-
-        preferences.edit()
-            .putString(itemsKey(kind), array.toString())
-            .apply()
     }
 
     fun loadFontScale(): Float =

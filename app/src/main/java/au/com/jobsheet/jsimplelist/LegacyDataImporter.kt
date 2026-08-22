@@ -58,7 +58,7 @@ class LegacyDataImporter(
         )
     }
 
-    private fun SimpleListItem.toEntity(
+    private fun LegacySimpleListItem.toEntity(
         listId: String,
         position: Int
     ): ItemEntity {
