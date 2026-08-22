@@ -79,6 +79,9 @@ DESIGN / BEHAVIOUR DECISIONS
 - Keep the app deliberately small and local-first.
 - To-do item fields: description + completed.
 - Shopping item fields: Qty + description + completed.
+- Discussion item fields: description + completed.
+- Internal list kind is DISCUSSION; user-facing terminology is "Discussion points".
+- Discussion lists are intended for meetings/agendas and are architecturally the same basic item model as To-do.
 - Shopping Qty defaults to 1.
 - Completed items remain visible so they can be unticked.
 - Completed Shopping Qty and description should both show strike-through.
@@ -91,6 +94,9 @@ DESIGN / BEHAVIOUR DECISIONS
 - Future shared-list headings should also be able to show a small red unseen-activity marker/star beside the count.
 - Pinch hint visibility is based on actual rendered space, with a fixed reserved hint area; it disappears only when list content approaches the bottom hint area.
 - Existing items are edited inline.
+- Item order within every list kind should be user-editable; do not assume creation/alphabetical order is always what the user wants.
+- Persist an explicit item position/order value so To-do, Shopping and Discussion lists can all be manually reordered.
+- Discussion points may be presented as a numbered list, with numbering derived from the current item order.
 - Keep list rows compact without making controls fiddly.
 - Be greedy with horizontal occupancy on phone screens: avoid unnecessary outer padding and use available width for item text.
 - Keep Add and Delete visually secondary to list content.
@@ -147,10 +153,11 @@ Current decisions:
 - Keep pinch-to-resize text as-is. It works well and does not need a text-size lock/reset setting at present.
 - Keep the current opening-list behaviour rather than adding a default-list preference. This should also generalise cleanly when lists become dynamic.
 - Keep completed items sorted below incomplete items as normal list behaviour rather than a preference.
-- List ordering is the first credible future preference once dynamic list creation exists.
+- Manual item ordering inside a list is normal list functionality for all list kinds, not a Settings preference.
+- Ordering of the lists themselves is the first credible future preference once dynamic list creation exists.
 - Likely list-order choices are creation order and alphabetical order.
 - Creation order should be the default.
-- Manual list ordering may be considered later if there is a real need.
+- Manual ordering of the lists themselves may be considered later if there is a real need.
 
 Settings will become more relevant when sharing exists.
 
@@ -468,6 +475,18 @@ Major work completed this session:
 - Managed publishing is OFF, so approved changes should publish automatically.
 - Google Play showed only non-blocking warnings for missing deobfuscation and native debug-symbol files; no release-blocking errors remained.
 
+2.0 LIST MODEL DECISIONS - 22 AUG 2026
+-----------------------------------------
+- Planned intrinsic list kinds are TODO, SHOPPING and DISCUSSION.
+- User-facing labels are "To-do", "Shopping" and "Discussion points".
+- Discussion points are primarily intended for meetings/agendas.
+- DISCUSSION uses the same basic item data shape as TODO: description + completed; the completed state means the point has been discussed/covered.
+- Discussion points may be displayed as a numbered list and should support manual reordering.
+- Manual item reordering is not Discussion-specific: every list kind should allow the user to control item order.
+- The planned item model therefore requires an explicit persisted position/order field for every item.
+- A general position field leaves To-do and Shopping open to the same reordering capability without future schema changes.
+- Existing 1.1 To-do and Shopping data remain the only legacy list kinds that need migration; Discussion is introduced by 2.0.
+
 FUTURE ONLINE / SHARING ARCHITECTURE - 21 AUG 2026
 ---------------------------------------------------
 Core product principle:
@@ -541,7 +560,7 @@ NEXT TASK
 2. When approved, verify the public Google Play listing is actually live and installable.
 3. Do not change or resubmit version 1.1 unless Google reports a real release blocker. The later resize-hint source improvement can wait for a subsequent version.
 4. At the start of the next coding session, inspect git status/diff and deliberately decide whether to commit the local resize-hint improvement as post-1.1 work before beginning 2.0 architecture.
-5. Before implementing sharing, design the 2.0 data model around local, synced and shared list states.
+5. Before implementing sharing, design the 2.0 data model around TODO, SHOPPING and DISCUSSION list kinds, explicit per-item position/order, and local/synced/shared list states.
 6. Design optional authentication/account enablement so local-only users never have to register.
 7. Design shared/synced server authority, local cache/offline behaviour, conflict/revision strategy, per-list membership, unseen activity marker and manual refresh together.
 8. Design browser access as another client of the same online-list model rather than as a separate backend.
