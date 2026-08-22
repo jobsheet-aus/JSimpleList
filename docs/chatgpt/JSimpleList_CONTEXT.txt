@@ -6,8 +6,8 @@ Name: JSimpleList
 Package: au.com.jobsheet.jsimplelist
 Local project: D:\simplelist
 Public repository: https://github.com/jobsheet-aus/JSimpleList
-Purpose: Very small native Android app providing To-do and Shopping lists.
-Shopping differs from To-do by having a Qty field.
+Purpose: Small local-first native Android list app. Version 2.0 is generalising the original fixed To-do and Shopping lists into user-named dynamic lists.
+Intrinsic list kinds are To-do, Shopping and Discussion points; Shopping differs by having a Qty field.
 
 STACK
 -----
@@ -19,16 +19,17 @@ Target SDK: 36
 Compile SDK: 36.1
 AndroidX Core KTX pinned to 1.18.0 because 1.19.0 requires compile SDK 37.
 Android Studio bundled JDK 21
-Local persistence via SharedPreferences + JSON
-No login
-No server dependency
-No internet permission
+2.0 list persistence via Room 3 (androidx.room3) with SQLite Android driver
+SharedPreferences remains for font scale and legacy 1.1 JSON import only
+No login required for local-only use
+No server dependency for local-only use
+No internet permission in the released 1.1 app; optional online capability is future 2.0 work
 Manrope is bundled with the APK
 Compose Foundation is an explicit dependency for HorizontalPager.
 
-CURRENT STATE
--------------
-The app is working on a real Android phone.
+RELEASED 1.1 STATE
+------------------
+The released 1.1 app is working on a real Android phone. The bullets immediately below describe the released/fixed-list UI unless otherwise stated.
 
 Features implemented:
 - To-do list/tab
@@ -89,8 +90,9 @@ DESIGN / BEHAVIOUR DECISIONS
 - Pinch must work regardless of pinch direction; diagonal pinch is normal.
 - Do not use whole-screen transformable handling now that horizontal paging exists.
 - Two-finger pinch handling must leave one-finger horizontal pager gestures and vertical list scrolling available.
-- Horizontal swiping changes lists; tapping list headings must continue to work as well.
-- List headings show incomplete-item counts.
+- Horizontal swiping remains the fast sequential way to move to the previous/next list.
+- Dynamic-list navigation should not depend on permanent fixed tabs. A dedicated list selector will provide direct access to any list.
+- The current list header/selector should show the user-controlled list name and may show compact metadata such as type, incomplete-item count and local/synced/shared state.
 - Future shared-list headings should also be able to show a small red unseen-activity marker/star beside the count.
 - Pinch hint visibility is based on actual rendered space, with a fixed reserved hint area; it disappears only when list content approaches the bottom hint area.
 - Existing items are edited inline.
@@ -109,6 +111,70 @@ DESIGN / BEHAVIOUR DECISIONS
 - Do not expose an easy direct support-email channel in the app.
 - GitHub and jobsheet.com.au are the preferred public information links.
 
+2.0 IMPLEMENTATION STATE - 22 AUG 2026
+-------------------------------------
+The 2.0 branch is now past the fixed-list persistence model. Current work is compile-tested but the Room migration/dynamic-list path still requires deliberate runtime/upgrade testing before release.
+
+Implemented architecture:
+- Added Room 3.0.1 / androidx.room3 database foundation using AndroidSQLiteDriver.
+- Room schema version 1 contains `lists` and `items`.
+- `lists`: UUID id, user-controlled name, kind, position, createdAt.
+- `items`: UUID id, listId FK with cascade delete, description, nullable quantity, completed, position, createdAt, updatedAt.
+- Item ordering query keeps incomplete items above completed items while respecting manual position within each group.
+- Legacy 1.1 SharedPreferences JSON is imported into Room only when the Room database has no lists.
+- Legacy importer creates default `To-do` and `Shopping` ListEntity records and preserves old descriptions, quantities, completed state and list order; old timestamp IDs are retained as createdAt/updatedAt while new Room item IDs are UUIDs.
+- Legacy JSON remains untouched during import.
+- `SimpleListItem` was renamed to `LegacySimpleListItem`; legacy save/write code was removed so future UI code cannot accidentally continue writing the old JSON format.
+- `ListKind` now lives independently in `ListKind.kt` and contains TODO, SHOPPING and DISCUSSION.
+- MainActivity now reads and writes `ItemEntity` through Room; add/edit/toggle/delete operations are item-level DAO operations. Room is authoritative for current 2.0 list data.
+- MainActivity no longer has separate `todoList`, `shoppingList`, `todoItems` or `shoppingItems` state. It loads an ordered dynamic `ListEntity` collection and an item collection keyed by list UUID.
+- The currently implemented dynamic UI still temporarily renders those lists through a Compose tab row, but tab labels already come from `ListEntity.name` rather than hard-coded names.
+- Dynamic-list conversion builds successfully. Runtime behaviour on the migration path has not yet been proven on-device.
+
+Relevant commits in order:
+- d7ecae0 Improve resize hint visibility
+- 91f973f Record JSimpleList Play release and 2.0 plans
+- a7d635a Record JSimpleList 2.0 list ordering design
+- eb88951 Add Room database foundation
+- caaeb41 Add legacy data importer
+- 87484f4 Run legacy import into Room
+- 6c9fc64 Use Room for list data
+- aba8d0a Isolate legacy list storage
+- c261c61 Add discussion list type
+- 9bfa8cf Drive list tabs from Room
+
+2.0 dynamic-list model decisions:
+- Every list has a user-controlled name. Name and kind are independent concepts.
+- List names do not need to be unique because UUIDs are the real identity.
+- Example valid combinations: `Bunnings` / SHOPPING, `House jobs` / TODO, `Monday toolbox meeting` / DISCUSSION.
+- Creating a list should ask for at least Name and Type. User-facing type labels are To-do, Shopping and Discussion points.
+- Renaming a list changes only `ListEntity.name`; it must not change UUID, type, contents, sharing identity or membership.
+- Every list and every item carries an explicit position/order field so manual reordering does not require a future schema migration.
+
+2.0 navigation/UI direction:
+- Permanent fixed tabs are a 1.1-era navigation model and should not be the long-term dynamic-list UI.
+- One selected/current list should occupy the main screen.
+- Horizontal left/right swipe remains the fast way to move to the adjacent list in list order.
+- Add a dedicated `Lists` selector/control for direct navigation. It should open a full-width vertical list of all lists so many lists and long user-assigned names remain practical.
+- The selector is also a natural future home for list reordering and unseen-activity indicators.
+- The current-list header should give the list name highest prominence. Compact secondary metadata may include list type, incomplete item count and Local/Synced/Shared state. Member identities/initials can be shown when useful without overwhelming the header.
+- List management should belong to the current list via a small list menu rather than overloading navigation tabs. The management surface will eventually contain rename, sharing/member management, leave/remove-member actions, reorder and delete/destroy as applicable.
+- A more elaborate horizontal wheel/carousel selector is a possible later visual navigation mode. Do not make 2.0 depend on it. The underlying navigation contract should remain simply select-list-by-ID / previous / next so a different selector can be substituted later.
+
+List deletion / ownership semantics:
+- Local list: the user can delete it.
+- Owned shared list: owner can manage members, eject individual members, rename it and destroy the whole list.
+- Shared list owned by someone else: member can leave, but cannot destroy the shared list.
+- Owner removing a member must revoke that member's server access while leaving the list alive for remaining members.
+- Owner destroying a list ejects all members. Deletion must be represented long enough for offline clients to learn that the authoritative shared list was destroyed.
+- Exact UX for what happens to a removed member's already-cached local copy is still to be decided; do not silently treat a stale cached copy as if it were still a live shared list.
+
+Testing / migration notes:
+- Emulator setup is currently parked because the development PC reports CPU virtualization disabled in BIOS; AEHD cannot start until VT-x is enabled. The machine also has limited RAM, so the real phone remains the practical runtime target.
+- A debug-signed APK cannot update the installed release-signed 1.1 app. The real upgrade test must use the proper release/upgradable signing path so app data is retained.
+- Before 2.0 release, explicitly verify upgrade from installed 1.1 preserves To-do/Shopping items, quantities, completed states and persisted font scale.
+- Because Room import is one-time, do not use a partially migrated build for ordinary legacy editing and then expect the importer to recopy later changes.
+
 FUTURE SHARED LIST DESIGN
 -------------------------
 This is a wishlist/future feature and is not implemented yet.
@@ -124,8 +190,13 @@ Expected behaviour:
 - Sharing should be optional and should not force registration on ordinary users.
 - Shared lists should remain locally cached/offline-capable and synchronize when connectivity returns.
 - Shared-list membership belongs directly to each list initially; do not build a global team/group hierarchy unless it becomes genuinely useful.
-- A shared list may have an owner and one or more members.
-- When another member adds or changes an item, the user's list heading should show a small red unseen-activity star/marker beside the item count.
+- A shared list has an owner and may have one or more members.
+- The owner may remove/eject individual members while the list continues for the remaining members.
+- A non-owner member may leave a shared list but may not destroy it.
+- The owner may destroy the list; this terminates membership for everyone.
+- Shared-list destruction must propagate reliably to clients that may have been offline, so server-side deletion/tombstone semantics are required rather than relying on an immediate hard delete that an offline client could miss.
+- Member removal is a membership event, separate from destruction of the list itself. Membership data should leave room for role/state and removal time rather than being only a timeless list of user IDs.
+- When another member adds or changes an item, the user's list header/selector should show a small red unseen-activity star/marker beside the item count.
 - A user's own changes do not create an unseen marker for that user.
 - The unseen marker should clear when that user actually views the updated list/page.
 - The per-user state should be modelled as something like last_seen_at rather than a single global has_notification flag.
@@ -140,10 +211,10 @@ Expected behaviour:
 Possible server/backend direction:
 - Supabase/PostgreSQL is the leading candidate because it provides authentication, relational membership, Row Level Security and realtime capabilities without requiring a custom Flask service.
 - No final backend choice has been committed yet.
-- If sharing is built, authentication should be optional and lightweight; email magic-link/one-time-code style authentication is preferred over forcing another password if practical.
-- Likely data concepts: users, lists, list_members, items.
-- Server-side authorization must ensure only members of a list can read/change that list.
-- A future move from SharedPreferences + JSON to Room may become worthwhile for robust item-level synchronization, but do not refactor persistence merely in anticipation of sharing.
+- Authentication remains optional for local-only use. For online use, the preferred initial login is an emailed six-digit one-time code with a persistent session; password support can remain optional/later.
+- Likely server data concepts: users, lists, list_members, items, plus enough deletion/revision state for reliable offline reconciliation.
+- Server-side authorization must ensure only current members of a list can read/change that list and only the owner can perform owner-only membership/destruction operations.
+- Room is now implemented as the 2.0 local database foundation and is authoritative for list/item data in the current development branch; SharedPreferences JSON is legacy-import-only.
 
 SETTINGS / PREFERENCES PLAN
 ---------------------------
@@ -154,10 +225,9 @@ Current decisions:
 - Keep the current opening-list behaviour rather than adding a default-list preference. This should also generalise cleanly when lists become dynamic.
 - Keep completed items sorted below incomplete items as normal list behaviour rather than a preference.
 - Manual item ordering inside a list is normal list functionality for all list kinds, not a Settings preference.
-- Ordering of the lists themselves is the first credible future preference once dynamic list creation exists.
-- Likely list-order choices are creation order and alphabetical order.
-- Creation order should be the default.
-- Manual ordering of the lists themselves may be considered later if there is a real need.
+- Lists themselves also have an explicit persisted position/order field.
+- Manual list ordering is planned functionality rather than something that requires a future schema change.
+- Creation order can seed initial positions, but the user must be able to reorder lists later.
 
 Settings will become more relevant when sharing exists.
 
@@ -385,6 +455,20 @@ Audit source from D:\SimpleList (absolute --path still required):
 
 CURRENT GIT HISTORY
 -------------------
+Recent 2.0 development commits:
+9bfa8cf Drive list tabs from Room
+c261c61 Add discussion list type
+aba8d0a Isolate legacy list storage
+6c9fc64 Use Room for list data
+87484f4 Run legacy import into Room
+caaeb41 Add legacy data importer
+eb88951 Add Room database foundation
+a7d635a Record JSimpleList 2.0 list ordering design
+91f973f Record JSimpleList Play release and 2.0 plans
+d7ecae0 Improve resize hint visibility
+
+Earlier important history:
+031012c Use To-do in JSimpleList UI
 8d881ac Clarify JSimpleList ownership and licensing
 25703d5 Improve list gestures and layout
 6348b9e Add About screen and release signing workflow
@@ -398,11 +482,10 @@ CURRENT GIT HISTORY
 e4525ba Build first working JSimpleList app
 3407abd Initial Android project
 
-Latest pushed commit at session close:
-    031012c Use To-do in JSimpleList UI
+Latest committed checkpoint recorded in this document:
+    9bfa8cf Drive list tabs from Room
 
-Local working tree note at session close:
-- MainActivity.kt contains the later resize-hint rendered-space improvement tested on the phone. This change is not yet committed/pushed and was not included in the already-submitted 1.1 Play AAB.
+The later resize-hint work is now committed as post-1.1 source work; it remains outside the already-submitted 1.1 Play bundle unless a later release deliberately includes it.
 
 SESSION CLOSEOUT - 20/21 AUG 2026
 ---------------------------------
@@ -496,7 +579,7 @@ Core product principle:
 - Do not automatically upload existing local lists merely because a user signs in or enables online features.
 - Individual lists should have independent state rather than forcing the whole app into an online mode.
 
-Expected list states:
+Expected online relationship states (derive these from online/server relationship rather than encoding them as a rigid intrinsic list-kind enum):
 - Local: exists only on the device.
 - Synced: user's own online-backed list, available on their devices and in a browser.
 - Shared: online-backed list with one or more other members.
@@ -514,6 +597,8 @@ Server authority and sync:
 
 Browser access:
 - Browser access should be designed together with sharing because both depend on the same account, list, membership and sync model.
+- Preferred hostname is `jslist.jobsheet.com.au` so the JSimpleList/JS identity remains visible.
+- The browser frontend is another client of the same online-list service, not a phone bridge and not a separate backend.
 - A small web client should expose online-backed lists only.
 - Browser scope can remain deliberately minimal: choose list, add/edit/tick/delete, Shopping quantity, and refresh/unseen-state behaviour.
 - Local-only lists never appear in the browser because they never leave the device.
@@ -543,6 +628,19 @@ BACKEND / COST FUTURE-PROOFING
   - sensible per-account/per-list limits
 - These controls are future-proofing requirements, not immediate implementation tasks.
 
+SESSION PROGRESS - 22 AUG 2026
+------------------------------
+- Confirmed 2.0 should support user-named dynamic lists rather than fixed To-do/Shopping names.
+- Added Room database foundation and legacy 1.1 import path.
+- Made Room authoritative for 2.0 list/item data and isolated legacy SharedPreferences JSON as import-only.
+- Added DISCUSSION list kind.
+- Converted MainActivity from separate fixed To-do/Shopping state to a dynamic Room-driven ListEntity collection.
+- Dynamic list labels now come from ListEntity.name.
+- Agreed that permanent tabs should give way to a selected-list header plus direct list selector, while preserving horizontal swipe between adjacent lists.
+- Agreed list selector should scale to many lists with a full-width vertical list and leave room for metadata, reordering and unseen markers.
+- Agreed owner/member destruction and ejection semantics described above, including the need for server-side deletion propagation to offline clients.
+- Current dynamic Room build compiles successfully. Runtime migration/UI testing remains pending.
+
 SESSION CLOSEOUT FILE SAFETY
 ----------------------------
 Local-only files/directories must remain untracked/ignored:
@@ -556,14 +654,13 @@ Never use a broad add command if it risks staging signing secrets or generated A
 
 NEXT TASK
 ---------
-1. First check Google Play Console / Publishing overview for the status of JSimpleList 1.1. Current status at close is "Changes in review"; Managed publishing is off.
-2. When approved, verify the public Google Play listing is actually live and installable.
-3. Do not change or resubmit version 1.1 unless Google reports a real release blocker. The later resize-hint source improvement can wait for a subsequent version.
-4. At the start of the next coding session, inspect git status/diff and deliberately decide whether to commit the local resize-hint improvement as post-1.1 work before beginning 2.0 architecture.
-5. Before implementing sharing, design the 2.0 data model around TODO, SHOPPING and DISCUSSION list kinds, explicit per-item position/order, and local/synced/shared list states.
-6. Design optional authentication/account enablement so local-only users never have to register.
-7. Design shared/synced server authority, local cache/offline behaviour, conflict/revision strategy, per-list membership, unseen activity marker and manual refresh together.
-8. Design browser access as another client of the same online-list model rather than as a separate backend.
-9. Preserve an entitlement boundary around online service so a future annual fee or supporter model can be introduced without rewriting sync/list logic.
-10. Keep Supabase as a candidate only; choose the backend after the data/sync/entitlement requirements are explicit.
-11. Explicitly test upgrade/migration from installed 1.1 with existing To-do/Shopping items, completed states, quantities and persisted text scale before releasing 2.0.
+1. Continue from commit 9bfa8cf. Inspect git status before any new edit.
+2. Replace the temporary dynamic PrimaryTabRow navigation with the agreed 2.0 navigation structure: one current-list header, horizontal swipe for adjacent lists, and a `Lists` control that opens a full-width vertical direct selector.
+3. Add list creation and rename using user-supplied name + intrinsic type; list name is not unique and is independent of type.
+4. Add list-management UI incrementally after navigation is stable: local delete, shared leave, owner member management/ejection, and owner destroy.
+5. Keep list/item position fields as the basis for later manual reordering; do not introduce a different ordering model.
+6. Do not implement the flashy wheel/carousel selector as a 2.0 dependency. Preserve select-by-ID / previous / next underneath so it can be explored later.
+7. Before relying on the Room migration path, perform a real runtime test. Before releasing 2.0, perform a signed upgrade test from installed 1.1 preserving items, quantities, completed states and font scale.
+8. When online work begins, keep local-only use account-free and offline-capable; use the same list/membership model for phone and `jslist.jobsheet.com.au`.
+9. Keep Supabase/PostgreSQL as the leading candidate, not a final choice, until sync/revision/deletion/membership requirements are fully explicit.
+10. Preserve the online entitlement/cost-control boundary already recorded; local-only use must remain independent of backend availability.
