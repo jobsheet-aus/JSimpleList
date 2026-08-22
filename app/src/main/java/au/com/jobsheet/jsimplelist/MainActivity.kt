@@ -38,12 +38,10 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -141,6 +139,7 @@ private fun SimpleListApp() {
     val coroutineScope = rememberCoroutineScope()
     var fontScale by remember { mutableFloatStateOf(store.loadFontScale()) }
     var showAbout by remember { mutableStateOf(false) }
+    var showListSelector by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(fontScale) {
@@ -274,90 +273,172 @@ private fun SimpleListApp() {
         }
 
         if (lists.isNotEmpty()) {
-            PrimaryTabRow(
-                selectedTabIndex =
-                    pagerState.currentPage.coerceIn(0, lists.lastIndex)
-            ) {
-                lists.forEachIndexed { index, list ->
-                    val items = itemsByList[list.id]
+            val currentIndex =
+                pagerState.currentPage.coerceIn(0, lists.lastIndex)
+            val currentList = lists[currentIndex]
+            val currentItems = itemsByList[currentList.id]
+            val currentKind = ListKind.valueOf(currentList.kind)
+            val currentItemCount =
+                currentItems?.count { !it.completed } ?: 0
 
-                    Tab(
-                        selected = pagerState.currentPage == index,
-                        onClick = {
-                            coroutineScope.launch {
-                                pagerState.animateScrollToPage(index)
-                            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = 16.dp,
+                        top = 4.dp,
+                        end = 8.dp,
+                        bottom = 6.dp
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = if (showListSelector) {
+                            "Lists"
+                        } else {
+                            currentList.name
                         },
-                        text = {
-                            ListTabLabel(
-                                title = list.name,
-                                itemCount =
-                                    items?.count { !it.completed } ?: 0
-                            )
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    if (!showListSelector) {
+                        Text(
+                            text =
+                                "${listKindLabel(currentKind)} · " +
+                                    "$currentItemCount " +
+                                    if (currentItemCount == 1) {
+                                        "item"
+                                    } else {
+                                        "items"
+                                    },
+                            fontSize = 12.sp,
+                            color =
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                TextButton(
+                    onClick = {
+                        showListSelector = !showListSelector
+                    }
+                ) {
+                    Text(
+                        text = if (showListSelector) {
+                            "Close"
+                        } else {
+                            "Lists"
                         }
                     )
                 }
             }
 
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.weight(1f)
-            ) { page ->
-                val list = lists[page]
-                val items = itemsByList[list.id]
-                val kind = ListKind.valueOf(list.kind)
+            HorizontalDivider()
 
-                if (items != null) {
-                    ListScreen(
-                        listId = list.id,
-                        kind = kind,
-                        items = items,
-                        fontScale = fontScale,
-                        onFontScaleChange = { fontScale = it },
-                        onItemAdded = { item ->
-                            coroutineScope.launch {
-                                dao.insertItem(item)
-                            }
-                        },
-                        onItemUpdated = { item ->
-                            coroutineScope.launch {
-                                dao.updateItem(item)
-                            }
-                        },
-                        onItemDeleted = { itemId ->
-                            coroutineScope.launch {
-                                dao.deleteItem(itemId)
-                            }
+            if (showListSelector) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
+                    items(
+                        items = lists,
+                        key = { list -> list.id }
+                    ) { list ->
+                        val listItems = itemsByList[list.id]
+                        val kind = ListKind.valueOf(list.kind)
+                        val itemCount =
+                            listItems?.count { !it.completed } ?: 0
+                        val index = lists.indexOf(list)
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showListSelector = false
+
+                                    coroutineScope.launch {
+                                        pagerState.animateScrollToPage(index)
+                                    }
+                                }
+                                .padding(
+                                    horizontal = 16.dp,
+                                    vertical = 12.dp
+                                )
+                        ) {
+                            Text(
+                                text = list.name,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+
+                            Text(
+                                text =
+                                    "${listKindLabel(kind)} · " +
+                                        "$itemCount " +
+                                        if (itemCount == 1) {
+                                            "item"
+                                        } else {
+                                            "items"
+                                        },
+                                fontSize = 12.sp,
+                                color =
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                    )
+
+                        HorizontalDivider()
+                    }
+                }
+            } else {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.weight(1f)
+                ) { page ->
+                    val list = lists[page]
+                    val items = itemsByList[list.id]
+                    val kind = ListKind.valueOf(list.kind)
+
+                    if (items != null) {
+                        ListScreen(
+                            listId = list.id,
+                            kind = kind,
+                            items = items,
+                            fontScale = fontScale,
+                            onFontScaleChange = { fontScale = it },
+                            onItemAdded = { item ->
+                                coroutineScope.launch {
+                                    dao.insertItem(item)
+                                }
+                            },
+                            onItemUpdated = { item ->
+                                coroutineScope.launch {
+                                    dao.updateItem(item)
+                                }
+                            },
+                            onItemDeleted = { itemId ->
+                                coroutineScope.launch {
+                                    dao.deleteItem(itemId)
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-@Composable
-private fun ListTabLabel(
-    title: String,
-    itemCount: Int
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Text(
-            text = title,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium
-        )
-
-        Text(
-            text = itemCount.toString(),
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+private fun listKindLabel(kind: ListKind): String =
+    when (kind) {
+        ListKind.TODO -> "To-do"
+        ListKind.SHOPPING -> "Shopping"
+        ListKind.DISCUSSION -> "Discussion points"
     }
-}
 
 @Composable
 private fun ListScreen(
