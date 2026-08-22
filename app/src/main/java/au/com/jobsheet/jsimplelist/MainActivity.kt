@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.sp
 import au.com.jobsheet.jsimplelist.ui.theme.SimpleListTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -106,27 +107,41 @@ private fun SimpleListApp() {
             .build()
     }
 
+    val dao = remember(database) { database.dao() }
+    val todoItems = remember { mutableStateListOf<ItemEntity>() }
+    val shoppingItems = remember { mutableStateListOf<ItemEntity>() }
+    var todoList by remember { mutableStateOf<ListEntity?>(null) }
+    var shoppingList by remember { mutableStateOf<ListEntity?>(null) }
+
     LaunchedEffect(database) {
         LegacyDataImporter(
             store = store,
-            dao = database.dao()
+            dao = dao
         ).importIfNeeded()
-    }
 
-    val todoItems = remember {
-        mutableStateListOf<SimpleListItem>().apply {
-            addAll(store.loadItems(ListKind.TODO))
+        val lists = dao.loadLists()
+
+        todoList = lists.firstOrNull {
+            it.kind == ListKind.TODO.name
         }
-    }
+        shoppingList = lists.firstOrNull {
+            it.kind == ListKind.SHOPPING.name
+        }
 
-    val shoppingItems = remember {
-        mutableStateListOf<SimpleListItem>().apply {
-            addAll(store.loadItems(ListKind.SHOPPING))
+        todoItems.clear()
+        shoppingItems.clear()
+
+        todoList?.let { list ->
+            todoItems.addAll(dao.loadItems(list.id))
+        }
+
+        shoppingList?.let { list ->
+            shoppingItems.addAll(dao.loadItems(list.id))
         }
     }
 
     val pagerState = rememberPagerState(pageCount = { 2 })
-    val pagerScope = rememberCoroutineScope()
+    val coroutineScope = rememberCoroutineScope()
     var fontScale by remember { mutableFloatStateOf(store.loadFontScale()) }
     var showAbout by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
@@ -265,7 +280,7 @@ private fun SimpleListApp() {
             Tab(
                 selected = pagerState.currentPage == 0,
                 onClick = {
-                    pagerScope.launch {
+                    coroutineScope.launch {
                         pagerState.animateScrollToPage(0)
                     }
                 },
@@ -280,7 +295,7 @@ private fun SimpleListApp() {
             Tab(
                 selected = pagerState.currentPage == 1,
                 onClick = {
-                    pagerScope.launch {
+                    coroutineScope.launch {
                         pagerState.animateScrollToPage(1)
                     }
                 },
@@ -298,25 +313,55 @@ private fun SimpleListApp() {
             modifier = Modifier.weight(1f)
         ) { page ->
             when (page) {
-                0 -> ListScreen(
-                    kind = ListKind.TODO,
-                    items = todoItems,
-                    fontScale = fontScale,
-                    onFontScaleChange = { fontScale = it },
-                    onItemsChanged = {
-                        store.saveItems(ListKind.TODO, todoItems)
-                    }
-                )
+                0 -> todoList?.let { list ->
+                    ListScreen(
+                        listId = list.id,
+                        kind = ListKind.TODO,
+                        items = todoItems,
+                        fontScale = fontScale,
+                        onFontScaleChange = { fontScale = it },
+                        onItemAdded = { item ->
+                            coroutineScope.launch {
+                                dao.insertItem(item)
+                            }
+                        },
+                        onItemUpdated = { item ->
+                            coroutineScope.launch {
+                                dao.updateItem(item)
+                            }
+                        },
+                        onItemDeleted = { itemId ->
+                            coroutineScope.launch {
+                                dao.deleteItem(itemId)
+                            }
+                        }
+                    )
+                }
 
-                else -> ListScreen(
-                    kind = ListKind.SHOPPING,
-                    items = shoppingItems,
-                    fontScale = fontScale,
-                    onFontScaleChange = { fontScale = it },
-                    onItemsChanged = {
-                        store.saveItems(ListKind.SHOPPING, shoppingItems)
-                    }
-                )
+                else -> shoppingList?.let { list ->
+                    ListScreen(
+                        listId = list.id,
+                        kind = ListKind.SHOPPING,
+                        items = shoppingItems,
+                        fontScale = fontScale,
+                        onFontScaleChange = { fontScale = it },
+                        onItemAdded = { item ->
+                            coroutineScope.launch {
+                                dao.insertItem(item)
+                            }
+                        },
+                        onItemUpdated = { item ->
+                            coroutineScope.launch {
+                                dao.updateItem(item)
+                            }
+                        },
+                        onItemDeleted = { itemId ->
+                            coroutineScope.launch {
+                                dao.deleteItem(itemId)
+                            }
+                        }
+                    )
+                }
             }
         }
     }
@@ -347,11 +392,14 @@ private fun ListTabLabel(
 
 @Composable
 private fun ListScreen(
+    listId: String,
     kind: ListKind,
-    items: MutableList<SimpleListItem>,
+    items: MutableList<ItemEntity>,
     fontScale: Float,
     onFontScaleChange: (Float) -> Unit,
-    onItemsChanged: () -> Unit
+    onItemAdded: (ItemEntity) -> Unit,
+    onItemUpdated: (ItemEntity) -> Unit,
+    onItemDeleted: (String) -> Unit
 ) {
     var description by remember(kind) { mutableStateOf("") }
     var quantityText by remember(kind) { mutableStateOf("1") }
@@ -411,21 +459,26 @@ private fun ListScreen(
                 null
             }
 
-        items.add(
-            SimpleListItem(
-                id = System.currentTimeMillis(),
-                description = trimmedDescription,
-                quantity = quantity
-            )
+        val now = System.currentTimeMillis()
+        val item = ItemEntity(
+            id = UUID.randomUUID().toString(),
+            listId = listId,
+            description = trimmedDescription,
+            quantity = quantity,
+            completed = false,
+            position = (items.maxOfOrNull { it.position } ?: 0) + 10,
+            createdAt = now,
+            updatedAt = now
         )
+
+        items.add(item)
+        onItemAdded(item)
 
         description = ""
 
         if (kind == ListKind.SHOPPING) {
             quantityText = "1"
         }
-
-        onItemsChanged()
     }
 
     Column(
@@ -526,26 +579,30 @@ private fun ListScreen(
                             val index = items.indexOfFirst { it.id == item.id }
 
                             if (index >= 0) {
-                                items[index] = item.copy(
+                                val updatedItem = item.copy(
                                     description = newDescription,
-                                    quantity = newQuantity
+                                    quantity = newQuantity,
+                                    updatedAt = System.currentTimeMillis()
                                 )
-                                onItemsChanged()
+                                items[index] = updatedItem
+                                onItemUpdated(updatedItem)
                             }
                         },
                         onToggle = {
                             val index = items.indexOfFirst { it.id == item.id }
 
                             if (index >= 0) {
-                                items[index] = item.copy(
-                                    completed = !item.completed
+                                val updatedItem = item.copy(
+                                    completed = !item.completed,
+                                    updatedAt = System.currentTimeMillis()
                                 )
-                                onItemsChanged()
+                                items[index] = updatedItem
+                                onItemUpdated(updatedItem)
                             }
                         },
                         onDelete = {
                             items.removeAll { it.id == item.id }
-                            onItemsChanged()
+                            onItemDeleted(item.id)
                         }
                     )
 
@@ -740,7 +797,7 @@ private fun EntryRow(
 
 @Composable
 private fun ListItemRow(
-    item: SimpleListItem,
+    item: ItemEntity,
     kind: ListKind,
     fontScale: Float,
     onUpdate: (String, Int?) -> Unit,

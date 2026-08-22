@@ -30,6 +30,9 @@ interface JSimpleListDao {
     suspend fun insertLists(lists: List<ListEntity>)
 
     @Insert
+    suspend fun insertItem(item: ItemEntity)
+
+    @Insert
     suspend fun insertItems(items: List<ItemEntity>)
 
     @Update
