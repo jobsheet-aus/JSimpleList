@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -43,6 +44,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -58,6 +60,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.SolidColor
@@ -457,62 +460,95 @@ private fun ListScreen(
                     items.filter { it.completed }
             }
 
-        LazyColumn(
+        val listState = rememberLazyListState()
+        val resizeHintHeightPx =
+            with(LocalDensity.current) {
+                48.dp.roundToPx()
+            }
+
+        val showResizeHint by remember(
+            listState,
+            resizeHintHeightPx,
+            displayedItems.size
+        ) {
+            derivedStateOf {
+                val layoutInfo = listState.layoutInfo
+                val visibleItems = layoutInfo.visibleItemsInfo
+
+                if (displayedItems.isEmpty() || visibleItems.isEmpty()) {
+                    true
+                } else {
+                    val lastVisibleItem = visibleItems.last()
+
+                    lastVisibleItem.index == displayedItems.lastIndex &&
+                        lastVisibleItem.offset + lastVisibleItem.size <=
+                            layoutInfo.viewportEndOffset - resizeHintHeightPx
+                }
+            }
+        }
+
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .weight(1f)
         ) {
-            items(
-                items = displayedItems,
-                key = { item -> item.id }
-            ) { item ->
-                ListItemRow(
-                    item = item,
-                    kind = kind,
-                    fontScale = fontScale,
-                    onUpdate = { newDescription, newQuantity ->
-                        val index = items.indexOfFirst { it.id == item.id }
-
-                        if (index >= 0) {
-                            items[index] = item.copy(
-                                description = newDescription,
-                                quantity = newQuantity
-                            )
-                            onItemsChanged()
-                        }
-                    },
-                    onToggle = {
-                        val index = items.indexOfFirst { it.id == item.id }
-
-                        if (index >= 0) {
-                            items[index] = item.copy(
-                                completed = !item.completed
-                            )
-                            onItemsChanged()
-                        }
-                    },
-                    onDelete = {
-                        items.removeAll { it.id == item.id }
-                        onItemsChanged()
-                    }
-                )
-
-                HorizontalDivider()
-            }
-        }
-
-        if (items.size < 5) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.Center
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize()
             ) {
-                Text(
-                    text = "Pinch anywhere on the list to resize text",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                items(
+                    items = displayedItems,
+                    key = { item -> item.id }
+                ) { item ->
+                    ListItemRow(
+                        item = item,
+                        kind = kind,
+                        fontScale = fontScale,
+                        onUpdate = { newDescription, newQuantity ->
+                            val index = items.indexOfFirst { it.id == item.id }
+
+                            if (index >= 0) {
+                                items[index] = item.copy(
+                                    description = newDescription,
+                                    quantity = newQuantity
+                                )
+                                onItemsChanged()
+                            }
+                        },
+                        onToggle = {
+                            val index = items.indexOfFirst { it.id == item.id }
+
+                            if (index >= 0) {
+                                items[index] = item.copy(
+                                    completed = !item.completed
+                                )
+                                onItemsChanged()
+                            }
+                        },
+                        onDelete = {
+                            items.removeAll { it.id == item.id }
+                            onItemsChanged()
+                        }
+                    )
+
+                    HorizontalDivider()
+                }
+            }
+
+            if (showResizeHint) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "Pinch anywhere on the list to resize text",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
