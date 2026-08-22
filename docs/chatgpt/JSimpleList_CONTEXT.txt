@@ -6,8 +6,8 @@ Name: JSimpleList
 Package: au.com.jobsheet.jsimplelist
 Local project: D:\simplelist
 Public repository: https://github.com/jobsheet-aus/JSimpleList
-Purpose: Very small native Android app providing Todo and Shopping lists.
-Shopping differs from Todo by having a Qty field.
+Purpose: Very small native Android app providing To-do and Shopping lists.
+Shopping differs from To-do by having a Qty field.
 
 STACK
 -----
@@ -31,13 +31,13 @@ CURRENT STATE
 The app is working on a real Android phone.
 
 Features implemented:
-- Todo list/tab
+- To-do list/tab
 - Shopping list/tab
 - Shopping Qty field
 - Add items
 - Tick / untick items
 - Delete items
-- Edit existing Todo items
+- Edit existing To-do items
 - Edit Shopping description and Qty
 - Qty defaults to 1
 - Qty selects existing value on focus, ready to overwrite
@@ -48,17 +48,17 @@ Features implemented:
 - Pinch behaviour was substantially improved on 20 Aug 2026 and tested successfully on the real phone
 - Pinch uses explicit two-finger pointer handling so one-finger horizontal paging and vertical scrolling are not consumed by pinch handling
 - Font scale is persisted
-- Pinch hint is fixed-size and disappears once the active list has 5 or more items
-- Main heading, Todo / Shopping tab headings, Qty / Item headings, Add text and Delete text do not resize with pinch
-- Horizontal swipe changes between Todo and Shopping using Compose HorizontalPager
-- Tapping Todo / Shopping headings still changes pages and stays synchronized with the pager
-- Todo and Shopping headings show the current count of incomplete items
+- Pinch hint is fixed-size and its visibility is based on actual rendered list space; it disappears before list content reaches the reserved bottom hint area
+- Main heading, To-do / Shopping tab headings, Qty / Item headings, Add text and Delete text do not resize with pinch
+- Horizontal swipe changes between To-do and Shopping using Compose HorizontalPager
+- Tapping To-do / Shopping headings still changes pages and stays synchronized with the pager
+- To-do and Shopping headings show the current count of incomplete items
 - List rows are compact/dense
 - Entry controls were compacted and aligned using BasicTextField rather than Material OutlinedTextField
 - Shopping Qty entry box is 48 x 48 dp
-- Item/Todo entry field is 48 dp high
+- Item/To-do entry field is 48 dp high
 - Entry-field text remains pinch-scaled but is capped at 22 sp to avoid clipping
-- Qty and Item/Todo entry text is vertically centred explicitly
+- Qty and Item/To-do entry text is vertically centred explicitly
 - Add button remains compact, has fixed-size text, and is vertically centred beside the entry fields
 - Delete uses fixed 12 sp text and no longer becomes visually dominant at large pinch sizes
 - Normal list rows use reduced horizontal padding to make better use of phone width
@@ -70,16 +70,14 @@ Features implemented:
 - JSimpleList launcher icon implemented
 - Visible app name is JSimpleList
 - About control is at the top-right of the title bar
-- About dialog shows the version name and build date from BuildConfig; Android versionCode and package ID are not shown to the user
-- About dialog describes JSimpleList as simple Todo and Shopping lists, states that lists are stored locally on the device, and states that the app is completely free and without ads
-- About dialog links to jobsheet.com.au and the public GitHub repository
-- About dialog shows copyright © 2026 21 Twelve Consulting Pty Ltd and "Licensed under the MIT Licence"
+- About dialog shows version name and build date from BuildConfig; Android versionCode and package ID are not shown to the user
+- About dialog currently says copyright © 2026 21 TWELVE CONSULTING PTY LTD and "Licensed under the MIT Licence"
 - No public support email is shown in the app
 
 DESIGN / BEHAVIOUR DECISIONS
 ----------------------------
 - Keep the app deliberately small and local-first.
-- Todo item fields: description + completed.
+- To-do item fields: description + completed.
 - Shopping item fields: Qty + description + completed.
 - Shopping Qty defaults to 1.
 - Completed items remain visible so they can be unticked.
@@ -91,7 +89,7 @@ DESIGN / BEHAVIOUR DECISIONS
 - Horizontal swiping changes lists; tapping list headings must continue to work as well.
 - List headings show incomplete-item counts.
 - Future shared-list headings should also be able to show a small red unseen-activity marker/star beside the count.
-- Hide the pinch hint once the active list contains 5 or more items.
+- Pinch hint visibility is based on actual rendered space, with a fixed reserved hint area; it disappears only when list content approaches the bottom hint area.
 - Existing items are edited inline.
 - Keep list rows compact without making controls fiddly.
 - Be greedy with horizontal occupancy on phone screens: avoid unnecessary outer padding and use available width for item text.
@@ -101,7 +99,7 @@ DESIGN / BEHAVIOUR DECISIONS
 - Final package ID is au.com.jobsheet.jsimplelist.
 - Visible/public name is JSimpleList.
 - Repository is public on GitHub under jobsheet-aus/JSimpleList.
-- Google Play is the intended public distribution channel; direct APK distribution from jobsheet.com.au is no longer planned.
+- Google Play is the intended public distribution channel; direct APK distribution from jobsheet.com.au is not currently planned.
 - Do not expose an easy direct support-email channel in the app.
 - GitHub and jobsheet.com.au are the preferred public information links.
 
@@ -116,7 +114,7 @@ Core decision:
 - Example work list: a fittings/materials list shared by multiple plumbers.
 
 Expected behaviour:
-- Local Todo and Shopping must continue to work without login or internet.
+- Local To-do and Shopping must continue to work without login or internet.
 - Sharing should be optional and should not force registration on ordinary users.
 - Shared lists should remain locally cached/offline-capable and synchronize when connectivity returns.
 - Shared-list membership belongs directly to each list initially; do not build a global team/group hierarchy unless it becomes genuinely useful.
@@ -269,14 +267,10 @@ Release certificate SHA-256:
 Verified release package:
     au.com.jobsheet.jsimplelist
 
-Prepared Google Play release metadata:
+Current release metadata:
     versionCode 2
     versionName 1.1
     build date 21 August 2026
-
-Versioning policy:
-- versionName uses simple user-facing releases such as 1.0, 1.1, 1.2 and eventually 2.0 rather than unnecessary patch-level numbering for this small app
-- versionCode is an internal monotonically increasing Android/Google Play build number and is not displayed in the About screen
 
 Gradle is configured to read local signing details from:
     D:\simplelist\signing.properties
@@ -318,18 +312,16 @@ The organisation was found successfully in Dun & Bradstreet and the Play Console
 jobsheet.com.au ownership was verified through Google Search Console using a DNS TXT record.
 Keep the Google Search Console verification TXT record in DNS.
 
-Google Play organisation/developer verification has been approved.
+Google Play organisation/developer verification has completed sufficiently to create the app entry and submit JSimpleList 1.1 for production review.
 
-The developer account is ready for use.
+Current Play status at 21 August 2026 session close: production release 1.1 and associated listing/declarations are in review.
 
 Package registration with Google should use:
     au.com.jobsheet.jsimplelist
 
-JSimpleList 1.1 has been built successfully as both a signed release APK and an Android App Bundle.
+Use the same permanent JSimpleList signing key/certificate already created above when Google later requests the package certificate/signing identity.
 
-The release APK has been installed and visually checked on the real phone; the final About screen is approved.
-
-Google Play App Signing may use the normal/default Play workflow because Google Play is now the intended public distribution channel.
+Google Play App Signing is in use for Play distribution. The existing permanent local signing key remains the project release identity/upload-signing basis and must be preserved.
 
 USEFUL COMMANDS
 ---------------
@@ -400,7 +392,10 @@ e4525ba Build first working JSimpleList app
 3407abd Initial Android project
 
 Latest pushed commit at session close:
-    8d881ac Clarify JSimpleList ownership and licensing
+    031012c Use To-do in JSimpleList UI
+
+Local working tree note at session close:
+- MainActivity.kt contains the later resize-hint rendered-space improvement tested on the phone. This change is not yet committed/pushed and was not included in the already-submitted 1.1 Play AAB.
 
 SESSION CLOSEOUT - 20/21 AUG 2026
 ---------------------------------
@@ -450,17 +445,106 @@ Local-only files/directories must remain untracked/ignored:
 
 Never use a broad add command if it risks staging signing secrets or generated APK output. Prefer explicitly naming intended files.
 
+
+SESSION CLOSEOUT - 21 AUG 2026
+------------------------------
+Major work completed this session:
+- Prepared JSimpleList 1.1 for Google Play.
+- Final release metadata is versionCode 2, versionName 1.1, build date 21 August 2026.
+- Standardised user-facing terminology from "Todo" to "To-do" in the tab, About text and To-do entry hint. Internal identifiers such as todoItems, ListKind.TODO and todo_items remain unchanged.
+- Rebuilt both signed release APK and AAB successfully after the wording change.
+- Pushed commit 031012c "Use To-do in JSimpleList UI" to origin/main.
+- Improved the pinch-resize hint so it no longer disappears at an arbitrary item count. It now stays visible while there is sufficient rendered space and drops away before list content reaches the reserved hint area.
+- Real-phone behaviour was accepted as good even though the hint leaves roughly one extra row of safety space before disappearing.
+- IMPORTANT: the rendered-space resize-hint change was made and tested after the 1.1 Play AAB had already been built/submitted. It is currently a local source change and is NOT part of the 1.1 bundle under Google review unless a later rebuild/resubmission is deliberately performed. Do not disturb the in-review 1.1 release merely to include this cosmetic improvement.
+- Created and uploaded Google Play visual assets: app icon, feature graphic and five phone screenshots.
+- Google Play store listing completed with Productivity category and Shopping/Productivity tags.
+- Store listing text uses "To-do" consistently.
+- JSimpleList privacy policy is hosted at https://jobsheet.com.au/jsimplelist-privacy.html.
+- Google Play declarations completed for app access/sign-in, advertising ID, ads, data safety, government apps, financial features, health, content rating and target audience.
+- Production release 1.1 was created with app bundle version code 2 and submitted for review.
+- Production distribution was selected for 176 countries/regions plus the rest of world.
+- Google Play Publishing overview currently shows the complete 1.1 submission as "Changes in review".
+- Managed publishing is OFF, so approved changes should publish automatically.
+- Google Play showed only non-blocking warnings for missing deobfuscation and native debug-symbol files; no release-blocking errors remained.
+
+FUTURE ONLINE / SHARING ARCHITECTURE - 21 AUG 2026
+---------------------------------------------------
+Core product principle:
+- JSimpleList remains local-first.
+- Local-only use remains the default and must continue to work without account creation, login, sync or server dependency.
+- Online features are optional and should be explicitly enabled only by users who want sync, sharing or browser access.
+- Do not automatically upload existing local lists merely because a user signs in or enables online features.
+- Individual lists should have independent state rather than forcing the whole app into an online mode.
+
+Expected list states:
+- Local: exists only on the device.
+- Synced: user's own online-backed list, available on their devices and in a browser.
+- Shared: online-backed list with one or more other members.
+- The phone keeps a complete locally usable copy of online lists so normal use remains available offline.
+- A list becoming local again should not require a data conversion; the local copy already exists. Ending online access simply removes/disconnects the server relationship as appropriate.
+- Shared-list ownership/member semantics must prevent one user from silently destroying a list other members still rely on.
+
+Server authority and sync:
+- For synced/shared lists, the server should retain the current authoritative list state while online functionality is active.
+- Do not delete list items from the server merely because all current clients have received them; that would make reliable later edits, browser access, new-device sync and membership changes unnecessarily difficult.
+- Synchronisation/event history may be pruned after all relevant clients have acknowledged newer state; only current state needs durable retention for this simple product.
+- Realtime/background traffic should be conservative. Avoid aggressive polling.
+- Prefer sync on meaningful events such as app foreground, local edits, manual refresh and lightweight realtime notification while appropriate.
+- If the backend is unavailable or quotas are exhausted, cached/local lists must remain usable and no local data should be lost.
+
+Browser access:
+- Browser access should be designed together with sharing because both depend on the same account, list, membership and sync model.
+- A small web client should expose online-backed lists only.
+- Browser scope can remain deliberately minimal: choose list, add/edit/tick/delete, Shopping quantity, and refresh/unseen-state behaviour.
+- Local-only lists never appear in the browser because they never leave the device.
+
+Future funding / entitlement design:
+- Do not build billing now, but leave the architecture open for it.
+- Local-only use should remain free.
+- Online sync/sharing/browser access may initially be free while service costs are negligible.
+- If meaningful recurring backend cost develops, the preferred model is a small annual fee, notionally around US$5/year, rather than a monthly subscription.
+- Voluntary donations/support may also be offered separately from paid feature entitlement.
+- Do not hard-wire payment logic into list operations. The sync/backend layer should query an account entitlement such as whether online access is currently permitted.
+- Entitlement design should be able to support future states such as free, supporter, paid-online, promotional or admin-granted access without changing list/sync logic.
+- Avoid promising that online service will remain unlimited and free forever.
+- If funding is ever introduced, existing users should receive reasonable notice/transition rather than abrupt loss of shared data.
+- Leave room for operational safeguards such as account/list/member/item limits and backend kill switches, but do not implement them until justified.
+- Popularity should degrade safely: local use continues even if online service must be throttled, paused or temporarily disabled.
+
+BACKEND / COST FUTURE-PROOFING
+------------------------------
+- Supabase/PostgreSQL remains the leading backend candidate but is not final.
+- The backend should be designed so cost pressure is driven mainly by real usage rather than wasteful polling or excessive event retention.
+- Keep list payloads small; JSimpleList has no need for image/file attachments in the shared-list service.
+- Leave doors open for future operational controls such as:
+  - disable new online registrations
+  - disable creation of new online/shared lists
+  - temporarily suspend sync/realtime while preserving local copies
+  - sensible per-account/per-list limits
+- These controls are future-proofing requirements, not immediate implementation tasks.
+
+SESSION CLOSEOUT FILE SAFETY
+----------------------------
+Local-only files/directories must remain untracked/ignored:
+- signing.properties
+- keys/
+- app/release/
+- .idea/inspectionProfiles/
+- audit.cmd
+
+Never use a broad add command if it risks staging signing secrets or generated APK output. Prefer explicitly naming intended files.
+
 NEXT TASK
 ---------
-1. Submit JSimpleList 1.1 to Google Play.
-2. Create the Play Console app entry using package au.com.jobsheet.jsimplelist.
-3. Complete the required Play declarations, Data safety information, content rating and store listing.
-4. Publish a simple JSimpleList privacy-policy page suitable for the Play listing.
-5. Prepare screenshots and any required Play Store graphics.
-6. Upload the 1.1 Android App Bundle and complete Play App Signing setup.
-7. Submit 1.1 for Google review.
-8. Do not add further features before the 1.1 submission unless a genuine release blocker is discovered.
-9. After 1.1 submission, begin generalising the fixed Todo/Shopping implementation into a dynamic list model.
-10. The next major release is expected to include list sharing and may reasonably become version 2.0.
-11. Before publishing 2.0, explicitly test upgrade/migration from an installed 1.1 release with existing Todo/Shopping data, completed states, quantities and persisted text scale.
-12. Normal Android/Play updates should preserve SharedPreferences data; uninstalling the app removes that data.
+1. First check Google Play Console / Publishing overview for the status of JSimpleList 1.1. Current status at close is "Changes in review"; Managed publishing is off.
+2. When approved, verify the public Google Play listing is actually live and installable.
+3. Do not change or resubmit version 1.1 unless Google reports a real release blocker. The later resize-hint source improvement can wait for a subsequent version.
+4. At the start of the next coding session, inspect git status/diff and deliberately decide whether to commit the local resize-hint improvement as post-1.1 work before beginning 2.0 architecture.
+5. Before implementing sharing, design the 2.0 data model around local, synced and shared list states.
+6. Design optional authentication/account enablement so local-only users never have to register.
+7. Design shared/synced server authority, local cache/offline behaviour, conflict/revision strategy, per-list membership, unseen activity marker and manual refresh together.
+8. Design browser access as another client of the same online-list model rather than as a separate backend.
+9. Preserve an entitlement boundary around online service so a future annual fee or supporter model can be introduced without rewriting sync/list logic.
+10. Keep Supabase as a candidate only; choose the backend after the data/sync/entitlement requirements are explicit.
+11. Explicitly test upgrade/migration from installed 1.1 with existing To-do/Shopping items, completed states, quantities and persisted text scale before releasing 2.0.
