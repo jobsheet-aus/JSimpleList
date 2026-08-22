@@ -4,6 +4,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.room3.Room
+import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.pager.HorizontalPager
@@ -93,7 +95,23 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun SimpleListApp() {
     val context = LocalContext.current
-    val store = remember { SimpleListStore(context.applicationContext) }
+    val applicationContext = context.applicationContext
+    val store = remember { SimpleListStore(applicationContext) }
+    val database = remember {
+        Room.databaseBuilder<JSimpleListDatabase>(
+            context = applicationContext,
+            name = "jsimplelist.db"
+        )
+            .setDriver(AndroidSQLiteDriver())
+            .build()
+    }
+
+    LaunchedEffect(database) {
+        LegacyDataImporter(
+            store = store,
+            dao = database.dao()
+        ).importIfNeeded()
+    }
 
     val todoItems = remember {
         mutableStateListOf<SimpleListItem>().apply {
