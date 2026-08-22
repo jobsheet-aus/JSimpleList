@@ -38,6 +38,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CheckboxDefaults
@@ -140,6 +141,14 @@ private fun SimpleListApp() {
     var fontScale by remember { mutableFloatStateOf(store.loadFontScale()) }
     var showAbout by remember { mutableStateOf(false) }
     var showListSelector by remember { mutableStateOf(false) }
+    var showNewListDialog by remember { mutableStateOf(false) }
+    var newListName by remember { mutableStateOf("") }
+    var newListKind by remember { mutableStateOf(ListKind.TODO) }
+    var renameListId by remember { mutableStateOf<String?>(null) }
+    var renameListName by remember {
+        mutableStateOf(TextFieldValue(""))
+    }
+    var deleteListId by remember { mutableStateOf<String?>(null) }
     val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(fontScale) {
@@ -272,6 +281,240 @@ private fun SimpleListApp() {
             )
         }
 
+        if (showNewListDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    showNewListDialog = false
+                },
+                title = {
+                    Text("New list")
+                },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = newListName,
+                            onValueChange = { newListName = it },
+                            label = {
+                                Text("Name")
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = "Type",
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        ListKind.entries.forEach { kind ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        newListKind = kind
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = newListKind == kind,
+                                    onClick = {
+                                        newListKind = kind
+                                    }
+                                )
+
+                                Text(
+                                    text = listKindLabel(kind)
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = newListName.trim().isNotEmpty(),
+                        onClick = {
+                            val name = newListName.trim()
+                            val now = System.currentTimeMillis()
+                            val list = ListEntity(
+                                id = UUID.randomUUID().toString(),
+                                name = name,
+                                kind = newListKind.name,
+                                position =
+                                    (lists.maxOfOrNull { it.position } ?: 0) + 10,
+                                createdAt = now
+                            )
+
+                            coroutineScope.launch {
+                                dao.insertList(list)
+
+                                lists.add(list)
+                                itemsByList[list.id] =
+                                    mutableStateListOf<ItemEntity>()
+
+                                showNewListDialog = false
+                                showListSelector = false
+
+                                pagerState.animateScrollToPage(
+                                    lists.lastIndex
+                                )
+                            }
+                        }
+                    ) {
+                        Text("Create")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showNewListDialog = false
+                        }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        val renameList =
+            renameListId?.let { listId ->
+                lists.firstOrNull { it.id == listId }
+            }
+
+        val renameFocusRequester = remember { FocusRequester() }
+
+        LaunchedEffect(renameListId) {
+            if (renameListId != null) {
+                renameFocusRequester.requestFocus()
+            }
+        }
+
+        if (renameList != null) {
+            AlertDialog(
+                onDismissRequest = {
+                    renameListId = null
+                },
+                title = {
+                    Text("Rename list")
+                },
+                text = {
+                    OutlinedTextField(
+                        value = renameListName,
+                        onValueChange = { renameListName = it },
+                        label = {
+                            Text("Name")
+                        },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(renameFocusRequester)
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = renameListName.text.trim().isNotEmpty(),
+                        onClick = {
+                            val name = renameListName.text.trim()
+                            val index =
+                                lists.indexOfFirst {
+                                    it.id == renameList.id
+                                }
+
+                            if (index >= 0) {
+                                val updatedList =
+                                    renameList.copy(name = name)
+
+                                lists[index] = updatedList
+
+                                coroutineScope.launch {
+                                    dao.updateList(updatedList)
+                                }
+                            }
+
+                            renameListId = null
+                        }
+                    ) {
+                        Text("Rename")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            renameListId = null
+                        }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        val deleteList =
+            deleteListId?.let { listId ->
+                lists.firstOrNull { it.id == listId }
+            }
+
+        if (deleteList != null) {
+            AlertDialog(
+                onDismissRequest = {
+                    deleteListId = null
+                },
+                title = {
+                    Text("Delete list")
+                },
+                text = {
+                    Text(
+                        "Delete \"${deleteList.name}\" and all its items?"
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val deleteIndex =
+                                lists.indexOfFirst {
+                                    it.id == deleteList.id
+                                }
+
+                            coroutineScope.launch {
+                                dao.deleteList(deleteList.id)
+
+                                itemsByList.remove(deleteList.id)
+
+                                if (deleteIndex >= 0) {
+                                    lists.removeAt(deleteIndex)
+                                }
+
+                                deleteListId = null
+                                showListSelector = false
+
+                                if (lists.isNotEmpty()) {
+                                    val targetIndex =
+                                        deleteIndex.coerceIn(
+                                            0,
+                                            lists.lastIndex
+                                        )
+
+                                    pagerState.scrollToPage(targetIndex)
+                                }
+                            }
+                        }
+                    ) {
+                        Text("Delete")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            deleteListId = null
+                        }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
         if (lists.isNotEmpty()) {
             val currentIndex =
                 pagerState.currentPage.coerceIn(0, lists.lastIndex)
@@ -345,6 +588,23 @@ private fun SimpleListApp() {
                         .fillMaxWidth()
                         .weight(1f)
                 ) {
+                    item {
+                        TextButton(
+                            onClick = {
+                                newListName = ""
+                                newListKind = ListKind.TODO
+                                showNewListDialog = true
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp)
+                        ) {
+                            Text("+ New list")
+                        }
+
+                        HorizontalDivider()
+                    }
+
                     items(
                         items = lists,
                         key = { list -> list.id }
@@ -355,40 +615,73 @@ private fun SimpleListApp() {
                             listItems?.count { !it.completed } ?: 0
                         val index = lists.indexOf(list)
 
-                        Column(
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    showListSelector = false
-
-                                    coroutineScope.launch {
-                                        pagerState.animateScrollToPage(index)
-                                    }
-                                }
                                 .padding(
-                                    horizontal = 16.dp,
-                                    vertical = 12.dp
-                                )
+                                    start = 16.dp,
+                                    end = 8.dp,
+                                    top = 6.dp,
+                                    bottom = 6.dp
+                                ),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = list.name,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        showListSelector = false
 
-                            Text(
-                                text =
-                                    "${listKindLabel(kind)} · " +
-                                        "$itemCount " +
-                                        if (itemCount == 1) {
-                                            "item"
-                                        } else {
-                                            "items"
-                                        },
-                                fontSize = 12.sp,
-                                color =
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(index)
+                                        }
+                                    }
+                                    .padding(vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = list.name,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+
+                                Text(
+                                    text =
+                                        "${listKindLabel(kind)} · " +
+                                            "$itemCount " +
+                                            if (itemCount == 1) {
+                                                "item"
+                                            } else {
+                                                "items"
+                                            },
+                                    fontSize = 12.sp,
+                                    color =
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            TextButton(
+                                onClick = {
+                                    renameListName =
+                                        TextFieldValue(
+                                            text = list.name,
+                                            selection = TextRange(
+                                                0,
+                                                list.name.length
+                                            )
+                                        )
+                                    renameListId = list.id
+                                }
+                            ) {
+                                Text("Rename")
+                            }
+
+                            TextButton(
+                                onClick = {
+                                    deleteListId = list.id
+                                }
+                            ) {
+                                Text("Delete")
+                            }
                         }
 
                         HorizontalDivider()
@@ -427,6 +720,30 @@ private fun SimpleListApp() {
                             }
                         )
                     }
+                }
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "No lists",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Medium
+                )
+
+                TextButton(
+                    onClick = {
+                        newListName = ""
+                        newListKind = ListKind.TODO
+                        showNewListDialog = true
+                    }
+                ) {
+                    Text("+ New list")
                 }
             }
         }

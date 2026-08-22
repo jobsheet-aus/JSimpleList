@@ -113,7 +113,7 @@ DESIGN / BEHAVIOUR DECISIONS
 
 2.0 IMPLEMENTATION STATE - 22 AUG 2026
 -------------------------------------
-The 2.0 branch is now past the fixed-list persistence model. Current work is compile-tested but the Room migration/dynamic-list path still requires deliberate runtime/upgrade testing before release.
+The 2.0 branch is now past the fixed-list persistence model and the basic dynamic-list UI is working on the real Android phone. The legacy 1.1-to-Room upgrade path still requires a deliberate Google-signed upgrade test before release.
 
 Implemented architecture:
 - Added Room 3.0.1 / androidx.room3 database foundation using AndroidSQLiteDriver.
@@ -128,8 +128,15 @@ Implemented architecture:
 - `ListKind` now lives independently in `ListKind.kt` and contains TODO, SHOPPING and DISCUSSION.
 - MainActivity now reads and writes `ItemEntity` through Room; add/edit/toggle/delete operations are item-level DAO operations. Room is authoritative for current 2.0 list data.
 - MainActivity no longer has separate `todoList`, `shoppingList`, `todoItems` or `shoppingItems` state. It loads an ordered dynamic `ListEntity` collection and an item collection keyed by list UUID.
-- The currently implemented dynamic UI still temporarily renders those lists through a Compose tab row, but tab labels already come from `ListEntity.name` rather than hard-coded names.
-- Dynamic-list conversion builds successfully. Runtime behaviour on the migration path has not yet been proven on-device.
+- Permanent tabs have been removed from the 2.0 dynamic UI.
+- One current list fills the main screen; horizontal swipe moves to adjacent lists.
+- A dedicated `Lists` control opens a full-width vertical selector for direct navigation.
+- The selector is also the current list-management surface: `+ New list`, Rename and Delete.
+- Lists can now be created with a user-controlled name and intrinsic type, renamed without changing identity/type/items, and deleted locally.
+- Zero lists is a valid state. Deleting the final list shows a `No lists` / `+ New list` empty state rather than recreating To-do/Shopping.
+- The rename dialog focuses the name field and selects the full existing name so typing replaces it immediately.
+- Basic dynamic-list navigation and management have been tested successfully on the real Android phone.
+- The legacy 1.1-to-Room upgrade path itself has not yet been proven with a Google-signed update.
 
 Relevant commits in order:
 - d7ecae0 Improve resize hint visibility
@@ -142,6 +149,8 @@ Relevant commits in order:
 - aba8d0a Isolate legacy list storage
 - c261c61 Add discussion list type
 - 9bfa8cf Drive list tabs from Room
+- 4788336 Update JSimpleList 2.0 architecture context
+- ffc1a40 Add dynamic list selector
 
 2.0 dynamic-list model decisions:
 - Every list has a user-controlled name. Name and kind are independent concepts.
@@ -158,7 +167,8 @@ Relevant commits in order:
 - Add a dedicated `Lists` selector/control for direct navigation. It should open a full-width vertical list of all lists so many lists and long user-assigned names remain practical.
 - The selector is also a natural future home for list reordering and unseen-activity indicators.
 - The current-list header should give the list name highest prominence. Compact secondary metadata may include list type, incomplete item count and Local/Synced/Shared state. Member identities/initials can be shown when useful without overwhelming the header.
-- List management should belong to the current list via a small list menu rather than overloading navigation tabs. The management surface will eventually contain rename, sharing/member management, leave/remove-member actions, reorder and delete/destroy as applicable.
+- Basic list management now lives in the `Lists` selector rather than cluttering the normal list-working screen. Each selector row exposes Rename and Delete; the normal current-list header shows only `Lists`.
+- As sharing adds more owner/member actions later, the selector remains the natural management surface and may use a compact per-list menu if the action set becomes too large.
 - A more elaborate horizontal wheel/carousel selector is a possible later visual navigation mode. Do not make 2.0 depend on it. The underlying navigation contract should remain simply select-list-by-ID / previous / next so a different selector can be substituted later.
 
 List deletion / ownership semantics:
@@ -170,7 +180,7 @@ List deletion / ownership semantics:
 - Exact UX for what happens to a removed member's already-cached local copy is still to be decided; do not silently treat a stale cached copy as if it were still a live shared list.
 
 Testing / migration notes:
-- Emulator setup is currently parked because the development PC reports CPU virtualization disabled in BIOS; AEHD cannot start until VT-x is enabled. The machine also has limited RAM, so the real phone remains the practical runtime target.
+- VT-x has now been enabled on the development PC and AEHD can run, but the old 4-core/8 GB machine and unsupported GT 710 Vulkan driver make the emulator impractical. The real Android phone remains the preferred runtime target.
 - A debug-signed APK cannot update the installed release-signed 1.1 app. The real upgrade test must use the proper release/upgradable signing path so app data is retained.
 - Before 2.0 release, explicitly verify upgrade from installed 1.1 preserves To-do/Shopping items, quantities, completed states and persisted font scale.
 - Because Room import is one-time, do not use a partially migrated build for ordinary legacy editing and then expect the importer to recopy later changes.
@@ -228,6 +238,8 @@ Current decisions:
 - Lists themselves also have an explicit persisted position/order field.
 - Manual list ordering is planned functionality rather than something that requires a future schema change.
 - Creation order can seed initial positions, but the user must be able to reorder lists later.
+- Possible 2.1 preference: allow users to disable list types they do not use so those types disappear from the New list chooser. This must be a creation preference only; existing lists of a disabled type remain untouched.
+- Current New list flow is Name then Type. After creating a Discussion points list named `Doctor`, the user found that choosing Type first and then naming the list felt more natural. Leave the current order unchanged for now and monitor real use before deciding whether to move Type above Name.
 
 Settings will become more relevant when sharing exists.
 
@@ -456,6 +468,8 @@ Audit source from D:\SimpleList (absolute --path still required):
 CURRENT GIT HISTORY
 -------------------
 Recent 2.0 development commits:
+ffc1a40 Add dynamic list selector
+4788336 Update JSimpleList 2.0 architecture context
 9bfa8cf Drive list tabs from Room
 c261c61 Add discussion list type
 aba8d0a Isolate legacy list storage
@@ -483,7 +497,7 @@ e4525ba Build first working JSimpleList app
 3407abd Initial Android project
 
 Latest committed checkpoint recorded in this document:
-    9bfa8cf Drive list tabs from Room
+    ffc1a40 Add dynamic list selector
 
 The later resize-hint work is now committed as post-1.1 source work; it remains outside the already-submitted 1.1 Play bundle unless a later release deliberately includes it.
 
@@ -635,11 +649,19 @@ SESSION PROGRESS - 22 AUG 2026
 - Made Room authoritative for 2.0 list/item data and isolated legacy SharedPreferences JSON as import-only.
 - Added DISCUSSION list kind.
 - Converted MainActivity from separate fixed To-do/Shopping state to a dynamic Room-driven ListEntity collection.
-- Dynamic list labels now come from ListEntity.name.
-- Agreed that permanent tabs should give way to a selected-list header plus direct list selector, while preserving horizontal swipe between adjacent lists.
-- Agreed list selector should scale to many lists with a full-width vertical list and leave room for metadata, reordering and unseen markers.
+- Removed permanent tabs and implemented the agreed navigation: one current list, horizontal swipe between adjacent lists, and a full-width `Lists` selector for direct access.
+- Added complete basic local list management: create, rename, delete and a valid zero-list empty state.
+- Imported/default To-do and Shopping lists are now ordinary ListEntity records after import; they can be renamed or deleted like any other list.
+- Rename/Delete were deliberately removed from the normal working-list header and placed only in the `Lists` management view to avoid visual ambiguity.
+- Rename focuses the existing name with the entire text selected, ready to overwrite.
+- Created and used a Discussion points list named `Doctor` successfully on the phone.
+- The user noticed that selecting list Type before entering Name may feel more natural for creation; no change yet, monitor use first.
+- Possible 2.1 preference parked: allow unused list types to be disabled from the New list chooser without altering existing lists.
+- Agreed list selector should scale to many lists and leave room for later metadata, reordering and unseen markers.
 - Agreed owner/member destruction and ejection semantics described above, including the need for server-side deletion propagation to offline clients.
-- Current dynamic Room build compiles successfully. Runtime migration/UI testing remains pending.
+- Current debug build completed successfully (`assembleDebug`), `git diff --check` reported no whitespace errors, and ADB install/update of the debug APK succeeded on the real phone.
+- Immediately before this context-document closeout, `git status --short` showed only `app/src/main/java/au/com/jobsheet/jsimplelist/MainActivity.kt` modified.
+- The local application layer is now sufficiently established to begin remote database/connectivity design. The next phase should start with the remote schema and sync contract rather than jumping directly to shared-list UI.
 
 SESSION CLOSEOUT FILE SAFETY
 ----------------------------
@@ -654,13 +676,13 @@ Never use a broad add command if it risks staging signing secrets or generated A
 
 NEXT TASK
 ---------
-1. Continue from commit 9bfa8cf. Inspect git status before any new edit.
-2. Replace the temporary dynamic PrimaryTabRow navigation with the agreed 2.0 navigation structure: one current-list header, horizontal swipe for adjacent lists, and a `Lists` control that opens a full-width vertical direct selector.
-3. Add list creation and rename using user-supplied name + intrinsic type; list name is not unique and is independent of type.
-4. Add list-management UI incrementally after navigation is stable: local delete, shared leave, owner member management/ejection, and owner destroy.
-5. Keep list/item position fields as the basis for later manual reordering; do not introduce a different ordering model.
-6. Do not implement the flashy wheel/carousel selector as a 2.0 dependency. Preserve select-by-ID / previous / next underneath so it can be explored later.
-7. Before relying on the Room migration path, perform a real runtime test. Before releasing 2.0, perform a signed upgrade test from installed 1.1 preserving items, quantities, completed states and font scale.
-8. When online work begins, keep local-only use account-free and offline-capable; use the same list/membership model for phone and `jslist.jobsheet.com.au`.
-9. Keep Supabase/PostgreSQL as the leading candidate, not a final choice, until sync/revision/deletion/membership requirements are fully explicit.
+1. Inspect git status and diff at session start. The expected closeout commit contains the current `MainActivity.kt` dynamic-list-management changes plus this context document.
+2. Begin the online phase with a remote schema and sync contract before implementing shared-list UI. Make users, lists, items, memberships/roles, timestamps/revisions and deletion/tombstone semantics explicit.
+3. Keep Supabase/PostgreSQL as the leading backend candidate while validating that its Auth, Row Level Security, relational membership and realtime model satisfy the agreed requirements.
+4. Add authentication only for online use. Preferred initial flow remains emailed six-digit OTP with a persistent session; local-only use must remain account-free.
+5. First prove one-list online round-trip behaviour: deliberately opt a local list into online backing, upload list/items, keep the complete Room copy, fetch/reconcile from server, and preserve UUIDs, ordering, quantities, completion and names.
+6. Then implement conservative two-way synchronization and offline reconciliation. Server-backed deletions must use tombstone/deletion state long enough for offline clients to learn the deletion and must not permit stale resurrection.
+7. Add sharing/membership only after ordinary synced-list round trips are reliable. Then implement owner/member rules, remove/leave/destroy semantics and per-user unseen state.
+8. Keep list/item position fields as the ordering basis. Do not introduce a different ordering model when sync begins.
+9. Before releasing 2.0, perform the real Google-signed upgrade test from installed 1.1 and verify preservation of To-do/Shopping items, quantities, completed states and font scale.
 10. Preserve the online entitlement/cost-control boundary already recorded; local-only use must remain independent of backend availability.
