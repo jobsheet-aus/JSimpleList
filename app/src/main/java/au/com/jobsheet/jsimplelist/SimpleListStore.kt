@@ -14,6 +14,10 @@ class SimpleListStore(context: Context) {
     private val preferences =
         context.getSharedPreferences("simple_list", Context.MODE_PRIVATE)
 
+    fun hasLegacyLists(): Boolean =
+        preferences.contains(KEY_TODO_ITEMS) ||
+            preferences.contains(KEY_SHOPPING_ITEMS)
+
     fun loadItems(kind: ListKind): List<LegacySimpleListItem> {
         val raw = preferences.getString(itemsKey(kind), null) ?: return emptyList()
 

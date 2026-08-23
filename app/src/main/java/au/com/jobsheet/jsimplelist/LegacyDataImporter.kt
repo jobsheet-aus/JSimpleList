@@ -7,6 +7,10 @@ class LegacyDataImporter(
     private val dao: JSimpleListDao
 ) {
     suspend fun importIfNeeded(): Boolean {
+        if (!store.hasLegacyLists()) {
+            return false
+        }
+
         val now = System.currentTimeMillis()
 
         val todoListId = UUID.randomUUID().toString()

@@ -35,6 +35,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -99,6 +101,8 @@ private fun SimpleListApp() {
     val context = LocalContext.current
     val applicationContext = context.applicationContext
     val store = remember { SimpleListStore(applicationContext) }
+    val authRepository = remember { AuthRepository() }
+    val profileRepository = remember { ProfileRepository() }
     val database = remember {
         Room.databaseBuilder<JSimpleListDatabase>(
             context = applicationContext,
@@ -139,10 +143,20 @@ private fun SimpleListApp() {
     )
     val coroutineScope = rememberCoroutineScope()
     var fontScale by remember { mutableFloatStateOf(store.loadFontScale()) }
+    var showMenu by remember { mutableStateOf(false) }
+    var showListSharing by remember { mutableStateOf(false) }
+    var showDisableSharing by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     var showListSelector by remember { mutableStateOf(false) }
     var showNewListDialog by remember { mutableStateOf(false) }
-    var newListName by remember { mutableStateOf("") }
+    var newListName by remember {
+        mutableStateOf(
+            TextFieldValue(
+                text = "To-do list",
+                selection = TextRange(0, "To-do list".length)
+            )
+        )
+    }
     var newListKind by remember { mutableStateOf(ListKind.TODO) }
     var renameListId by remember { mutableStateOf<String?>(null) }
     var renameListName by remember {
@@ -187,14 +201,124 @@ private fun SimpleListApp() {
 
             Spacer(modifier = Modifier.weight(1f))
 
-            TextButton(
-                onClick = { showAbout = true }
-            ) {
-                Text(
-                    text = "ⓘ",
-                    fontSize = 22.sp
-                )
+            Box {
+                TextButton(
+                    onClick = { showMenu = true }
+                ) {
+                    Text(
+                        text = "☰",
+                        fontSize = 24.sp
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    modifier = Modifier.width(230.dp)
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "List sharing",
+                                fontSize = 16.sp
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            showListSharing = true
+                        },
+                        modifier = Modifier.height(58.dp)
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "Disable sharing",
+                                fontSize = 16.sp
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            showDisableSharing = true
+                        },
+                        modifier = Modifier.height(58.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "About",
+                                fontSize = 16.sp
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            showAbout = true
+                        },
+                        modifier = Modifier.height(58.dp)
+                    )
+                }
             }
+        }
+
+        if (showListSharing) {
+            AuthDialog(
+                repository = authRepository,
+                profileRepository = profileRepository,
+                onDismiss = {
+                    showListSharing = false
+                }
+            )
+        }
+
+        if (showDisableSharing) {
+            AlertDialog(
+                onDismissRequest = {
+                    showDisableSharing = false
+                },
+                title = {
+                    Text("Disable sharing")
+                },
+                text = {
+                    Column {
+                        Text(
+                            "This permanently removes your JSimpleList online " +
+                                "account and shared-list access."
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            "Local lists stored on this device are not deleted."
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            "Shared lists you own will be destroyed and other " +
+                                "members will lose access."
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            "Account deletion is not yet enabled in this " +
+                                "development build."
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showDisableSharing = false
+                        }
+                    ) {
+                        Text("Close")
+                    }
+                }
+            )
         }
 
         if (showAbout) {
@@ -291,6 +415,67 @@ private fun SimpleListApp() {
                 },
                 text = {
                     Column {
+                        Text(
+                            text = "Type",
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        ListKind.entries.forEach { kind ->
+                            val selectKind = {
+                                val existingDefault =
+                                    when (newListKind) {
+                                        ListKind.TODO -> "To-do list"
+                                        ListKind.SHOPPING -> "Shopping list"
+                                        ListKind.DISCUSSION -> "Discussion points"
+                                    }
+
+                                val newDefault =
+                                    when (kind) {
+                                        ListKind.TODO -> "To-do list"
+                                        ListKind.SHOPPING -> "Shopping list"
+                                        ListKind.DISCUSSION -> "Discussion points"
+                                    }
+
+                                val replaceName =
+                                    newListName.text.isBlank() ||
+                                        newListName.text == existingDefault
+
+                                newListKind = kind
+
+                                if (replaceName) {
+                                    newListName = TextFieldValue(
+                                        text = newDefault,
+                                        selection = TextRange(
+                                            0,
+                                            newDefault.length
+                                        )
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectKind()
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = newListKind == kind,
+                                    onClick = {
+                                        selectKind()
+                                    }
+                                )
+
+                                Text(
+                                    text = listKindLabel(kind)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
                         OutlinedTextField(
                             value = newListName,
                             onValueChange = { newListName = it },
@@ -300,42 +485,13 @@ private fun SimpleListApp() {
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text(
-                            text = "Type",
-                            fontWeight = FontWeight.Medium
-                        )
-
-                        ListKind.entries.forEach { kind ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        newListKind = kind
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = newListKind == kind,
-                                    onClick = {
-                                        newListKind = kind
-                                    }
-                                )
-
-                                Text(
-                                    text = listKindLabel(kind)
-                                )
-                            }
-                        }
                     }
                 },
                 confirmButton = {
                     TextButton(
-                        enabled = newListName.trim().isNotEmpty(),
+                        enabled = newListName.text.trim().isNotEmpty(),
                         onClick = {
-                            val name = newListName.trim()
+                            val name = newListName.text.trim()
                             val now = System.currentTimeMillis()
                             val list = ListEntity(
                                 id = UUID.randomUUID().toString(),
@@ -354,7 +510,6 @@ private fun SimpleListApp() {
                                     mutableStateListOf<ItemEntity>()
 
                                 showNewListDialog = false
-                                showListSelector = false
 
                                 pagerState.animateScrollToPage(
                                     lists.lastIndex
@@ -486,7 +641,6 @@ private fun SimpleListApp() {
                                 }
 
                                 deleteListId = null
-                                showListSelector = false
 
                                 if (lists.isNotEmpty()) {
                                     val targetIndex =
@@ -591,7 +745,15 @@ private fun SimpleListApp() {
                     item {
                         TextButton(
                             onClick = {
-                                newListName = ""
+                                val defaultName = "To-do list"
+
+                                newListName = TextFieldValue(
+                                    text = defaultName,
+                                    selection = TextRange(
+                                        0,
+                                        defaultName.length
+                                    )
+                                )
                                 newListKind = ListKind.TODO
                                 showNewListDialog = true
                             },
@@ -738,7 +900,15 @@ private fun SimpleListApp() {
 
                 TextButton(
                     onClick = {
-                        newListName = ""
+                        val defaultName = "To-do list"
+
+                        newListName = TextFieldValue(
+                            text = defaultName,
+                            selection = TextRange(
+                                0,
+                                defaultName.length
+                            )
+                        )
                         newListKind = ListKind.TODO
                         showNewListDialog = true
                     }

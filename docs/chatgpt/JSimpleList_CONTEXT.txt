@@ -111,18 +111,6 @@ DESIGN / BEHAVIOUR DECISIONS
 - Do not expose an easy direct support-email channel in the app.
 - GitHub and jobsheet.com.au are the preferred public information links.
 
-added manually by Josh, worded by chatgpt after document production 23/08/2026 2151 ACST
-
-List ownership is absolute.
-
-The user who creates an online list remains its owner.
-Ownership is not transferred or inherited by another member.
-Deleting the owner's online account destroys that owner's online/shared lists.
-Other members consequently lose access to those lists.
-Local-only lists on members' devices are unaffected.
-
-
-
 2.0 IMPLEMENTATION STATE - 22 AUG 2026
 -------------------------------------
 The 2.0 branch is now past the fixed-list persistence model and the basic dynamic-list UI is working on the real Android phone. The legacy 1.1-to-Room upgrade path still requires a deliberate Google-signed upgrade test before release.
@@ -133,8 +121,8 @@ Implemented architecture:
 - `lists`: UUID id, user-controlled name, kind, position, createdAt.
 - `items`: UUID id, listId FK with cascade delete, description, nullable quantity, completed, position, createdAt, updatedAt.
 - Item ordering query keeps incomplete items above completed items while respecting manual position within each group.
-- Legacy 1.1 SharedPreferences JSON is imported into Room only when the Room database has no lists.
-- Legacy importer creates default `To-do` and `Shopping` ListEntity records and preserves old descriptions, quantities, completed state and list order; old timestamp IDs are retained as createdAt/updatedAt while new Room item IDs are UUIDs.
+- Legacy 1.1 SharedPreferences JSON is imported into Room only when the Room database has no lists and genuine legacy `todo_items` / `shopping_items` keys exist. A fresh 2.0 install does not fabricate legacy data.
+- For a genuine 1.1 upgrade, the legacy importer creates `To-do` and `Shopping` ListEntity records and preserves old descriptions, quantities, completed state and list order; old timestamp IDs are retained as createdAt/updatedAt while new Room item IDs are UUIDs.
 - Legacy JSON remains untouched during import.
 - `SimpleListItem` was renamed to `LegacySimpleListItem`; legacy save/write code was removed so future UI code cannot accidentally continue writing the old JSON format.
 - `ListKind` now lives independently in `ListKind.kt` and contains TODO, SHOPPING and DISCUSSION.
@@ -145,7 +133,7 @@ Implemented architecture:
 - A dedicated `Lists` control opens a full-width vertical selector for direct navigation.
 - The selector is also the current list-management surface: `+ New list`, Rename and Delete.
 - Lists can now be created with a user-controlled name and intrinsic type, renamed without changing identity/type/items, and deleted locally.
-- Zero lists is a valid state. Deleting the final list shows a `No lists` / `+ New list` empty state rather than recreating To-do/Shopping.
+- Zero lists is a valid state. Fresh 2.0 installs start with zero lists. Deleting the final list shows a `No lists` / `+ New list` empty state rather than recreating To-do/Shopping.
 - The rename dialog focuses the name field and selects the full existing name so typing replaces it immediately.
 - Basic dynamic-list navigation and management have been tested successfully on the real Android phone.
 - The legacy 1.1-to-Room upgrade path itself has not yet been proven with a Google-signed update.
@@ -168,7 +156,8 @@ Relevant commits in order:
 - Every list has a user-controlled name. Name and kind are independent concepts.
 - List names do not need to be unique because UUIDs are the real identity.
 - Example valid combinations: `Bunnings` / SHOPPING, `House jobs` / TODO, `Monday toolbox meeting` / DISCUSSION.
-- Creating a list should ask for at least Name and Type. User-facing type labels are To-do, Shopping and Discussion points.
+- New-list creation order is Type -> Name -> Create. User-facing type labels are To-do, Shopping and Discussion points.
+- Default names are `To-do list`, `Shopping list` and `Discussion points`. The default name is fully selected ready to overwrite. Changing type updates/reselects the name only while it is still blank or still the previous type's default; a custom user-entered name is preserved.
 - Renaming a list changes only `ListEntity.name`; it must not change UUID, type, contents, sharing identity or membership.
 - Every list and every item carries an explicit position/order field so manual reordering does not require a future schema migration.
 
@@ -180,15 +169,18 @@ Relevant commits in order:
 - The selector is also a natural future home for list reordering and unseen-activity indicators.
 - The current-list header should give the list name highest prominence. Compact secondary metadata may include list type, incomplete item count and Local/Synced/Shared state. Member identities/initials can be shown when useful without overwhelming the header.
 - Basic list management now lives in the `Lists` selector rather than cluttering the normal list-working screen. Each selector row exposes Rename and Delete; the normal current-list header shows only `Lists`.
+- Views/menus remain open until the user explicitly navigates away. Create, Rename and Delete dialogs close themselves but must not implicitly close the underlying `Lists` view; tapping a specific list or `Close` is explicit navigation and may close it. Apply the same principle to future views/menus.
 - As sharing adds more owner/member actions later, the selector remains the natural management surface and may use a compact per-list menu if the action set becomes too large.
 - A more elaborate horizontal wheel/carousel selector is a possible later visual navigation mode. Do not make 2.0 depend on it. The underlying navigation contract should remain simply select-list-by-ID / previous / next so a different selector can be substituted later.
 
 List deletion / ownership semantics:
+- List ownership is absolute: the user who creates an online list remains its owner. Ownership is not transferred or inherited by another member.
 - Local list: the user can delete it.
 - Owned shared list: owner can manage members, eject individual members, rename it and destroy the whole list.
 - Shared list owned by someone else: member can leave, but cannot destroy the shared list.
 - Owner removing a member must revoke that member's server access while leaving the list alive for remaining members.
 - Owner destroying a list ejects all members. Deletion must be represented long enough for offline clients to learn that the authoritative shared list was destroyed.
+- Deleting the owner's online account destroys that owner's online/shared lists; other members consequently lose access. Local-only lists on members' devices are unaffected.
 - Exact UX for what happens to a removed member's already-cached local copy is still to be decided; do not silently treat a stale cached copy as if it were still a live shared list.
 
 Testing / migration notes:
@@ -231,8 +223,7 @@ Expected behaviour:
 - Realtime synchronization should normally happen silently; manual refresh is a user-controlled sanity check.
 
 Possible server/backend direction:
-- Supabase/PostgreSQL is the leading candidate because it provides authentication, relational membership, Row Level Security and realtime capabilities without requiring a custom Flask service.
-- No final backend choice has been committed yet.
+- Supabase/PostgreSQL is the selected 2.0 online backend because it provides authentication, relational membership, Row Level Security and realtime capabilities without requiring a custom Flask service.
 - Authentication remains optional for local-only use. For online use, the preferred initial login is an emailed six-digit one-time code with a persistent session; password support can remain optional/later.
 - Likely server data concepts: users, lists, list_members, items, plus enough deletion/revision state for reliable offline reconciliation.
 - Server-side authorization must ensure only current members of a list can read/change that list and only the owner can perform owner-only membership/destruction operations.
@@ -251,7 +242,7 @@ Current decisions:
 - Manual list ordering is planned functionality rather than something that requires a future schema change.
 - Creation order can seed initial positions, but the user must be able to reorder lists later.
 - Possible 2.1 preference: allow users to disable list types they do not use so those types disappear from the New list chooser. This must be a creation preference only; existing lists of a disabled type remain untouched.
-- Current New list flow is Name then Type. After creating a Discussion points list named `Doctor`, the user found that choosing Type first and then naming the list felt more natural. Leave the current order unchanged for now and monitor real use before deciding whether to move Type above Name.
+- New list flow is firmly Type -> Name -> Create after repeated real-phone use confirmed that Type-first feels more natural. Default names are supplied and fully selected ready to overwrite.
 
 Settings will become more relevant when sharing exists.
 
@@ -263,8 +254,8 @@ Future sharing-related Settings areas, only when sharing exists:
 - Leave list / remove member where permitted.
 - Manual refresh/sync controls if not placed directly in the shared-list UI.
 
-Do not add empty Account, Sharing or Groups sections before those features exist.
-About remains a separate top-right control.
+Do not add empty Account or Groups sections before those features exist.
+A top-right three-line menu now contains `List sharing`, `Disable sharing` and `About`, with About at the bottom. The old standalone About icon and temporary Account button are removed.
 
 LICENSING / CONTRIBUTIONS
 -------------------------
@@ -316,6 +307,11 @@ CMD / TOOLING OPERATING NOTES - 23 AUG 2026
 
 WORKING STYLE
 -------------
+- Use warm, plain, purpose-led UI wording. Avoid alienating implementation/account terminology where a feature description is clearer; authentication is presented under `List sharing`.
+- When referring to an address, write `email address`, not the ambiguous shorthand `email`.
+- User-facing informational phrases do not take trailing full stops.
+- Use Manrope throughout every Material typography role, menu, dialog and normal app text.
+- Menus/dialogs use the same white surface as the app rather than Material's default tinted surface containers.
 - Prefer the smallest practical change.
 - Bundle related UI tweaks into as few iterations as practical.
 - Build before committing.
@@ -724,15 +720,45 @@ Git checkpoints:
 - `14f7277 Add Supabase Android client`
 - Working tree was clean immediately after `14f7277`; later SMTP/template configuration is Supabase/Resend/Proton account state rather than repository content.
 
+SESSION CLOSEOUT - 24 AUG 2026 - AUTH / PROFILE / UI FOUNDATION
+---------------------------------------------------------------
+Major work completed this session:
+- Repository checkpoint at session start was `e9a0f09 Update JSimpleList Supabase context`; working tree then accumulated the 2.0 auth/profile/UI work below and remained uncommitted at session closeout.
+- Added modular `AuthRepository.kt` using Supabase email OTP authentication. Six-digit OTP delivery through Supabase -> Resend -> `jsimplelist@jobsheet.com.au` was proven on the real phone.
+- Supabase email OTP length was explicitly configured to 6 digits.
+- Auth session persistence was proven across normal app close/reopen. Uninstalling the debug app correctly removes the locally stored session; re-authentication with the same email address resolves to the same persistent Supabase user identity rather than a new JSimpleList identity. Multiple device/browser sessions are acceptable and must never be used as ownership identity.
+- Added Kotlin serialization compiler support and modular `ProfileRepository.kt`. `jsimplelist.profiles` is keyed by stable `auth.users.id`; display names are user-chosen, non-unique and limited by the database to 1-50 trimmed characters.
+- First-time authenticated users are asked `What should we call you?` and save a display name. Existing profiles load automatically on later sessions.
+- Existing display names are edited in place by tapping the displayed name. The full name is selected, focus is explicitly requested and the soft keyboard opens immediately; Save updates the same profile, Cancel leaves the saved value unchanged.
+- Added a top-right three-line menu. Initial entries are `List sharing`, `Disable sharing`, and `About`, with About at the bottom. The old separate About icon and temporary Account button were removed.
+- `List sharing` is the user-facing home for authentication/sharing identity. Wording is deliberately purpose-led rather than account-led. Email input is labelled `Email address`; OTP wording is `We'll email you a 6-digit one time password`; informational phrases avoid trailing full stops.
+- `Disable sharing` has a separate destructive information surface. Actual privileged account deletion is not implemented yet and must not be faked by sign-out; it remains a later controlled server-side operation.
+- Material typography now uses Manrope for all roles, not only a subset. Material surface-container colours were set to the app's white surface so menus/dialogs no longer have a mismatched grey tint.
+- Fixed list-view navigation persistence: creating or deleting a list no longer drops the user out of the `Lists` view. Create/Rename/Delete close only their own dialogs; the Lists view remains until explicit navigation.
+- New-list creation order is now Type -> Name -> Create. Repeated real-phone use confirmed this is preferable to Name-first.
+- New-list default names are `To-do list`, `Shopping list`, and `Discussion points`. Defaults are fully selected ready to overwrite; changing type updates the default only while it remains a default, and preserves custom names.
+- Fresh 2.0 installs now begin with zero lists. Legacy To-do/Shopping list creation occurs only when genuine 1.1 SharedPreferences list keys exist, preserving the real upgrade path without fabricating lists on a new install.
+- The real phone was used throughout. Builds repeatedly completed successfully with `gradlew.bat assembleDebug`; `git diff --check` remained clean apart from expected LF/CRLF warnings.
+
+Current uncommitted files at closeout (from the last observed status plus later edits):
+- `app/build.gradle.kts`
+- `app/src/main/java/au/com/jobsheet/jsimplelist/AuthDialog.kt` (new)
+- `app/src/main/java/au/com/jobsheet/jsimplelist/AuthRepository.kt` (new)
+- `app/src/main/java/au/com/jobsheet/jsimplelist/ProfileRepository.kt` (new)
+- `app/src/main/java/au/com/jobsheet/jsimplelist/LegacyDataImporter.kt`
+- `app/src/main/java/au/com/jobsheet/jsimplelist/MainActivity.kt`
+- `app/src/main/java/au/com/jobsheet/jsimplelist/SimpleListStore.kt`
+- `app/src/main/java/au/com/jobsheet/jsimplelist/ui/theme/Type.kt`
+- `app/src/main/java/au/com/jobsheet/jsimplelist/ui/theme/Theme.kt` (later white surface-container change; verify with git status next session)
+- `gradle/libs.versions.toml`
+
 NEXT TASK
 ---------
-1. Start by checking `git status --short` and `git --no-pager log --oneline -4`. Expected committed head at this closeout is `14f7277 Add Supabase Android client` unless the context-document update has since been committed.
-2. Implement the first real online milestone only: email OTP authentication. Keep authentication modular (e.g. repository + small auth composable) and keep existing Room/list UI largely isolated from Supabase auth code.
-3. Flow: enter email -> request six-digit OTP -> enter code -> verify Supabase session -> obtain stable auth UUID -> create/read `jsimplelist.profiles`; first-time users choose their own display name.
-4. Prove session persistence/sign-out and profile RLS before implementing list sync.
-5. Do not require login for local-only use and do not automatically upload local lists after sign-in.
-6. After auth/profile is reliable, prove one deliberately opted-in list round trip using the same list/item UUIDs in Room and Supabase. Preserve name, kind, quantities, completion, timestamps/order and tombstone semantics.
-7. Then add sharing/invitations/member UI, conservative sync/reconciliation, unseen-activity marker and manual refresh behaviour.
-8. Implement `Delete online account` as part of the account feature set before public 2.0 release, using the ownership/destruction semantics above.
-9. Before releasing 2.0, perform the real Google-signed upgrade test from installed 1.1 and verify preservation of To-do/Shopping items, quantities, completed states and font scale.
-10. Preserve the cost-control/entitlement boundary; local-only use must remain usable even if Supabase is unavailable, throttled or later requires paid online entitlement.
+1. Start by running `git status --short` and `git --no-pager log --oneline -4`. Do not assume the uncommitted-file list above is exhaustive; verify current state.
+2. Review/diff the accumulated auth/profile/UI work, build once more, test the key paths on the real phone, then commit and push this coherent milestone before beginning list sync.
+3. Begin the first actual online-list milestone: deliberately opt one existing/local list into online backing and prove a Room <-> Supabase round trip using the same list/item UUIDs. Do not automatically upload all local lists merely because the user is authenticated.
+4. Preserve list name, kind, quantities, completion, item/list ordering, timestamps and deletion/tombstone semantics. Server-backed lists remain fully usable from the local Room copy while offline.
+5. After one-list round-trip reliability is proven, implement invitations/member UI, conservative reconciliation/realtime behaviour, unseen-activity marker and genuine manual refresh.
+6. Implement the controlled privileged `Delete online account` / Disable sharing operation before public 2.0 release, using the absolute ownership/destruction semantics recorded above. Ordinary Sign out remains a separate non-destructive action.
+7. Before releasing 2.0, perform the real Google-signed upgrade test from installed 1.1 and verify preservation of To-do/Shopping items, quantities, completed states and font scale.
+8. Preserve the cost-control/entitlement boundary; local-only use must remain usable even if Supabase is unavailable, throttled or later requires paid online entitlement.

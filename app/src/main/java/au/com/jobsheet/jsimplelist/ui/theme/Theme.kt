@@ -14,6 +14,11 @@ private val JSimpleListColorScheme = lightColorScheme(
     onSurface = JsText,
     surfaceVariant = JsSurfaceVariant,
     onSurfaceVariant = JsMutedText,
+    surfaceContainerLowest = JsSurface,
+    surfaceContainerLow = JsSurface,
+    surfaceContainer = JsSurface,
+    surfaceContainerHigh = JsSurface,
+    surfaceContainerHighest = JsSurface,
     outline = JsBorder
 )
 
