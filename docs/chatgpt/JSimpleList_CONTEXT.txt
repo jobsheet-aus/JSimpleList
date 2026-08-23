@@ -111,6 +111,18 @@ DESIGN / BEHAVIOUR DECISIONS
 - Do not expose an easy direct support-email channel in the app.
 - GitHub and jobsheet.com.au are the preferred public information links.
 
+added manually by Josh, worded by chatgpt after document production 23/08/2026 2151 ACST
+
+List ownership is absolute.
+
+The user who creates an online list remains its owner.
+Ownership is not transferred or inherited by another member.
+Deleting the owner's online account destroys that owner's online/shared lists.
+Other members consequently lose access to those lists.
+Local-only lists on members' devices are unaffected.
+
+
+
 2.0 IMPLEMENTATION STATE - 22 AUG 2026
 -------------------------------------
 The 2.0 branch is now past the fixed-list persistence model and the basic dynamic-list UI is working on the real Android phone. The legacy 1.1-to-Room upgrade path still requires a deliberate Google-signed upgrade test before release.
@@ -292,6 +304,15 @@ Never provide approximate blocks, inferred indentation, guessed spacing, or para
 If exact current source has not been inspected, inspect it first.
 
 This rule is mandatory for future JSimpleList sessions.
+
+CMD / TOOLING OPERATING NOTES - 23 AUG 2026
+------------------------------------------
+- Assume Windows CMD, not PowerShell. CMD does not accept a pasted multi-line block as one command sequence; put commands on one line and join dependent commands with `&&`.
+- Prefer `git --no-pager ...` wherever Git supports it so output can be pasted directly without entering a pager.
+- `audit` from D:\SimpleList still requires an absolute `--path D:\simplelist\...`; relative paths can return `Files scanned: 0`.
+- Exact source/search/replacement text must be provided in code blocks. Do not copy markdown-escaped renderings of underscores/backslashes into CMD or source files.
+- `local.properties` is local-only and must remain untracked. Its Windows SDK path uses escaped backslashes, e.g. `sdk.dir=C:\\Users\\Josh\\AppData\\Local\\Android\\Sdk`; single backslashes caused AGP `java.io.IOException: Invalid file path` on a fresh uncached build.
+- Supabase project URL and publishable key are read from `local.properties` into BuildConfig. The publishable key may ship in the APK; never put a Supabase secret/service-role key or Resend API key in the app/repository.
 
 WORKING STYLE
 -------------
@@ -632,7 +653,7 @@ Future funding / entitlement design:
 
 BACKEND / COST FUTURE-PROOFING
 ------------------------------
-- Supabase/PostgreSQL remains the leading backend candidate but is not final.
+- Supabase/PostgreSQL is now the selected 2.0 online backend; the schema/RLS/RPC foundation is implemented in migrations/001-014.
 - The backend should be designed so cost pressure is driven mainly by real usage rather than wasteful polling or excessive event retention.
 - Keep list payloads small; JSimpleList has no need for image/file attachments in the shared-list service.
 - Leave doors open for future operational controls such as:
@@ -674,15 +695,44 @@ Local-only files/directories must remain untracked/ignored:
 
 Never use a broad add command if it risks staging signing secrets or generated APK output. Prefer explicitly naming intended files.
 
+SESSION CLOSEOUT - 23 AUG 2026 - SUPABASE / AUTH FOUNDATION
+------------------------------------------------------------
+Backend and Android foundation completed:
+- Supabase project created and `jsimplelist` custom schema exposed for the Data API.
+- Remote schema uses UUID primary keys for lists and items. For an online-backed record, the local Room UUID is preserved as the Supabase UUID; do not create a second server identity.
+- Profiles use `auth.users.id` UUID as authority; display names are user-chosen, non-unique aliases. Email is an authentication/invitation address, not a user-facing identity.
+- SQL migrations 001-014 are stored under `migrations/` and committed. They cover base schema, RLS, private security-definer helpers, invitations, controlled list creation/acceptance, sync snapshot/tombstones, tightening direct writes, and per-user list position.
+- Shared-list list-order position is per-user and belongs on `list_members.position`; item position remains shared on `items.position`. This is a design constraint: different members may order the same shared list differently among their own lists, while everyone shares the same item order inside the list.
+- Ordinary direct client writes to sensitive membership/list-creation paths were removed in favour of controlled RPC functions.
+- Normal item/list reads hide deleted rows; sync uses a controlled snapshot that can return tombstone/removal state so offline clients can learn deletions without weakening normal RLS reads.
+- Android dependencies now include supabase-kt 3.2.1 Auth/PostgREST and Ktor Android 3.2.1. `JSimpleListSupabase` is implemented with PostgREST default schema `jsimplelist`.
+- Android 2.0 manifest now has INTERNET permission; local-only behaviour remains independent of network/account state.
+- Supabase URL and publishable key are supplied locally through BuildConfig; a fresh `--no-configuration-cache assembleDebug` succeeded after correcting the escaped Windows SDK path in `local.properties`.
+- Supabase custom SMTP is configured through Resend using the dedicated sender `jsimplelist@jobsheet.com.au`; Proton now has that address. A dedicated restricted Resend sending API key is used only as the Supabase SMTP password.
+- Supabase Magic link or OTP email template now sends a six-digit `{{ .Token }}` code, explicitly stating that it is valid for 1 hour and single-use.
+
+Account / ownership decisions:
+- Online identities are persistent Supabase Auth users with stable UUIDs; sessions may expire/sign out without deleting the account.
+- Local-only use remains account-free. Signing in must never automatically upload existing local lists.
+- JSimpleList must provide a transparent `Delete online account` function. Local Room lists on that device are not deleted by online-account deletion.
+- Account-deletion wording/semantics: `This permanently removes your JSimpleList online account and shared-list access. Local lists stored on this device are not deleted. Shared lists you own will be destroyed.`
+- Ownership transfer is deliberately not required. The creator/owner owns the online shared list; deleting the owner's online account destroys that owner's online shared lists and other members lose access.
+- Account deletion itself must be a controlled privileged server-side operation; no admin/secret credential may be shipped to Android.
+
+Git checkpoints:
+- `ee9e561 Add Supabase backend foundation`
+- `14f7277 Add Supabase Android client`
+- Working tree was clean immediately after `14f7277`; later SMTP/template configuration is Supabase/Resend/Proton account state rather than repository content.
+
 NEXT TASK
 ---------
-1. Inspect git status and diff at session start. The expected closeout commit contains the current `MainActivity.kt` dynamic-list-management changes plus this context document.
-2. Begin the online phase with a remote schema and sync contract before implementing shared-list UI. Make users, lists, items, memberships/roles, timestamps/revisions and deletion/tombstone semantics explicit.
-3. Keep Supabase/PostgreSQL as the leading backend candidate while validating that its Auth, Row Level Security, relational membership and realtime model satisfy the agreed requirements.
-4. Add authentication only for online use. Preferred initial flow remains emailed six-digit OTP with a persistent session; local-only use must remain account-free.
-5. First prove one-list online round-trip behaviour: deliberately opt a local list into online backing, upload list/items, keep the complete Room copy, fetch/reconcile from server, and preserve UUIDs, ordering, quantities, completion and names.
-6. Then implement conservative two-way synchronization and offline reconciliation. Server-backed deletions must use tombstone/deletion state long enough for offline clients to learn the deletion and must not permit stale resurrection.
-7. Add sharing/membership only after ordinary synced-list round trips are reliable. Then implement owner/member rules, remove/leave/destroy semantics and per-user unseen state.
-8. Keep list/item position fields as the ordering basis. Do not introduce a different ordering model when sync begins.
+1. Start by checking `git status --short` and `git --no-pager log --oneline -4`. Expected committed head at this closeout is `14f7277 Add Supabase Android client` unless the context-document update has since been committed.
+2. Implement the first real online milestone only: email OTP authentication. Keep authentication modular (e.g. repository + small auth composable) and keep existing Room/list UI largely isolated from Supabase auth code.
+3. Flow: enter email -> request six-digit OTP -> enter code -> verify Supabase session -> obtain stable auth UUID -> create/read `jsimplelist.profiles`; first-time users choose their own display name.
+4. Prove session persistence/sign-out and profile RLS before implementing list sync.
+5. Do not require login for local-only use and do not automatically upload local lists after sign-in.
+6. After auth/profile is reliable, prove one deliberately opted-in list round trip using the same list/item UUIDs in Room and Supabase. Preserve name, kind, quantities, completion, timestamps/order and tombstone semantics.
+7. Then add sharing/invitations/member UI, conservative sync/reconciliation, unseen-activity marker and manual refresh behaviour.
+8. Implement `Delete online account` as part of the account feature set before public 2.0 release, using the ownership/destruction semantics above.
 9. Before releasing 2.0, perform the real Google-signed upgrade test from installed 1.1 and verify preservation of To-do/Shopping items, quantities, completed states and font scale.
-10. Preserve the online entitlement/cost-control boundary already recorded; local-only use must remain independent of backend availability.
+10. Preserve the cost-control/entitlement boundary; local-only use must remain usable even if Supabase is unavailable, throttled or later requires paid online entitlement.
