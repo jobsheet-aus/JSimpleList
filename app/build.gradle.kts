@@ -106,6 +106,7 @@ dependencies {
     implementation(libs.androidx.sqlite.framework)
     implementation(libs.supabase.auth)
     implementation(libs.supabase.postgrest)
+    implementation(libs.ktor.client.android)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

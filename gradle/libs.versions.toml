@@ -10,6 +10,7 @@ kotlin = "2.2.10"
 ksp = "2.2.10-2.0.2"
 room = "3.0.1"
 supabase = "3.2.1"
+ktor = "3.2.1"
 composeBom = "2026.02.01"
 
 [libraries]
@@ -34,6 +35,7 @@ androidx-sqlite-framework = { group = "androidx.sqlite", name = "sqlite-framewor
 supabase-bom = { module = "io.github.jan-tennert.supabase:bom", version.ref = "supabase" }
 supabase-auth = { module = "io.github.jan-tennert.supabase:auth-kt" }
 supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt" }
+ktor-client-android = { module = "io.ktor:ktor-client-android", version.ref = "ktor" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
