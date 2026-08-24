@@ -2,6 +2,7 @@ package au.com.jobsheet.jsimplelist
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.room3.Room
@@ -164,6 +165,10 @@ private fun SimpleListApp() {
     }
     var deleteListId by remember { mutableStateOf<String?>(null) }
     val uriHandler = LocalUriHandler.current
+
+    BackHandler(enabled = showListSelector) {
+        showListSelector = false
+    }
 
     LaunchedEffect(fontScale) {
         delay(250)
@@ -949,7 +954,6 @@ private fun ListScreen(
 
     val descriptionFocusRequester = remember { FocusRequester() }
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
 
     val currentScale by rememberUpdatedState(fontScale)
     val currentOnScaleChange by rememberUpdatedState(onFontScaleChange)
@@ -1372,7 +1376,12 @@ private fun ListItemRow(
 ) {
     var editing by remember(item.id) { mutableStateOf(false) }
     var editDescription by remember(item.id, item.description) {
-        mutableStateOf(item.description)
+        mutableStateOf(
+            TextFieldValue(
+                text = item.description,
+                selection = TextRange(item.description.length)
+            )
+        )
     }
     var editQuantity by remember(item.id, item.quantity) {
         mutableStateOf(item.quantity?.toString().orEmpty())
@@ -1388,8 +1397,36 @@ private fun ListItemRow(
         )
     }
 
+    val editDescriptionFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(editing) {
+        if (editing) {
+            editDescriptionFocusRequester.requestFocus()
+        }
+    }
+
+    fun cancelEdit() {
+        editDescription = TextFieldValue(
+            text = item.description,
+            selection = TextRange(
+                0,
+                item.description.length
+            )
+        )
+        editQuantity = item.quantity?.toString().orEmpty()
+        editQuantityFieldValue = TextFieldValue(
+            text = editQuantity,
+            selection = TextRange(editQuantity.length)
+        )
+        editing = false
+    }
+
+    BackHandler(enabled = editing) {
+        cancelEdit()
+    }
+
     fun saveEdit() {
-        val newDescription = editDescription.trim()
+        val newDescription = editDescription.text.trim()
 
         if (newDescription.isEmpty()) {
             return
@@ -1452,7 +1489,8 @@ private fun ListItemRow(
                             imeAction = ImeAction.Next
                         ),
                         modifier = Modifier
-                            .width(72.dp)
+                            .width(48.dp)
+                            .height(48.dp)
                             .onFocusChanged { focusState ->
                                 if (focusState.isFocused) {
                                     editQuantityFieldValue = editQuantityFieldValue.copy(
@@ -1479,7 +1517,10 @@ private fun ListItemRow(
                     keyboardActions = KeyboardActions(
                         onDone = { saveEdit() }
                     ),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .focusRequester(editDescriptionFocusRequester)
                 )
             }
 
@@ -1488,15 +1529,7 @@ private fun ListItemRow(
                 horizontalArrangement = Arrangement.End
             ) {
                 TextButton(
-                    onClick = {
-                        editDescription = item.description
-                        editQuantity = item.quantity?.toString().orEmpty()
-                        editQuantityFieldValue = TextFieldValue(
-                            text = editQuantity,
-                            selection = TextRange(editQuantity.length)
-                        )
-                        editing = false
-                    }
+                    onClick = { cancelEdit() }
                 ) {
                     Text(
                         text = "Cancel",
@@ -1561,7 +1594,16 @@ private fun ListItemRow(
                 modifier = Modifier
                     .weight(1f)
                     .padding(end = 4.dp)
-                    .clickable { editing = true }
+                    .clickable {
+                        editDescription = TextFieldValue(
+                            text = item.description,
+                            selection = TextRange(
+                                0,
+                                item.description.length
+                            )
+                        )
+                        editing = true
+                    }
             )
 
             TextButton(onClick = onDelete) {
