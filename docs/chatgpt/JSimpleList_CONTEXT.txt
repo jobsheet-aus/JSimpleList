@@ -6,8 +6,22 @@ Name: JSimpleList
 Package: au.com.jobsheet.jsimplelist
 Local project: D:\simplelist
 Public repository: https://github.com/jobsheet-aus/JSimpleList
-Purpose: Small local-first native Android list app. Version 2.0 is generalising the original fixed To-do and Shopping lists into user-named dynamic lists.
-Intrinsic list kinds are To-do, Shopping and Discussion points; Shopping differs by having a Qty field.
+Purpose: Small local-first native Android list app. Version 2.0 generalises the original fixed To-do and Shopping lists into user-named dynamic lists and adds optional online sync/sharing.
+Intrinsic list kinds: TODO, SHOPPING and DISCUSSION. Shopping differs by having a Qty field.
+Google Play is the intended public distribution channel.
+
+CORE PRODUCT PRINCIPLES
+-----------------------
+- Keep JSimpleList deliberately small, direct and local-first.
+- Local-only use requires no account and must continue to work without internet or backend availability.
+- Signing in must never automatically upload existing local lists.
+- A local list becomes online only through an explicit user action for that specific list.
+- Online/shared lists remain fully cached in Room and usable offline.
+- Use one common list model for household and business/work sharing; do not create a separate team hierarchy unless it becomes genuinely useful.
+- Preserve local UUIDs as server UUIDs for online-backed lists/items; never create a second identity for the same record.
+- List ownership is absolute. The creator remains owner; ownership is not transferred or inherited.
+- Back cancels/closes the most local active operation first. Only when nothing transient is active should Back be allowed to leave JSimpleList.
+- When an existing text value is entered for editing, select the entire existing value, request focus and open the soft keyboard so typing replaces it immediately unless a specific field has a reason to behave differently.
 
 STACK
 -----
@@ -17,748 +31,421 @@ Gradle wrapper
 Minimum SDK: 26
 Target SDK: 36
 Compile SDK: 36.1
-AndroidX Core KTX pinned to 1.18.0 because 1.19.0 requires compile SDK 37.
 Android Studio bundled JDK 21
-2.0 list persistence via Room 3 (androidx.room3) with SQLite Android driver
-SharedPreferences remains for font scale and legacy 1.1 JSON import only
-No login required for local-only use
-No server dependency for local-only use
-No internet permission in the released 1.1 app; optional online capability is future 2.0 work
-Manrope is bundled with the APK
-Compose Foundation is an explicit dependency for HorizontalPager.
+AndroidX Core KTX pinned to 1.18.0 because 1.19.0 requires compile SDK 37
+Room 3 / androidx.room3 with AndroidSQLiteDriver for 2.0 local persistence
+SharedPreferences retained only for font scale and one-time legacy 1.1 JSON import
+Supabase/PostgreSQL selected for optional 2.0 online services
+supabase-kt 3.2.1 Auth/PostgREST + Ktor Android 3.2.1
+Manrope bundled with the APK
+Compose Foundation explicit dependency for HorizontalPager
+Android 2.0 manifest has INTERNET permission; released 1.1 did not
 
-RELEASED 1.1 STATE
-------------------
-The released 1.1 app is working on a real Android phone. The bullets immediately below describe the released/fixed-list UI unless otherwise stated.
+RELEASED 1.1
+------------
+Released 1.1 is the fixed-list local-only app:
+- To-do and Shopping tabs
+- Shopping Qty
+- add/tick/untick/delete/edit
+- completed items remain visible below incomplete items
+- local SharedPreferences/JSON persistence
+- pinch-to-resize list/content text
+- horizontal swipe between fixed To-do/Shopping pages
+- incomplete counts in headings
+- compact 48 dp entry controls
+- bundled Manrope and JSimpleList logo/icon
+- About dialog with version/build date, JobSheet/GitHub links, copyright and MIT wording
+- no account, advertising, analytics or server connection
 
-Features implemented:
-- To-do list/tab
-- Shopping list/tab
-- Shopping Qty field
-- Add items
-- Tick / untick items
-- Delete items
-- Edit existing To-do items
-- Edit Shopping description and Qty
-- Qty defaults to 1
-- Qty selects existing value on focus, ready to overwrite
-- Completed items remain visible and are sorted below incomplete items
-- Completed Shopping Qty and description both show strike-through
-- Local persistence across app restarts
-- Pinch gesture changes list/content text size
-- Pinch behaviour was substantially improved on 20 Aug 2026 and tested successfully on the real phone
-- Pinch uses explicit two-finger pointer handling so one-finger horizontal paging and vertical scrolling are not consumed by pinch handling
-- Font scale is persisted
-- Pinch hint is fixed-size and its visibility is based on actual rendered list space; it disappears before list content reaches the reserved bottom hint area
-- Main heading, To-do / Shopping tab headings, Qty / Item headings, Add text and Delete text do not resize with pinch
-- Horizontal swipe changes between To-do and Shopping using Compose HorizontalPager
-- Tapping To-do / Shopping headings still changes pages and stays synchronized with the pager
-- To-do and Shopping headings show the current count of incomplete items
-- List rows are compact/dense
-- Entry controls were compacted and aligned using BasicTextField rather than Material OutlinedTextField
-- Shopping Qty entry box is 48 x 48 dp
-- Item/To-do entry field is 48 dp high
-- Entry-field text remains pinch-scaled but is capped at 22 sp to avoid clipping
-- Qty and Item/To-do entry text is vertically centred explicitly
-- Add button remains compact, has fixed-size text, and is vertically centred beside the entry fields
-- Delete uses fixed 12 sp text and no longer becomes visually dominant at large pinch sizes
-- Normal list rows use reduced horizontal padding to make better use of phone width
-- Qty / Item headings are fixed-size and aligned with the list columns
-- System status bar, soft navigation buttons / gesture area and keyboard insets are respected
-- JSimpleList uses a blue/cyan colour scheme matching the logo
-- App uses bundled Manrope
-- JSimpleList logo appears in the top-left header
-- JSimpleList launcher icon implemented
-- Visible app name is JSimpleList
-- About control is at the top-right of the title bar
-- About dialog shows version name and build date from BuildConfig; Android versionCode and package ID are not shown to the user
-- About dialog currently says copyright © 2026 21 TWELVE CONSULTING PTY LTD and "Licensed under the MIT Licence"
-- No public support email is shown in the app
-
-DESIGN / BEHAVIOUR DECISIONS
-----------------------------
-- Keep the app deliberately small and local-first.
-- To-do item fields: description + completed.
-- Shopping item fields: Qty + description + completed.
-- Discussion item fields: description + completed.
-- Internal list kind is DISCUSSION; user-facing terminology is "Discussion points".
-- Discussion lists are intended for meetings/agendas and are architecturally the same basic item model as To-do.
-- Shopping Qty defaults to 1.
-- Completed items remain visible so they can be unticked.
-- Completed Shopping Qty and description should both show strike-through.
-- Pinch resizes content text, not structural UI such as the app title, tabs, Qty / Item headings, Add/Delete text or hint.
-- Pinch must work regardless of pinch direction; diagonal pinch is normal.
-- Do not use whole-screen transformable handling now that horizontal paging exists.
-- Two-finger pinch handling must leave one-finger horizontal pager gestures and vertical list scrolling available.
-- Horizontal swiping remains the fast sequential way to move to the previous/next list.
-- Dynamic-list navigation should not depend on permanent fixed tabs. A dedicated list selector will provide direct access to any list.
-- The current list header/selector should show the user-controlled list name and may show compact metadata such as type, incomplete-item count and local/synced/shared state.
-- Future shared-list headings should also be able to show a small red unseen-activity marker/star beside the count.
-- Pinch hint visibility is based on actual rendered space, with a fixed reserved hint area; it disappears only when list content approaches the bottom hint area.
-- Existing items are edited inline.
-- Item order within every list kind should be user-editable; do not assume creation/alphabetical order is always what the user wants.
-- Persist an explicit item position/order value so To-do, Shopping and Discussion lists can all be manually reordered.
-- Discussion points may be presented as a numbered list, with numbering derived from the current item order.
-- Keep list rows compact without making controls fiddly.
-- Be greedy with horizontal occupancy on phone screens: avoid unnecessary outer padding and use available width for item text.
-- Keep Add and Delete visually secondary to list content.
-- Use Manrope throughout the app.
-- Use the JSimpleList logo blue/cyan colour family throughout.
-- Final package ID is au.com.jobsheet.jsimplelist.
-- Visible/public name is JSimpleList.
-- Repository is public on GitHub under jobsheet-aus/JSimpleList.
-- Google Play is the intended public distribution channel; direct APK distribution from jobsheet.com.au is not currently planned.
-- Do not expose an easy direct support-email channel in the app.
-- GitHub and jobsheet.com.au are the preferred public information links.
-
-2.0 IMPLEMENTATION STATE - 22 AUG 2026
--------------------------------------
-The 2.0 branch is now past the fixed-list persistence model and the basic dynamic-list UI is working on the real Android phone. The legacy 1.1-to-Room upgrade path still requires a deliberate Google-signed upgrade test before release.
-
-Implemented architecture:
-- Added Room 3.0.1 / androidx.room3 database foundation using AndroidSQLiteDriver.
-- Room schema version 1 contains `lists` and `items`.
-- `lists`: UUID id, user-controlled name, kind, position, createdAt.
-- `items`: UUID id, listId FK with cascade delete, description, nullable quantity, completed, position, createdAt, updatedAt.
-- Item ordering query keeps incomplete items above completed items while respecting manual position within each group.
-- Legacy 1.1 SharedPreferences JSON is imported into Room only when the Room database has no lists and genuine legacy `todo_items` / `shopping_items` keys exist. A fresh 2.0 install does not fabricate legacy data.
-- For a genuine 1.1 upgrade, the legacy importer creates `To-do` and `Shopping` ListEntity records and preserves old descriptions, quantities, completed state and list order; old timestamp IDs are retained as createdAt/updatedAt while new Room item IDs are UUIDs.
-- Legacy JSON remains untouched during import.
-- `SimpleListItem` was renamed to `LegacySimpleListItem`; legacy save/write code was removed so future UI code cannot accidentally continue writing the old JSON format.
-- `ListKind` now lives independently in `ListKind.kt` and contains TODO, SHOPPING and DISCUSSION.
-- MainActivity now reads and writes `ItemEntity` through Room; add/edit/toggle/delete operations are item-level DAO operations. Room is authoritative for current 2.0 list data.
-- MainActivity no longer has separate `todoList`, `shoppingList`, `todoItems` or `shoppingItems` state. It loads an ordered dynamic `ListEntity` collection and an item collection keyed by list UUID.
-- Permanent tabs have been removed from the 2.0 dynamic UI.
-- One current list fills the main screen; horizontal swipe moves to adjacent lists.
-- A dedicated `Lists` control opens a full-width vertical selector for direct navigation.
-- The selector is also the current list-management surface: `+ New list`, Rename and Delete.
-- Lists can now be created with a user-controlled name and intrinsic type, renamed without changing identity/type/items, and deleted locally.
-- Zero lists is a valid state. Fresh 2.0 installs start with zero lists. Deleting the final list shows a `No lists` / `+ New list` empty state rather than recreating To-do/Shopping.
-- The rename dialog focuses the name field and selects the full existing name so typing replaces it immediately.
-- Basic dynamic-list navigation and management have been tested successfully on the real Android phone.
-- The legacy 1.1-to-Room upgrade path itself has not yet been proven with a Google-signed update.
-
-Relevant commits in order:
-- d7ecae0 Improve resize hint visibility
-- 91f973f Record JSimpleList Play release and 2.0 plans
-- a7d635a Record JSimpleList 2.0 list ordering design
-- eb88951 Add Room database foundation
-- caaeb41 Add legacy data importer
-- 87484f4 Run legacy import into Room
-- 6c9fc64 Use Room for list data
-- aba8d0a Isolate legacy list storage
-- c261c61 Add discussion list type
-- 9bfa8cf Drive list tabs from Room
-- 4788336 Update JSimpleList 2.0 architecture context
-- ffc1a40 Add dynamic list selector
-
-2.0 dynamic-list model decisions:
-- Every list has a user-controlled name. Name and kind are independent concepts.
-- List names do not need to be unique because UUIDs are the real identity.
-- Example valid combinations: `Bunnings` / SHOPPING, `House jobs` / TODO, `Monday toolbox meeting` / DISCUSSION.
-- New-list creation order is Type -> Name -> Create. User-facing type labels are To-do, Shopping and Discussion points.
-- Default names are `To-do list`, `Shopping list` and `Discussion points`. The default name is fully selected ready to overwrite. Changing type updates/reselects the name only while it is still blank or still the previous type's default; a custom user-entered name is preserved.
-- Renaming a list changes only `ListEntity.name`; it must not change UUID, type, contents, sharing identity or membership.
-- Every list and every item carries an explicit position/order field so manual reordering does not require a future schema migration.
-
-2.0 navigation/UI direction:
-- Permanent fixed tabs are a 1.1-era navigation model and should not be the long-term dynamic-list UI.
-- One selected/current list should occupy the main screen.
-- Horizontal left/right swipe remains the fast way to move to the adjacent list in list order.
-- Add a dedicated `Lists` selector/control for direct navigation. It should open a full-width vertical list of all lists so many lists and long user-assigned names remain practical.
-- The selector is also a natural future home for list reordering and unseen-activity indicators.
-- The current-list header should give the list name highest prominence. Compact secondary metadata may include list type, incomplete item count and Local/Synced/Shared state. Member identities/initials can be shown when useful without overwhelming the header.
-- Basic list management now lives in the `Lists` selector rather than cluttering the normal list-working screen. Each selector row exposes Rename and Delete; the normal current-list header shows only `Lists`.
-- Views/menus remain open until the user explicitly navigates away. Create, Rename and Delete dialogs close themselves but must not implicitly close the underlying `Lists` view; tapping a specific list or `Close` is explicit navigation and may close it. Apply the same principle to future views/menus.
-- As sharing adds more owner/member actions later, the selector remains the natural management surface and may use a compact per-list menu if the action set becomes too large.
-- A more elaborate horizontal wheel/carousel selector is a possible later visual navigation mode. Do not make 2.0 depend on it. The underlying navigation contract should remain simply select-list-by-ID / previous / next so a different selector can be substituted later.
-
-List deletion / ownership semantics:
-- List ownership is absolute: the user who creates an online list remains its owner. Ownership is not transferred or inherited by another member.
-- Local list: the user can delete it.
-- Owned shared list: owner can manage members, eject individual members, rename it and destroy the whole list.
-- Shared list owned by someone else: member can leave, but cannot destroy the shared list.
-- Owner removing a member must revoke that member's server access while leaving the list alive for remaining members.
-- Owner destroying a list ejects all members. Deletion must be represented long enough for offline clients to learn that the authoritative shared list was destroyed.
-- Deleting the owner's online account destroys that owner's online/shared lists; other members consequently lose access. Local-only lists on members' devices are unaffected.
-- Exact UX for what happens to a removed member's already-cached local copy is still to be decided; do not silently treat a stale cached copy as if it were still a live shared list.
-
-Testing / migration notes:
-- VT-x has now been enabled on the development PC and AEHD can run, but the old 4-core/8 GB machine and unsupported GT 710 Vulkan driver make the emulator impractical. The real Android phone remains the preferred runtime target.
-- A debug-signed APK cannot update the installed release-signed 1.1 app. The real upgrade test must use the proper release/upgradable signing path so app data is retained.
-- Before 2.0 release, explicitly verify upgrade from installed 1.1 preserves To-do/Shopping items, quantities, completed states and persisted font scale.
-- Because Room import is one-time, do not use a partially migrated build for ordinary legacy editing and then expect the importer to recopy later changes.
-
-FUTURE SHARED LIST DESIGN
--------------------------
-This is a wishlist/future feature and is not implemented yet.
-
-Core decision:
-- A shared list should be a list in its own right, not a special shared-items section inside an otherwise private Shopping list.
-- Household and business/work examples should use the same underlying model.
-- Example household list: "Home Shopping" shared by Josh and Kate.
-- Example work list: a fittings/materials list shared by multiple plumbers.
-
-Expected behaviour:
-- Local To-do and Shopping must continue to work without login or internet.
-- Sharing should be optional and should not force registration on ordinary users.
-- Shared lists should remain locally cached/offline-capable and synchronize when connectivity returns.
-- Shared-list membership belongs directly to each list initially; do not build a global team/group hierarchy unless it becomes genuinely useful.
-- A shared list has an owner and may have one or more members.
-- The owner may remove/eject individual members while the list continues for the remaining members.
-- A non-owner member may leave a shared list but may not destroy it.
-- The owner may destroy the list; this terminates membership for everyone.
-- Shared-list destruction must propagate reliably to clients that may have been offline, so server-side deletion/tombstone semantics are required rather than relying on an immediate hard delete that an offline client could miss.
-- Member removal is a membership event, separate from destruction of the list itself. Membership data should leave room for role/state and removal time rather than being only a timeless list of user IDs.
-- When another member adds or changes an item, the user's list header/selector should show a small red unseen-activity star/marker beside the item count.
-- A user's own changes do not create an unseen marker for that user.
-- The unseen marker should clear when that user actually views the updated list/page.
-- The per-user state should be modelled as something like last_seen_at rather than a single global has_notification flag.
-- Initially use the in-app unseen marker rather than Android push notifications.
-- Android push notifications may be considered later if they prove worthwhile.
-- Shared lists should include a manual refresh/reload action for user confidence and recovery.
-- Manual refresh must genuinely query server state and reconcile the local copy.
-- On successful manual refresh show a short transient message such as "List refreshed".
-- On failure show a concise failure message and retain the local cached list.
-- Realtime synchronization should normally happen silently; manual refresh is a user-controlled sanity check.
-
-Possible server/backend direction:
-- Supabase/PostgreSQL is the selected 2.0 online backend because it provides authentication, relational membership, Row Level Security and realtime capabilities without requiring a custom Flask service.
-- Authentication remains optional for local-only use. For online use, the preferred initial login is an emailed six-digit one-time code with a persistent session; password support can remain optional/later.
-- Likely server data concepts: users, lists, list_members, items, plus enough deletion/revision state for reliable offline reconciliation.
-- Server-side authorization must ensure only current members of a list can read/change that list and only the owner can perform owner-only membership/destruction operations.
-- Room is now implemented as the 2.0 local database foundation and is authoritative for list/item data in the current development branch; SharedPreferences JSON is legacy-import-only.
-
-SETTINGS / PREFERENCES PLAN
----------------------------
-Do not add a Settings screen merely to expose options that are not genuinely useful.
-
-Current decisions:
-- Keep pinch-to-resize text as-is. It works well and does not need a text-size lock/reset setting at present.
-- Keep the current opening-list behaviour rather than adding a default-list preference. This should also generalise cleanly when lists become dynamic.
-- Keep completed items sorted below incomplete items as normal list behaviour rather than a preference.
-- Manual item ordering inside a list is normal list functionality for all list kinds, not a Settings preference.
-- Lists themselves also have an explicit persisted position/order field.
-- Manual list ordering is planned functionality rather than something that requires a future schema change.
-- Creation order can seed initial positions, but the user must be able to reorder lists later.
-- Possible 2.1 preference: allow users to disable list types they do not use so those types disappear from the New list chooser. This must be a creation preference only; existing lists of a disabled type remain untouched.
-- New list flow is firmly Type -> Name -> Create after repeated real-phone use confirmed that Type-first feels more natural. Default names are supplied and fully selected ready to overwrite.
-
-Settings will become more relevant when sharing exists.
-
-Future sharing-related Settings areas, only when sharing exists:
-- Sharing & sync status.
-- Sign in / sign out.
-- Shared-list invitations.
-- Shared-list members.
-- Leave list / remove member where permitted.
-- Manual refresh/sync controls if not placed directly in the shared-list UI.
-
-Do not add empty Account or Groups sections before those features exist.
-A top-right three-line menu now contains `List sharing`, `Disable sharing` and `About`, with About at the bottom. The old standalone About icon and temporary Account button are removed.
-
-LICENSING / CONTRIBUTIONS
--------------------------
-Current licence: MIT.
-
-Copyright owner wording:
-    Copyright (c) 2026 21 TWELVE CONSULTING PTY LTD
-
-Important licensing decision:
-- Future versions may be released under different licensing terms if the copyright owner chooses.
-- Existing versions already released under MIT remain available under those MIT terms; previously granted MIT rights cannot be withdrawn retroactively.
-- Future relicensing flexibility can become complicated if substantial third-party code is accepted without appropriate contributor terms.
-- CONTRIBUTING.md now states that substantial code contributions may be used, modified, distributed and relicensed by 21 TWELVE CONSULTING PTY LTD as part of JSimpleList, including under different licensing terms.
-- Contributors retain copyright in their own contributions.
-- If substantial external contributions ever become important commercially, obtain proper legal advice / consider a formal contributor licence agreement rather than relying only on CONTRIBUTING.md.
-
-SOURCE EDITING RULE
--------------------
-Run source inspections with the audit shortcut.
-
-The local D:\simplelist\audit.cmd wrapper exists for convenience and calls the JobSheet audit tool.
-
-Important path behaviour discovered 20 Aug 2026:
-- When running CMD from D:\SimpleList, normal Gradle/git/ADB commands can use short relative paths.
-- The audit wrapper still requires absolute source paths such as D:\simplelist\app\...; relative --path values returned "Files scanned: 0".
-
-Example from D:\SimpleList:
-
-    audit --range <start>:<end> --path D:\simplelist\<file>
-
-Inspect current source with audit before code edits wherever possible.
-
-All find-and-replace instructions must use exact literal source copied from current audit output.
-
-Never provide approximate blocks, inferred indentation, guessed spacing, or paraphrased search text.
-
-If exact current source has not been inspected, inspect it first.
-
-This rule is mandatory for future JSimpleList sessions.
-
-CMD / TOOLING OPERATING NOTES - 23 AUG 2026
-------------------------------------------
-- Assume Windows CMD, not PowerShell. CMD does not accept a pasted multi-line block as one command sequence; put commands on one line and join dependent commands with `&&`.
-- Prefer `git --no-pager ...` wherever Git supports it so output can be pasted directly without entering a pager.
-- `audit` from D:\SimpleList still requires an absolute `--path D:\simplelist\...`; relative paths can return `Files scanned: 0`.
-- Exact source/search/replacement text must be provided in code blocks. Do not copy markdown-escaped renderings of underscores/backslashes into CMD or source files.
-- `local.properties` is local-only and must remain untracked. Its Windows SDK path uses escaped backslashes, e.g. `sdk.dir=C:\\Users\\Josh\\AppData\\Local\\Android\\Sdk`; single backslashes caused AGP `java.io.IOException: Invalid file path` on a fresh uncached build.
-- Supabase project URL and publishable key are read from `local.properties` into BuildConfig. The publishable key may ship in the APK; never put a Supabase secret/service-role key or Resend API key in the app/repository.
-
-WORKING STYLE
--------------
-- Use warm, plain, purpose-led UI wording. Avoid alienating implementation/account terminology where a feature description is clearer; authentication is presented under `List sharing`.
-- When referring to an address, write `email address`, not the ambiguous shorthand `email`.
-- User-facing informational phrases do not take trailing full stops.
-- Use Manrope throughout every Material typography role, menu, dialog and normal app text.
-- Menus/dialogs use the same white surface as the app rather than Material's default tinted surface containers.
-- Prefer the smallest practical change.
-- Bundle related UI tweaks into as few iterations as practical.
-- Build before committing.
-- Test important UI behaviour on the real Android phone before committing.
-- Use git diff --check before commits.
-- Keep unrelated Android Studio / .idea noise out of functional commits.
-- deploymentTargetSelector.xml is ignored as local run-target state.
-- Avoid Android Studio signing-wizard work where command-line Gradle can do the job.
-- Keep signing secrets local and ignored by Git.
-- Do not create or replace the permanent signing key casually.
-- Current phone test data is disposable during development.
-- Current development loop uses the debug APK for faster iteration.
-- The release-signed installed app cannot be replaced by a debug-signed APK because Android rejects signature mismatch; uninstalling was acceptable because current phone data was disposable.
-- Do not assume an APK installed after a failed Gradle build is the new build: an old APK can remain at the output path. Verify BUILD SUCCESSFUL before install when a build has failed.
-
-PUBLIC REPOSITORY
------------------
-Repository:
-    https://github.com/jobsheet-aus/JSimpleList
-
-Branch:
-    main
-
-The repository is public.
-
-MIT licence is included.
-
-LICENSE now names 21 TWELVE CONSULTING PTY LTD as copyright owner.
-
-README identifies JSimpleList as originally produced by JobSheet and states copyright ownership by 21 TWELVE CONSULTING PTY LTD.
-
-README states that JSimpleList is currently released under MIT and that future versions may use different licensing terms while existing MIT releases retain their MIT terms.
-
-CONTRIBUTING.md was added to preserve practical future relicensing flexibility before accepting substantial third-party code.
-
-README still describes the currently released app as local-only with no account, advertising, analytics or server connection. This wording must be updated if optional shared-list networking is later implemented.
-
-The repository was checked for obvious credentials/private paths before public release.
-
-SIGNING / RELEASE
------------------
-Permanent local signing key:
-    D:\simplelist\keys\jsimplelist-release.jks
-
-Alias:
-    jsimplelist
-
-The keys directory and signing-property file are ignored by Git.
-
-Never commit:
-- the .jks file
-- signing.properties
-- keystore passwords
-- key passwords
-
-Release certificate SHA-256:
-    fc11217128f365366d4c3f988a2536d40251f6e71b5275b611896c749206af59
-
-Verified release package:
-    au.com.jobsheet.jsimplelist
-
-Current release metadata:
+Release metadata:
     versionCode 2
     versionName 1.1
     build date 21 August 2026
 
-Gradle is configured to read local signing details from:
-    D:\simplelist\signing.properties
+JSimpleList 1.1 was submitted to Google Play Production. The context at submission time recorded it as in review. Google Play App Signing is enabled.
 
-This means normal signed release builds no longer require the Android Studio signing wizard.
+2.0 LOCAL DATA MODEL
+--------------------
+Room schema version 1 contains `lists` and `items`.
 
-Build signed release APK:
+ListEntity:
+- id: UUID string
+- name: user-controlled
+- kind: TODO / SHOPPING / DISCUSSION
+- position: explicit persisted list order
+- createdAt: epoch millis
 
-    gradlew.bat assembleRelease
+ItemEntity:
+- id: UUID string
+- listId: owning list UUID
+- description
+- quantity: nullable; Shopping only
+- completed
+- position: explicit persisted item order
+- createdAt
+- updatedAt
 
-Signed Gradle APK:
+Room is authoritative for current 2.0 list/item data.
 
-    app\build\outputs\apk\release\app-release.apk
+Legacy upgrade:
+- Legacy 1.1 SharedPreferences JSON is imported only when the Room database has no lists and genuine `todo_items` / `shopping_items` keys exist.
+- A fresh 2.0 install starts with zero lists and must not fabricate legacy To-do/Shopping lists.
+- Genuine upgrade import creates ordinary To-do and Shopping ListEntity rows and preserves descriptions, quantities, completion and order.
+- Legacy JSON is left untouched during import.
+- `LegacySimpleListItem` exists only for import compatibility; new writes must not use the old JSON format.
+- Before public 2.0 release, perform a real Google-signed update from installed 1.1 and verify preservation of To-do/Shopping items, quantities, completed states and font scale.
 
-Verify signature:
+2.0 LIST MODEL / UI
+-------------------
+- Every list has a user-controlled name independent of its kind.
+- Names do not need to be unique; UUID is identity.
+- Valid examples: `Bunnings` / SHOPPING, `House jobs` / TODO, `Monday toolbox meeting` / DISCUSSION.
+- New-list flow is Type -> Name -> Create.
+- Default names: `To-do list`, `Shopping list`, `Discussion points`.
+- Default names are fully selected ready to overwrite. Changing type updates/reselects only while the name is blank or still a previous default; custom text is preserved.
+- Renaming changes only name; it must not alter UUID, kind, contents, sharing identity or membership.
+- Zero lists is valid. Deleting the final list leaves a `No lists` / `+ New list` state.
+- Permanent 1.1 tabs are removed in 2.0.
+- One current list fills the screen.
+- Horizontal swipe moves to the adjacent list.
+- `Lists` opens the full-width list selector for direct navigation and list management.
+- The Lists selector currently provides `+ New list`, Rename and Delete.
+- Tapping blank space in Lists closes the selector. Tapping a list navigates to it.
+- Create/Rename/Delete dialogs close themselves without implicitly closing the underlying Lists view.
+- Back closes the Lists selector before Android can leave the app.
+- The selector is the intended home for future list reordering, Local/Synced/Shared metadata, unseen markers and owner/member actions.
 
-    "%LOCALAPPDATA%\Android\Sdk\build-tools\36.1.0\apksigner.bat" verify --verbose --print-certs app\build\outputs\apk\release\app-release.apk
+Item ordering:
+- New items are inserted at the top by assigning a position below the current minimum.
+- The active LazyColumn scrolls to the newly added item so it stays visible under the soft keyboard.
+- Display ordering respects persisted `position`, then `createdAt`, while incomplete items are presented before completed items.
+- Toggling completion changes completion state, not item position.
+- Explicit persisted position remains the basis for future manual item reordering.
+- Manual item reordering should work for all list kinds.
+- Discussion points may later render derived numbering from item order.
+- Manual list ordering is also planned and should use persisted list position.
 
-Install/update signed release APK while preserving app data:
+Editing UX:
+- Existing items edit inline.
+- Existing item description enters editing fully selected, receives focus and opens the keyboard immediately.
+- Shopping edit Qty also selects its existing value on focus.
+- Shopping edit Qty is 48 x 48 dp.
+- Edit description is 48 dp high, matching the normal entry geometry.
+- Item Cancel logic is centralised and shared by the visible Cancel button and Android Back.
+- The same overwrite-ready editing principle applies to list rename, display-name editing and future existing-value text editors.
 
-    "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r app\build\outputs\apk\release\app-release.apk
+Visual/interaction decisions:
+- Keep list rows compact without making controls fiddly.
+- Use available phone width for item text; avoid unnecessary outer padding.
+- Add/Delete remain visually secondary.
+- Pinch resizes list/content text, not structural UI such as app title, list controls, headings, Add/Delete text or hint.
+- Two-finger pinch must not consume one-finger horizontal paging or vertical scrolling.
+- Pinch hint uses actual rendered space and a reserved bottom area.
+- Use Manrope throughout all Material typography roles and normal app text.
+- Menus/dialogs use the same white surface family as the app.
+- Use the JSimpleList logo blue/cyan colour family.
+- User-facing informational phrases generally omit trailing full stops.
+- Prefer purpose-led wording. Authentication is presented under `List sharing`; use `Email address`, not ambiguous `Email`.
 
-The old package au.com.jobsheet.simplelist was superseded by au.com.jobsheet.jsimplelist.
-Android treats them as different apps.
-Do not change the package ID again unless there is a compelling reason.
+AUTH / PROFILE FOUNDATION
+-------------------------
+Committed milestone:
+    a25f1fe Add JSimpleList authentication and profile foundation
 
-GOOGLE PLAY / DEVELOPER VERIFICATION
-------------------------------------
-A Google Play Console organisation developer account has been created for JobSheet / 21 TWELVE CONSULTING PTY LTD.
+Implemented:
+- Modular `AuthRepository.kt` using Supabase email OTP authentication.
+- Supabase OTP configured as six digits.
+- OTP delivery through Supabase -> Resend -> jsimplelist@jobsheet.com.au proven on the real phone.
+- Auth session persists across normal app close/reopen.
+- Uninstalling the debug app removes the local session as expected.
+- Re-authenticating with the same email address resolves to the same persistent Supabase user UUID.
+- Device/browser session identity must never be used as ownership identity.
+- Modular `ProfileRepository.kt`.
+- `jsimplelist.profiles` is keyed by stable `auth.users.id`.
+- Display names are user-chosen, non-unique, trimmed and database-limited to 1-50 characters.
+- First-time authenticated users choose a display name.
+- Existing display names load automatically and edit in place with select-all/focus/keyboard behaviour.
+- Top-right menu contains `List sharing`, `Disable sharing` and `About`.
+- `List sharing` is the user-facing auth/sharing home.
+- `Disable sharing` is currently informational; actual account deletion is not yet implemented.
+- Sign out is non-destructive and must remain separate from account deletion.
 
-Public developer name:
-    JobSheet
+ONLINE ACCOUNT / OWNERSHIP
+--------------------------
+- Online identities are persistent Supabase Auth users with stable UUIDs.
+- Local-only use remains account-free.
+- JSimpleList must provide a transparent controlled `Delete online account` operation before public 2.0 release.
+- Local Room lists on that device are not deleted by online-account deletion.
+- Owned online/shared lists are destroyed when the owner's online account is deleted.
+- Other members consequently lose access to those owned shared lists.
+- Account deletion must be a controlled privileged server-side operation; no service-role/admin secret may ship in Android.
+- A non-owner member may leave a shared list but may not destroy it.
+- An owner may remove individual members while leaving the list alive for remaining members.
+- Owner destruction ejects all members.
+- Deletion/removal must be represented long enough for offline clients to learn authoritative server state.
+- Exact UX for a removed member's already-cached local copy remains to be decided; never silently present a stale cached copy as if it were still a live shared list.
 
-Legal organisation:
-    21 TWELVE CONSULTING PTY LTD
+SUPABASE BACKEND FOUNDATION
+---------------------------
+Committed milestones:
+    ee9e561 Add Supabase backend foundation
+    14f7277 Add Supabase Android client
+    e9a0f09 Update JSimpleList Supabase context
 
-The organisation was found successfully in Dun & Bradstreet and the Play Console organisation/payments-profile setup was completed.
+Supabase:
+- Custom schema `jsimplelist` exposed for the Data API.
+- SQL migrations 001-014 live under `migrations/`.
+- Implemented concepts include profiles/users, lists, list_members, invitations and items.
+- Local Room UUIDs are reused as remote UUIDs for online-backed lists/items.
+- `list_members.position` stores per-user list order.
+- `items.position` stores shared item order within a list.
+- Normal list/item reads hide deleted rows.
+- Controlled sync snapshot can expose active/deleted/removed/not_found state so offline clients can learn tombstones/removal without weakening normal RLS reads.
+- Sensitive membership/list-creation paths use controlled security-definer RPCs rather than unrestricted direct writes.
+- Direct list creation is revoked; use the controlled creation RPC.
+- Normal active members may write permitted item/list changes under RLS.
+- Supabase URL and publishable key are supplied through local BuildConfig/local.properties.
+- Publishable key may ship in the APK.
+- Never put a Supabase secret/service-role key or Resend API key in the app or repository.
 
-jobsheet.com.au ownership was verified through Google Search Console using a DNS TXT record.
-Keep the Google Search Console verification TXT record in DNS.
+Important RPC/state contract:
+- `create_online_list(target_list_id uuid, target_name text, target_kind text, target_position integer, target_created_at timestamptz, target_updated_at timestamptz)` creates the list and owner membership.
+- `get_list_sync_snapshot(target_list_id uuid)` returns authoritative JSON state including active/deleted/removed/not_found; active state includes list, current membership and items including tombstones.
+- `set_my_list_position()` changes the current user's membership/list order without changing another member's order.
 
-Google Play organisation/developer verification has completed sufficiently to create the app entry and submit JSimpleList 1.1 for production review.
+LIST SYNC FOUNDATION
+--------------------
+Committed milestone:
+    2d0c2a0 Add list sync foundation and improve list ordering
 
-Current Play status at 21 August 2026 session close: production release 1.1 and associated listing/declarations are in review.
+`ListSyncRepository.kt` exists and compiles.
 
-Package registration with Google should use:
-    au.com.jobsheet.jsimplelist
+Current `makeListOnline(list, items)` behaviour:
+- requires an authenticated user
+- converts local epoch-millisecond timestamps to ISO-8601 with `java.time.Instant`
+- calls `create_online_list` with a `JsonObject`
+- preserves the Room list UUID as the Supabase list UUID
+- inserts current items using their existing UUIDs
+- preserves description, quantity, completion, position and timestamps
+- immediately calls `loadSnapshot(list.id)`
 
-Use the same permanent JSimpleList signing key/certificate already created above when Google later requests the package certificate/signing identity.
+`loadSnapshot` calls `get_list_sync_snapshot` and decodes `ListSyncSnapshot`.
 
-Google Play App Signing is in use for Play distribution. The existing permanent local signing key remains the project release identity/upload-signing basis and must be preserved.
+This repository is only foundation. It is deliberately NOT wired to automatic upload or generic background sync yet.
 
-USEFUL COMMANDS
----------------
-Assume CMD is normally running from:
+FIRST ONLINE MILESTONE
+----------------------
+The next functional milestone is deliberately narrow:
+1. Add an explicit per-list action in the existing Lists management row to make one selected local list online.
+2. Never upload all local lists merely because the user signs in.
+3. Call the existing `ListSyncRepository.makeListOnline()` path for that one list.
+4. Prove Room -> Supabase -> Room using the same list/item UUIDs.
+5. Verify name, kind, quantity, completion, item/list order and timestamps.
+6. Consume the returned authoritative sync snapshot and reconcile/verify it against Room.
+7. Keep the complete Room copy so the list remains usable offline.
+8. Only after this is reliable, implement conservative two-way reconciliation and deletion/removal handling.
+
+FUTURE SHARING / SYNC
+---------------------
+After the one-list round trip works:
+- implement invitations/member UI
+- owner/member remove/leave/destroy semantics
+- conservative two-way synchronization
+- server tombstone/removal reconciliation that prevents stale resurrection
+- small red unseen-activity marker for changes by other members
+- per-user seen state such as last_seen_at rather than one global notification flag
+- clear unseen marker when the user actually views the changed list
+- initially prefer in-app unseen markers over Android push notifications
+- add genuine manual refresh/reload
+- successful refresh may show `List refreshed`
+- failed refresh retains the local cached list and shows a concise failure
+- realtime/background traffic should be conservative; avoid aggressive polling
+- prefer meaningful sync triggers such as app foreground, local edits, manual refresh and lightweight realtime notification
+
+BROWSER CLIENT
+--------------
+- Browser access should use the same account/list/membership/sync service as Android.
+- Preferred hostname: jslist.jobsheet.com.au
+- Browser is another client, not a phone bridge and not a separate backend.
+- Browser exposes online-backed lists only; local-only lists never leave the phone and therefore never appear in browser.
+- Initial browser scope can remain minimal: choose list, add/edit/tick/delete, Shopping quantity, refresh/unseen behaviour.
+- Build the browser client only after the shared online-list contract is proven on Android.
+
+SETTINGS / PREFERENCES
+----------------------
+Do not add Settings merely to expose options that are not genuinely useful.
+
+Current decisions:
+- Keep pinch-to-resize as-is; no text-size lock/reset setting required now.
+- Keep current opening-list behaviour rather than adding a default-list preference.
+- Completed items below incomplete items is normal list behaviour, not a preference.
+- Manual item ordering is list functionality, not a setting.
+- Manual list ordering is planned functionality, not a setting.
+- Possible 2.1 preference: allow unused list types to be hidden from the New list chooser. Existing lists of a disabled type remain untouched.
+- A possible future ordering preference is new items top/bottom; current intended default is top.
+- A possible future ordering preference is checked items move to bottom/remain in place; current intended default is bottom.
+- Add Settings only when there are enough genuinely useful preferences/features to justify it.
+
+FUNDING / COST FUTURE-PROOFING
+------------------------------
+- Local-only use should remain free.
+- Online sync/sharing/browser access may initially be free while costs are negligible.
+- If recurring backend cost becomes meaningful, preferred model is a small annual fee, notionally around US$5/year, rather than a monthly subscription.
+- Voluntary donations/support may exist separately.
+- Do not hard-wire billing into list operations. Keep an entitlement boundary for online service.
+- Leave room for future states such as free, supporter, paid-online, promotional or admin-granted.
+- Leave room for operational safeguards: account/list/member/item limits, disable new online registrations, disable new online-list creation, suspend sync/realtime while preserving local copies.
+- Popularity/back-end failure must degrade safely: local lists remain usable and no local data is lost.
+
+SOURCE EDITING RULE
+-------------------
+Run source inspections with the `audit` shortcut before code edits wherever practical.
+
+From D:\SimpleList use absolute audit paths, e.g.:
+    audit --range <start>:<end> --path D:\simplelist\<file>
+
+All find-and-replace instructions must use exact literal source copied from current audit output.
+Never provide approximate blocks, inferred indentation, guessed spacing or paraphrased search text.
+If exact current source has not been inspected, inspect it first.
+This rule is mandatory for future JSimpleList sessions.
+
+The JobSheet audit tool was improved during this project so explicit user-supplied directories bypass path exclusions while extension filtering remains active. It recognises relevant JSimpleList file types including .kts, .xml, .sql, .toml, .json, .yaml, .yml, .md, .txt, .bat, .cmd and .sh.
+
+PROJECT DOCUMENT MAINTENANCE
+----------------------------
+- ChatGPT should handle JSimpleList project-context document updates directly whenever the current session has the document available.
+- Do not hand document-maintenance work back to the user unless tool access genuinely prevents ChatGPT from performing it.
+- At session close, update existing current-state sections as well as adding the new checkpoint.
+- Remove or rewrite stale material such as old "current uncommitted files", obsolete NEXT TASK steps, superseded implementation status and outdated git checkpoints.
+- Preserve genuinely useful historical facts when they remain clearly historical, but do not allow historical wording to masquerade as current state.
+- Before finishing a document update, reconcile current implementation state, design decisions, git checkpoint and NEXT TASK so the next session can resume without reconstructing stale context.
+- Prefer one maintained current context document over accumulating contradictory append-only closeouts.
+
+CMD / TOOLING
+-------------
+Assume Windows CMD, normally from:
     D:\SimpleList>
 
+Use CMD-compatible one-line commands and `&&` when dependent commands should run sequentially.
+Prefer `git --no-pager ...` where supported.
+
 Build debug:
-
     gradlew.bat assembleDebug
 
-Build/install debug during development:
-
-    gradlew.bat assembleDebug && "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r app\build\outputs\apk\debug\app-debug.apk
-
-After any failed build, prefer separating build and install so an old APK is not accidentally installed:
-
-    gradlew.bat assembleDebug
-
-then only after BUILD SUCCESSFUL:
-
+After BUILD SUCCESSFUL:
     git diff --check && "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r app\build\outputs\apk\debug\app-debug.apk
 
 Build signed release:
-
     gradlew.bat assembleRelease
 
 Install signed release:
-
     "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r app\build\outputs\apk\release\app-release.apk
 
-Check connected Android device:
-
-    "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" devices
-
-Check package inside APK:
-
-    "%LOCALAPPDATA%\Android\Sdk\build-tools\36.1.0\aapt.exe" dump badging app\build\outputs\apk\release\app-release.apk | findstr /b "package:"
-
-Check whitespace:
-
-    git diff --check
-
-Git status:
-
+Check status/history:
     git status --short
-
-Recent commits:
-
     git --no-pager log --oneline -5
 
-Audit source from D:\SimpleList (absolute --path still required):
+Important:
+- Build before committing.
+- Test important UI behaviour on the real Android phone.
+- Run `git diff --check` before commits.
+- Do not assume an old APK at the output path is a successful new build after a failed Gradle run.
+- Real phone remains preferred over emulator.
+- Keep unrelated Android Studio/.idea noise out of functional commits.
+- `local.properties` is local-only and must remain untracked.
+- `audit.cmd` is local-only.
+- Avoid broad `git add` commands; explicitly stage intended files.
 
-    audit --range <start>:<end> --path D:\simplelist\<file>
+SIGNING / FILE SAFETY
+---------------------
+Permanent local signing key:
+    D:\simplelist\keys\jsimplelist-release.jks
+Alias:
+    jsimplelist
 
-CURRENT GIT HISTORY
--------------------
-Recent 2.0 development commits:
-ffc1a40 Add dynamic list selector
-4788336 Update JSimpleList 2.0 architecture context
-9bfa8cf Drive list tabs from Room
-c261c61 Add discussion list type
-aba8d0a Isolate legacy list storage
-6c9fc64 Use Room for list data
-87484f4 Run legacy import into Room
-caaeb41 Add legacy data importer
-eb88951 Add Room database foundation
-a7d635a Record JSimpleList 2.0 list ordering design
-91f973f Record JSimpleList Play release and 2.0 plans
-d7ecae0 Improve resize hint visibility
+Release certificate SHA-256:
+    fc11217128f365366d4c3f988a2536d40251f6e71b5275b611896c749206af59
 
-Earlier important history:
-031012c Use To-do in JSimpleList UI
-8d881ac Clarify JSimpleList ownership and licensing
-25703d5 Improve list gestures and layout
-6348b9e Add About screen and release signing workflow
-18cd3e0 Rename JSimpleList package
-5b02b37 Ignore signing keys
-8d0a817 Prepare JSimpleList for public release
-9113066 Add JSimpleList project context
-50022ed Add JSimpleList launcher icon
-599e1fe Record Android Studio project settings
-7a768a9 Refine shopping quantity entry and list density
-e4525ba Build first working JSimpleList app
-3407abd Initial Android project
+Never commit:
+- .jks files
+- signing.properties
+- keystore passwords
+- key passwords
+- Supabase secret/service-role keys
+- Resend API keys
+- generated APK/release output
 
-Latest committed checkpoint recorded in this document:
+Local-only/untracked areas include:
+- signing.properties
+- keys/
+- app/release/
+- .idea/inspectionProfiles/
+- audit.cmd
+
+PUBLIC REPOSITORY / LICENCE
+---------------------------
+Repository:
+    https://github.com/jobsheet-aus/JSimpleList
+Branch:
+    main
+
+Repository is public.
+Current licence: MIT.
+Copyright owner:
+    21 TWELVE CONSULTING PTY LTD
+
+Existing MIT releases retain their granted MIT rights if future versions use different licensing terms.
+CONTRIBUTING.md preserves practical future relicensing flexibility for substantial contributions; seek proper legal advice/formal CLA if third-party contributions become commercially important.
+
+README currently describes the released local-only app. Update README/privacy/listing wording before a public network-enabled 2.0 release.
+
+CURRENT GIT CHECKPOINT - 24 AUG 2026
+------------------------------------
+Immediately before this context-document update:
+    26a689b (HEAD -> main, origin/main) Improve item editing and back navigation
+    2d0c2a0 Add list sync foundation and improve list ordering
+    a25f1fe Add JSimpleList authentication and profile foundation
+    e9a0f09 Update JSimpleList Supabase context
+
+`git status --short` was clean.
+
+Other important 2.0 commits:
+    14f7277 Add Supabase Android client
+    ee9e561 Add Supabase backend foundation
     ffc1a40 Add dynamic list selector
+    4788336 Update JSimpleList 2.0 architecture context
+    9bfa8cf Drive list tabs from Room
+    c261c61 Add discussion list type
+    aba8d0a Isolate legacy list storage
+    6c9fc64 Use Room for list data
+    87484f4 Run legacy import into Room
+    caaeb41 Add legacy data importer
+    eb88951 Add Room database foundation
 
-The later resize-hint work is now committed as post-1.1 source work; it remains outside the already-submitted 1.1 Play bundle unless a later release deliberately includes it.
-
-SESSION CLOSEOUT - 20/21 AUG 2026
----------------------------------
-Major work completed this session:
-- Reworked pinch handling because previous behaviour remained glitchy.
-- Replaced whole-screen transformable gesture handling with explicit two-finger pinch handling.
-- Confirmed pinch now works very well on the real phone, including diagonal pinch.
-- Added horizontal swipe navigation between Todo and Shopping using HorizontalPager.
-- Kept Todo / Shopping tab taps working and synchronized with the pager.
-- Added incomplete-item counts beside Todo and Shopping headings.
-- Decided future shared lists should show a small red unseen-activity star beside the item count when another member has changed the list.
-- Redesigned entry geometry for compactness and better horizontal use of the phone screen.
-- Replaced entry OutlinedTextField controls with BasicTextField + explicit border/centering to remove excess vertical padding and fix vertical text alignment.
-- Shopping Qty entry is now square 48 x 48 dp; Item/Todo entry field is 48 dp high.
-- Entry text still scales with pinch but is capped at 22 sp.
-- Kept Add compact with fixed-size text and reduced height.
-- Made Delete fixed-size and visually secondary instead of scaling with list text.
-- Made Qty / Item column headings fixed-size and aligned them more closely with list columns.
-- Reduced horizontal row padding to use more of the phone width.
-- Added strike-through to completed Shopping Qty values as well as descriptions.
-- Refined About dialog spacing and wording.
-- About now distinguishes JobSheet as producer/brand from 21 TWELVE CONSULTING PTY LTD as copyright owner.
-- Updated LICENSE copyright owner from JobSheet to 21 TWELVE CONSULTING PTY LTD.
-- Updated README licensing wording to preserve the option of different licensing terms for future versions while acknowledging existing MIT grants remain valid.
-- Added CONTRIBUTING.md with contributor/relicensing terms intended to preserve practical future relicensing flexibility.
-- Built and tested successfully on the real phone.
-- Committed and pushed all work to origin/main.
-
-Shared-list design decisions recorded this session:
-- Shared list is its own list, not a section inside private Shopping.
-- Optional sharing should not compromise local-first/no-login use for ordinary Todo/Shopping.
-- Household and work/plumber use cases should share the same list-membership model.
-- Unseen remote activity gets a per-user red star/marker beside the list count.
-- Marker clears when that user actually views the updated list.
-- Manual refresh should query server state and show "List refreshed" on success.
-- Supabase is the leading backend candidate but has not been selected definitively.
-- Settings will eventually administer sharing/account/list membership, but empty sharing sections should not be added before the feature exists.
-
-SESSION CLOSEOUT FILE SAFETY
-----------------------------
-Local-only files/directories must remain untracked/ignored:
-- signing.properties
-- keys/
-- app/release/
-- .idea/inspectionProfiles/
-- audit.cmd
-
-Never use a broad add command if it risks staging signing secrets or generated APK output. Prefer explicitly naming intended files.
-
-
-SESSION CLOSEOUT - 21 AUG 2026
+SESSION CLOSEOUT - 24 AUG 2026
 ------------------------------
-Major work completed this session:
-- Prepared JSimpleList 1.1 for Google Play.
-- Final release metadata is versionCode 2, versionName 1.1, build date 21 August 2026.
-- Standardised user-facing terminology from "Todo" to "To-do" in the tab, About text and To-do entry hint. Internal identifiers such as todoItems, ListKind.TODO and todo_items remain unchanged.
-- Rebuilt both signed release APK and AAB successfully after the wording change.
-- Pushed commit 031012c "Use To-do in JSimpleList UI" to origin/main.
-- Improved the pinch-resize hint so it no longer disappears at an arbitrary item count. It now stays visible while there is sufficient rendered space and drops away before list content reaches the reserved hint area.
-- Real-phone behaviour was accepted as good even though the hint leaves roughly one extra row of safety space before disappearing.
-- IMPORTANT: the rendered-space resize-hint change was made and tested after the 1.1 Play AAB had already been built/submitted. It is currently a local source change and is NOT part of the 1.1 bundle under Google review unless a later rebuild/resubmission is deliberately performed. Do not disturb the in-review 1.1 release merely to include this cosmetic improvement.
-- Created and uploaded Google Play visual assets: app icon, feature graphic and five phone screenshots.
-- Google Play store listing completed with Productivity category and Shopping/Productivity tags.
-- Store listing text uses "To-do" consistently.
-- JSimpleList privacy policy is hosted at https://jobsheet.com.au/jsimplelist-privacy.html.
-- Google Play declarations completed for app access/sign-in, advertising ID, ads, data safety, government apps, financial features, health, content rating and target audience.
-- Production release 1.1 was created with app bundle version code 2 and submitted for review.
-- Production distribution was selected for 176 countries/regions plus the rest of world.
-- Google Play Publishing overview currently shows the complete 1.1 submission as "Changes in review".
-- Managed publishing is OFF, so approved changes should publish automatically.
-- Google Play showed only non-blocking warnings for missing deobfuscation and native debug-symbol files; no release-blocking errors remained.
+Completed and pushed:
+- auth/profile foundation
+- first sync repository foundation
+- item/list ordering UX improvements
+- new items at top with automatic scroll into view under keyboard
+- blank-space tap closes Lists selector
+- existing item text selects fully, receives focus and opens keyboard
+- edit Qty/description geometry matches normal 48 dp entry controls
+- Back cancels item edit or closes Lists before app exit
+- ListSyncRepository final newline cleanup
 
-2.0 LIST MODEL DECISIONS - 22 AUG 2026
------------------------------------------
-- Planned intrinsic list kinds are TODO, SHOPPING and DISCUSSION.
-- User-facing labels are "To-do", "Shopping" and "Discussion points".
-- Discussion points are primarily intended for meetings/agendas.
-- DISCUSSION uses the same basic item data shape as TODO: description + completed; the completed state means the point has been discussed/covered.
-- Discussion points may be displayed as a numbered list and should support manual reordering.
-- Manual item reordering is not Discussion-specific: every list kind should allow the user to control item order.
-- The planned item model therefore requires an explicit persisted position/order field for every item.
-- A general position field leaves To-do and Shopping open to the same reordering capability without future schema changes.
-- Existing 1.1 To-do and Shopping data remain the only legacy list kinds that need migration; Discussion is introduced by 2.0.
-
-FUTURE ONLINE / SHARING ARCHITECTURE - 21 AUG 2026
----------------------------------------------------
-Core product principle:
-- JSimpleList remains local-first.
-- Local-only use remains the default and must continue to work without account creation, login, sync or server dependency.
-- Online features are optional and should be explicitly enabled only by users who want sync, sharing or browser access.
-- Do not automatically upload existing local lists merely because a user signs in or enables online features.
-- Individual lists should have independent state rather than forcing the whole app into an online mode.
-
-Expected online relationship states (derive these from online/server relationship rather than encoding them as a rigid intrinsic list-kind enum):
-- Local: exists only on the device.
-- Synced: user's own online-backed list, available on their devices and in a browser.
-- Shared: online-backed list with one or more other members.
-- The phone keeps a complete locally usable copy of online lists so normal use remains available offline.
-- A list becoming local again should not require a data conversion; the local copy already exists. Ending online access simply removes/disconnects the server relationship as appropriate.
-- Shared-list ownership/member semantics must prevent one user from silently destroying a list other members still rely on.
-
-Server authority and sync:
-- For synced/shared lists, the server should retain the current authoritative list state while online functionality is active.
-- Do not delete list items from the server merely because all current clients have received them; that would make reliable later edits, browser access, new-device sync and membership changes unnecessarily difficult.
-- Synchronisation/event history may be pruned after all relevant clients have acknowledged newer state; only current state needs durable retention for this simple product.
-- Realtime/background traffic should be conservative. Avoid aggressive polling.
-- Prefer sync on meaningful events such as app foreground, local edits, manual refresh and lightweight realtime notification while appropriate.
-- If the backend is unavailable or quotas are exhausted, cached/local lists must remain usable and no local data should be lost.
-
-Browser access:
-- Browser access should be designed together with sharing because both depend on the same account, list, membership and sync model.
-- Preferred hostname is `jslist.jobsheet.com.au` so the JSimpleList/JS identity remains visible.
-- The browser frontend is another client of the same online-list service, not a phone bridge and not a separate backend.
-- A small web client should expose online-backed lists only.
-- Browser scope can remain deliberately minimal: choose list, add/edit/tick/delete, Shopping quantity, and refresh/unseen-state behaviour.
-- Local-only lists never appear in the browser because they never leave the device.
-
-Future funding / entitlement design:
-- Do not build billing now, but leave the architecture open for it.
-- Local-only use should remain free.
-- Online sync/sharing/browser access may initially be free while service costs are negligible.
-- If meaningful recurring backend cost develops, the preferred model is a small annual fee, notionally around US$5/year, rather than a monthly subscription.
-- Voluntary donations/support may also be offered separately from paid feature entitlement.
-- Do not hard-wire payment logic into list operations. The sync/backend layer should query an account entitlement such as whether online access is currently permitted.
-- Entitlement design should be able to support future states such as free, supporter, paid-online, promotional or admin-granted access without changing list/sync logic.
-- Avoid promising that online service will remain unlimited and free forever.
-- If funding is ever introduced, existing users should receive reasonable notice/transition rather than abrupt loss of shared data.
-- Leave room for operational safeguards such as account/list/member/item limits and backend kill switches, but do not implement them until justified.
-- Popularity should degrade safely: local use continues even if online service must be throttled, paused or temporarily disabled.
-
-BACKEND / COST FUTURE-PROOFING
-------------------------------
-- Supabase/PostgreSQL is now the selected 2.0 online backend; the schema/RLS/RPC foundation is implemented in migrations/001-014.
-- The backend should be designed so cost pressure is driven mainly by real usage rather than wasteful polling or excessive event retention.
-- Keep list payloads small; JSimpleList has no need for image/file attachments in the shared-list service.
-- Leave doors open for future operational controls such as:
-  - disable new online registrations
-  - disable creation of new online/shared lists
-  - temporarily suspend sync/realtime while preserving local copies
-  - sensible per-account/per-list limits
-- These controls are future-proofing requirements, not immediate implementation tasks.
-
-SESSION PROGRESS - 22 AUG 2026
-------------------------------
-- Confirmed 2.0 should support user-named dynamic lists rather than fixed To-do/Shopping names.
-- Added Room database foundation and legacy 1.1 import path.
-- Made Room authoritative for 2.0 list/item data and isolated legacy SharedPreferences JSON as import-only.
-- Added DISCUSSION list kind.
-- Converted MainActivity from separate fixed To-do/Shopping state to a dynamic Room-driven ListEntity collection.
-- Removed permanent tabs and implemented the agreed navigation: one current list, horizontal swipe between adjacent lists, and a full-width `Lists` selector for direct access.
-- Added complete basic local list management: create, rename, delete and a valid zero-list empty state.
-- Imported/default To-do and Shopping lists are now ordinary ListEntity records after import; they can be renamed or deleted like any other list.
-- Rename/Delete were deliberately removed from the normal working-list header and placed only in the `Lists` management view to avoid visual ambiguity.
-- Rename focuses the existing name with the entire text selected, ready to overwrite.
-- Created and used a Discussion points list named `Doctor` successfully on the phone.
-- The user noticed that selecting list Type before entering Name may feel more natural for creation; no change yet, monitor use first.
-- Possible 2.1 preference parked: allow unused list types to be disabled from the New list chooser without altering existing lists.
-- Agreed list selector should scale to many lists and leave room for later metadata, reordering and unseen markers.
-- Agreed owner/member destruction and ejection semantics described above, including the need for server-side deletion propagation to offline clients.
-- Current debug build completed successfully (`assembleDebug`), `git diff --check` reported no whitespace errors, and ADB install/update of the debug APK succeeded on the real phone.
-- Immediately before this context-document closeout, `git status --short` showed only `app/src/main/java/au/com/jobsheet/jsimplelist/MainActivity.kt` modified.
-- The local application layer is now sufficiently established to begin remote database/connectivity design. The next phase should start with the remote schema and sync contract rather than jumping directly to shared-list UI.
-
-SESSION CLOSEOUT FILE SAFETY
-----------------------------
-Local-only files/directories must remain untracked/ignored:
-- signing.properties
-- keys/
-- app/release/
-- .idea/inspectionProfiles/
-- audit.cmd
-
-Never use a broad add command if it risks staging signing secrets or generated APK output. Prefer explicitly naming intended files.
-
-SESSION CLOSEOUT - 23 AUG 2026 - SUPABASE / AUTH FOUNDATION
-------------------------------------------------------------
-Backend and Android foundation completed:
-- Supabase project created and `jsimplelist` custom schema exposed for the Data API.
-- Remote schema uses UUID primary keys for lists and items. For an online-backed record, the local Room UUID is preserved as the Supabase UUID; do not create a second server identity.
-- Profiles use `auth.users.id` UUID as authority; display names are user-chosen, non-unique aliases. Email is an authentication/invitation address, not a user-facing identity.
-- SQL migrations 001-014 are stored under `migrations/` and committed. They cover base schema, RLS, private security-definer helpers, invitations, controlled list creation/acceptance, sync snapshot/tombstones, tightening direct writes, and per-user list position.
-- Shared-list list-order position is per-user and belongs on `list_members.position`; item position remains shared on `items.position`. This is a design constraint: different members may order the same shared list differently among their own lists, while everyone shares the same item order inside the list.
-- Ordinary direct client writes to sensitive membership/list-creation paths were removed in favour of controlled RPC functions.
-- Normal item/list reads hide deleted rows; sync uses a controlled snapshot that can return tombstone/removal state so offline clients can learn deletions without weakening normal RLS reads.
-- Android dependencies now include supabase-kt 3.2.1 Auth/PostgREST and Ktor Android 3.2.1. `JSimpleListSupabase` is implemented with PostgREST default schema `jsimplelist`.
-- Android 2.0 manifest now has INTERNET permission; local-only behaviour remains independent of network/account state.
-- Supabase URL and publishable key are supplied locally through BuildConfig; a fresh `--no-configuration-cache assembleDebug` succeeded after correcting the escaped Windows SDK path in `local.properties`.
-- Supabase custom SMTP is configured through Resend using the dedicated sender `jsimplelist@jobsheet.com.au`; Proton now has that address. A dedicated restricted Resend sending API key is used only as the Supabase SMTP password.
-- Supabase Magic link or OTP email template now sends a six-digit `{{ .Token }}` code, explicitly stating that it is valid for 1 hour and single-use.
-
-Account / ownership decisions:
-- Online identities are persistent Supabase Auth users with stable UUIDs; sessions may expire/sign out without deleting the account.
-- Local-only use remains account-free. Signing in must never automatically upload existing local lists.
-- JSimpleList must provide a transparent `Delete online account` function. Local Room lists on that device are not deleted by online-account deletion.
-- Account-deletion wording/semantics: `This permanently removes your JSimpleList online account and shared-list access. Local lists stored on this device are not deleted. Shared lists you own will be destroyed.`
-- Ownership transfer is deliberately not required. The creator/owner owns the online shared list; deleting the owner's online account destroys that owner's online shared lists and other members lose access.
-- Account deletion itself must be a controlled privileged server-side operation; no admin/secret credential may be shipped to Android.
-
-Git checkpoints:
-- `ee9e561 Add Supabase backend foundation`
-- `14f7277 Add Supabase Android client`
-- Working tree was clean immediately after `14f7277`; later SMTP/template configuration is Supabase/Resend/Proton account state rather than repository content.
-
-SESSION CLOSEOUT - 24 AUG 2026 - AUTH / PROFILE / UI FOUNDATION
----------------------------------------------------------------
-Major work completed this session:
-- Repository checkpoint at session start was `e9a0f09 Update JSimpleList Supabase context`; working tree then accumulated the 2.0 auth/profile/UI work below and remained uncommitted at session closeout.
-- Added modular `AuthRepository.kt` using Supabase email OTP authentication. Six-digit OTP delivery through Supabase -> Resend -> `jsimplelist@jobsheet.com.au` was proven on the real phone.
-- Supabase email OTP length was explicitly configured to 6 digits.
-- Auth session persistence was proven across normal app close/reopen. Uninstalling the debug app correctly removes the locally stored session; re-authentication with the same email address resolves to the same persistent Supabase user identity rather than a new JSimpleList identity. Multiple device/browser sessions are acceptable and must never be used as ownership identity.
-- Added Kotlin serialization compiler support and modular `ProfileRepository.kt`. `jsimplelist.profiles` is keyed by stable `auth.users.id`; display names are user-chosen, non-unique and limited by the database to 1-50 trimmed characters.
-- First-time authenticated users are asked `What should we call you?` and save a display name. Existing profiles load automatically on later sessions.
-- Existing display names are edited in place by tapping the displayed name. The full name is selected, focus is explicitly requested and the soft keyboard opens immediately; Save updates the same profile, Cancel leaves the saved value unchanged.
-- Added a top-right three-line menu. Initial entries are `List sharing`, `Disable sharing`, and `About`, with About at the bottom. The old separate About icon and temporary Account button were removed.
-- `List sharing` is the user-facing home for authentication/sharing identity. Wording is deliberately purpose-led rather than account-led. Email input is labelled `Email address`; OTP wording is `We'll email you a 6-digit one time password`; informational phrases avoid trailing full stops.
-- `Disable sharing` has a separate destructive information surface. Actual privileged account deletion is not implemented yet and must not be faked by sign-out; it remains a later controlled server-side operation.
-- Material typography now uses Manrope for all roles, not only a subset. Material surface-container colours were set to the app's white surface so menus/dialogs no longer have a mismatched grey tint.
-- Fixed list-view navigation persistence: creating or deleting a list no longer drops the user out of the `Lists` view. Create/Rename/Delete close only their own dialogs; the Lists view remains until explicit navigation.
-- New-list creation order is now Type -> Name -> Create. Repeated real-phone use confirmed this is preferable to Name-first.
-- New-list default names are `To-do list`, `Shopping list`, and `Discussion points`. Defaults are fully selected ready to overwrite; changing type updates the default only while it remains a default, and preserves custom names.
-- Fresh 2.0 installs now begin with zero lists. Legacy To-do/Shopping list creation occurs only when genuine 1.1 SharedPreferences list keys exist, preserving the real upgrade path without fabricating lists on a new install.
-- The real phone was used throughout. Builds repeatedly completed successfully with `gradlew.bat assembleDebug`; `git diff --check` remained clean apart from expected LF/CRLF warnings.
-
-Current uncommitted files at closeout (from the last observed status plus later edits):
-- `app/build.gradle.kts`
-- `app/src/main/java/au/com/jobsheet/jsimplelist/AuthDialog.kt` (new)
-- `app/src/main/java/au/com/jobsheet/jsimplelist/AuthRepository.kt` (new)
-- `app/src/main/java/au/com/jobsheet/jsimplelist/ProfileRepository.kt` (new)
-- `app/src/main/java/au/com/jobsheet/jsimplelist/LegacyDataImporter.kt`
-- `app/src/main/java/au/com/jobsheet/jsimplelist/MainActivity.kt`
-- `app/src/main/java/au/com/jobsheet/jsimplelist/SimpleListStore.kt`
-- `app/src/main/java/au/com/jobsheet/jsimplelist/ui/theme/Type.kt`
-- `app/src/main/java/au/com/jobsheet/jsimplelist/ui/theme/Theme.kt` (later white surface-container change; verify with git status next session)
-- `gradle/libs.versions.toml`
+Real-phone testing confirmed the new editing, keyboard, sizing, item-insertion and Back-navigation behaviour.
 
 NEXT TASK
 ---------
-1. Start by running `git status --short` and `git --no-pager log --oneline -4`. Do not assume the uncommitted-file list above is exhaustive; verify current state.
-2. Review/diff the accumulated auth/profile/UI work, build once more, test the key paths on the real phone, then commit and push this coherent milestone before beginning list sync.
-3. Begin the first actual online-list milestone: deliberately opt one existing/local list into online backing and prove a Room <-> Supabase round trip using the same list/item UUIDs. Do not automatically upload all local lists merely because the user is authenticated.
-4. Preserve list name, kind, quantities, completion, item/list ordering, timestamps and deletion/tombstone semantics. Server-backed lists remain fully usable from the local Room copy while offline.
-5. After one-list round-trip reliability is proven, implement invitations/member UI, conservative reconciliation/realtime behaviour, unseen-activity marker and genuine manual refresh.
-6. Implement the controlled privileged `Delete online account` / Disable sharing operation before public 2.0 release, using the absolute ownership/destruction semantics recorded above. Ordinary Sign out remains a separate non-destructive action.
-7. Before releasing 2.0, perform the real Google-signed upgrade test from installed 1.1 and verify preservation of To-do/Shopping items, quantities, completed states and font scale.
-8. Preserve the cost-control/entitlement boundary; local-only use must remain usable even if Supabase is unavailable, throttled or later requires paid online entitlement.
+1. Start with `git status --short` and `git --no-pager log --oneline -4`.
+2. Wire an explicit per-list `make online` action into the existing Lists management surface.
+3. Use `ListSyncRepository.makeListOnline()` for one deliberately selected local list.
+4. Prove Room -> Supabase -> Room with the same list/item UUIDs and preserve name, kind, quantities, completion, ordering and timestamps.
+5. Consume/reconcile the authoritative `get_list_sync_snapshot` result while keeping Room fully usable offline.
+6. Only then implement conservative two-way sync, tombstone/removal handling and stale-resurrection prevention.
+7. Then add invitations/member UI, unseen marker/realtime/manual refresh and owner/member leave/remove/destroy UX.
+8. Implement privileged Delete online account / Disable sharing before public 2.0 release; Sign out remains non-destructive.
+9. Build the browser client only after the common online-list contract is proven on Android.
+10. Before releasing 2.0, perform the real Google-signed 1.1 -> 2.0 upgrade test.
