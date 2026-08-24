@@ -215,39 +215,34 @@ Important RPC/state contract:
 
 LIST SYNC FOUNDATION
 --------------------
-Committed milestone:
-    2d0c2a0 Add list sync foundation and improve list ordering
+The first online-list round trip is now working on Android.
 
-`ListSyncRepository.kt` exists and compiles.
+Current behaviour:
+- Local lists remain local and are never uploaded merely because the user signs in.
+- Lists persist an `onlineState` value in Room.
+- Current states are `LOCAL`, `ONLINE_OWNER` and future `ONLINE_MEMBER`.
+- Room schema version 2 adds `lists.onlineState` with existing lists defaulting safely to `LOCAL`.
+- A local list can be explicitly shared from the Lists management surface.
+- Successful sharing persists `ONLINE_OWNER` and removes the Share action for that list.
+- `create_online_list` is retry-safe for an existing list owned by the same user.
+- Room list/item UUIDs are preserved as Supabase UUIDs.
+- `makeListOnline(list, items)` upserts the current item set and then loads the authoritative snapshot.
+- `loadSnapshot` calls `get_list_sync_snapshot` and decodes the returned JSON object as `ListSyncSnapshot`.
+- Add, edit, tick and untick operations write Room first and then automatically upsert the individual item to Supabase when the list is online.
+- Local-only lists continue to write Room only.
+- Automatic item pushes were proven on a physical Android device for add, edit, tick and untick using the same item UUID.
+- Local list counts include completed as well as incomplete items.
+- The full Room copy remains available offline.
 
-Current `makeListOnline(list, items)` behaviour:
-- requires an authenticated user
-- converts local epoch-millisecond timestamps to ISO-8601 with `java.time.Instant`
-- calls `create_online_list` with a `JsonObject`
-- preserves the Room list UUID as the Supabase list UUID
-- inserts current items using their existing UUIDs
-- preserves description, quantity, completion, position and timestamps
-- immediately calls `loadSnapshot(list.id)`
-
-`loadSnapshot` calls `get_list_sync_snapshot` and decodes `ListSyncSnapshot`.
-
-This repository is only foundation. It is deliberately NOT wired to automatic upload or generic background sync yet.
-
-FIRST ONLINE MILESTONE
-----------------------
-The next functional milestone is deliberately narrow:
-1. Add an explicit per-list action in the existing Lists management row to make one selected local list online.
-2. Never upload all local lists merely because the user signs in.
-3. Call the existing `ListSyncRepository.makeListOnline()` path for that one list.
-4. Prove Room -> Supabase -> Room using the same list/item UUIDs.
-5. Verify name, kind, quantity, completion, item/list order and timestamps.
-6. Consume the returned authoritative sync snapshot and reconcile/verify it against Room.
-7. Keep the complete Room copy so the list remains usable offline.
-8. Only after this is reliable, implement conservative two-way reconciliation and deletion/removal handling.
+Important limitations still to implement:
+- Failed online writes retain the Room change, but durable retry/reconciliation is not yet implemented.
+- Online item deletion needs tombstone semantics before it is wired to automatic sync.
+- Remote changes are not yet pulled/reconciled automatically.
+- Shared-member import and `ONLINE_MEMBER` behaviour are not yet implemented.
 
 FUTURE SHARING / SYNC
 ---------------------
-After the one-list round trip works:
+After the now-proven one-list round trip:
 - implement invitations/member UI
 - owner/member remove/leave/destroy semantics
 - conservative two-way synchronization
@@ -261,6 +256,17 @@ After the one-list round trip works:
 - failed refresh retains the local cached list and shows a concise failure
 - realtime/background traffic should be conservative; avoid aggressive polling
 - prefer meaningful sync triggers such as app foreground, local edits, manual refresh and lightweight realtime notification
+
+NEXT ANDROID SYNC WORK
+----------------------
+Preferred order:
+1. Persist and restore the last active list across app restarts.
+2. Implement safe online item deletion using server tombstones so offline deletion cannot later resurrect stale items.
+3. Implement manual remote snapshot refresh/reconciliation.
+4. Add sensible automatic refresh triggers such as app foreground without aggressive polling.
+5. Sync list-level changes such as rename and ordering.
+6. Add the shared/network indicator and shared-list information/member controls.
+7. Implement member/invitation flows and `ONLINE_MEMBER` state.
 
 BROWSER CLIENT
 --------------
@@ -277,7 +283,7 @@ Do not add Settings merely to expose options that are not genuinely useful.
 
 Current decisions:
 - Keep pinch-to-resize as-is; no text-size lock/reset setting required now.
-- Keep current opening-list behaviour rather than adding a default-list preference.
+- Remember the last active list and restore that list when the app starts. Persist the list ID locally; if the saved list no longer exists, fall back safely to an available list. This is normal app behaviour, not a user-selectable default-list preference.
 - Completed items below incomplete items is normal list behaviour, not a preference.
 - Manual item ordering is list functionality, not a setting.
 - Manual list ordering is planned functionality, not a setting.

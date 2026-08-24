@@ -8,7 +8,7 @@ import androidx.room3.RoomDatabase
         ListEntity::class,
         ItemEntity::class
     ],
-    version = 1
+    version = 2
 )
 abstract class JSimpleListDatabase : RoomDatabase() {
     abstract fun dao(): JSimpleListDao

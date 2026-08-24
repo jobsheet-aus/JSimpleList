@@ -10,5 +10,6 @@ data class ListEntity(
     val name: String,
     val kind: String,
     val position: Int,
-    val createdAt: Long
+    val createdAt: Long,
+    val onlineState: String = "LOCAL"
 )

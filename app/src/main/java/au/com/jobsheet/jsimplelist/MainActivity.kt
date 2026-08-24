@@ -1,12 +1,16 @@
 package au.com.jobsheet.jsimplelist
 
 import android.os.Bundle
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.room3.Room
+import androidx.room3.migration.Migration
 import androidx.sqlite.driver.AndroidSQLiteDriver
+import androidx.sqlite.execSQL
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.pager.HorizontalPager
@@ -97,6 +101,16 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private val MIGRATION_1_2 = object : Migration(1, 2) {
+    override suspend fun migrate(
+        connection: androidx.sqlite.SQLiteConnection
+    ) {
+        connection.execSQL(
+            "ALTER TABLE lists ADD COLUMN onlineState TEXT NOT NULL DEFAULT 'LOCAL'"
+        )
+    }
+}
+
 @Composable
 private fun SimpleListApp() {
     val context = LocalContext.current
@@ -104,12 +118,14 @@ private fun SimpleListApp() {
     val store = remember { SimpleListStore(applicationContext) }
     val authRepository = remember { AuthRepository() }
     val profileRepository = remember { ProfileRepository() }
+    val listSyncRepository = remember { ListSyncRepository() }
     val database = remember {
         Room.databaseBuilder<JSimpleListDatabase>(
             context = applicationContext,
             name = "jsimplelist.db"
         )
             .setDriver(AndroidSQLiteDriver())
+            .addMigrations(MIGRATION_1_2)
             .build()
     }
 
@@ -164,6 +180,7 @@ private fun SimpleListApp() {
         mutableStateOf(TextFieldValue(""))
     }
     var deleteListId by remember { mutableStateOf<String?>(null) }
+    var makingOnlineListId by remember { mutableStateOf<String?>(null) }
     val uriHandler = LocalUriHandler.current
 
     BackHandler(enabled = showListSelector) {
@@ -410,6 +427,14 @@ private fun SimpleListApp() {
             )
         }
 
+        val newListFocusRequester = remember { FocusRequester() }
+
+        LaunchedEffect(showNewListDialog) {
+            if (showNewListDialog) {
+                newListFocusRequester.requestFocus()
+            }
+        }
+
         if (showNewListDialog) {
             AlertDialog(
                 onDismissRequest = {
@@ -488,7 +513,9 @@ private fun SimpleListApp() {
                                 Text("Name")
                             },
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(newListFocusRequester)
                         )
                     }
                 },
@@ -681,7 +708,7 @@ private fun SimpleListApp() {
             val currentItems = itemsByList[currentList.id]
             val currentKind = ListKind.valueOf(currentList.kind)
             val currentItemCount =
-                currentItems?.count { !it.completed } ?: 0
+                currentItems?.size ?: 0
 
             Row(
                 modifier = Modifier
@@ -782,7 +809,7 @@ private fun SimpleListApp() {
                         val listItems = itemsByList[list.id]
                         val kind = ListKind.valueOf(list.kind)
                         val itemCount =
-                            listItems?.count { !it.completed } ?: 0
+                            listItems?.size ?: 0
                         val index = lists.indexOf(list)
 
                         Row(
@@ -827,6 +854,100 @@ private fun SimpleListApp() {
                                     color =
                                         MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            }
+
+                            if (list.onlineState == "LOCAL") {
+                                TextButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            makingOnlineListId = list.id
+
+                                        try {
+                                            val localItems =
+                                                listItems?.toList() ?: emptyList()
+
+                                            Log.i(
+                                                "JSimpleListSync",
+                                                "Sharing list id=${list.id} name=${list.name} items=${localItems.size}"
+                                            )
+
+                                            val snapshot =
+                                                listSyncRepository.makeListOnline(
+                                                    list = list,
+                                                    items = localItems
+                                                )
+
+                                            check(snapshot.state == "active") {
+                                                "Unexpected sync state: ${snapshot.state}"
+                                            }
+
+                                            check(snapshot.list?.id == list.id) {
+                                                "Online list UUID does not match local list"
+                                            }
+
+                                            check(
+                                                snapshot.items
+                                                    .map { it.id }
+                                                    .toSet() ==
+                                                    localItems
+                                                        .map { it.id }
+                                                        .toSet()
+                                            ) {
+                                                "Online item UUIDs do not match local items"
+                                            }
+
+                                            val listIndex =
+                                                lists.indexOfFirst {
+                                                    it.id == list.id
+                                                }
+
+                                            if (listIndex >= 0) {
+                                                val onlineList =
+                                                    lists[listIndex].copy(
+                                                        onlineState = "ONLINE_OWNER"
+                                                    )
+
+                                                lists[listIndex] = onlineList
+                                                dao.updateList(onlineList)
+                                            }
+
+                                            Log.i(
+                                                "JSimpleListSync",
+                                                "Shared list id=${list.id} state=${snapshot.state} items=${snapshot.items.size}"
+                                            )
+
+                                            Toast.makeText(
+                                                context,
+                                                "List shared · ${snapshot.items.size} items",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } catch (exception: Exception) {
+                                            Log.e(
+                                                "JSimpleListSync",
+                                                "Share failed for list id=${list.id} name=${list.name}: ${exception::class.simpleName}"
+                                            )
+
+                                            Toast.makeText(
+                                                context,
+                                                exception.message
+                                                    ?: "Could not share list",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        } finally {
+                                            makingOnlineListId = null
+                                        }
+                                    }
+                                },
+                                enabled = makingOnlineListId == null
+                            ) {
+                                Text(
+                                    if (makingOnlineListId == list.id) {
+                                        "Sharing"
+                                    } else {
+                                        "Share"
+                                    }
+                                )
+                            }
                             }
 
                             TextButton(
@@ -876,11 +997,33 @@ private fun SimpleListApp() {
                             onItemAdded = { item ->
                                 coroutineScope.launch {
                                     dao.insertItem(item)
+
+                                    if (list.onlineState != "LOCAL") {
+                                        try {
+                                            listSyncRepository.upsertItem(item)
+                                        } catch (exception: Exception) {
+                                            Log.e(
+                                                "JSimpleListSync",
+                                                "Item push failed after add id=${item.id} list=${list.id}: ${exception::class.simpleName}"
+                                            )
+                                        }
+                                    }
                                 }
                             },
                             onItemUpdated = { item ->
                                 coroutineScope.launch {
                                     dao.updateItem(item)
+
+                                    if (list.onlineState != "LOCAL") {
+                                        try {
+                                            listSyncRepository.upsertItem(item)
+                                        } catch (exception: Exception) {
+                                            Log.e(
+                                                "JSimpleListSync",
+                                                "Item push failed after update id=${item.id} list=${list.id}: ${exception::class.simpleName}"
+                                            )
+                                        }
+                                    }
                                 }
                             },
                             onItemDeleted = { itemId ->

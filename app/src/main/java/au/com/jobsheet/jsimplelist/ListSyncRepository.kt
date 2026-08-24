@@ -137,7 +137,7 @@ class ListSyncRepository(
         if (items.isNotEmpty()) {
             client
                 .from("items")
-                .insert(
+                .upsert(
                     items.map { item ->
                         OnlineItemInsert(
                             id = item.id,
@@ -158,6 +158,27 @@ class ListSyncRepository(
         return loadSnapshot(list.id)
     }
 
+    suspend fun upsertItem(item: ItemEntity) {
+        requireSignedIn()
+
+        client
+            .from("items")
+            .upsert(
+                OnlineItemInsert(
+                    id = item.id,
+                    listId = item.listId,
+                    description = item.description,
+                    quantity = item.quantity,
+                    completed = item.completed,
+                    position = item.position,
+                    createdAt =
+                        Instant.ofEpochMilli(item.createdAt).toString(),
+                    updatedAt =
+                        Instant.ofEpochMilli(item.updatedAt).toString()
+                )
+            )
+    }
+
     suspend fun loadSnapshot(listId: String): ListSyncSnapshot {
         requireSignedIn()
 
@@ -168,7 +189,7 @@ class ListSyncRepository(
                     put("target_list_id", listId)
                 }
             )
-            .decodeSingle<ListSyncSnapshot>()
+            .decodeAs<ListSyncSnapshot>()
     }
 
     private fun requireSignedIn() {
