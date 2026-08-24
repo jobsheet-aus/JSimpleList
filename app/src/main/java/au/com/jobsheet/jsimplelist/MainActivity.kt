@@ -741,6 +741,9 @@ private fun SimpleListApp() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
+                        .clickable {
+                            showListSelector = false
+                        }
                 ) {
                     item {
                         TextButton(
@@ -940,8 +943,13 @@ private fun ListScreen(
 ) {
     var description by remember(kind) { mutableStateOf("") }
     var quantityText by remember(kind) { mutableStateOf("1") }
+    var pendingScrollItemId by remember(listId) {
+        mutableStateOf<String?>(null)
+    }
 
     val descriptionFocusRequester = remember { FocusRequester() }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
     val currentScale by rememberUpdatedState(fontScale)
     val currentOnScaleChange by rememberUpdatedState(onFontScaleChange)
@@ -1003,13 +1011,14 @@ private fun ListScreen(
             description = trimmedDescription,
             quantity = quantity,
             completed = false,
-            position = (items.maxOfOrNull { it.position } ?: 0) + 10,
+            position = (items.minOfOrNull { it.position } ?: 10) - 10,
             createdAt = now,
             updatedAt = now
         )
 
         items.add(item)
         onItemAdded(item)
+        pendingScrollItemId = item.id
 
         description = ""
 
@@ -1064,11 +1073,31 @@ private fun ListScreen(
 
         val displayedItems =
             remember(items.toList()) {
-                items.filterNot { it.completed } +
-                    items.filter { it.completed }
+                val orderedItems =
+                    items.sortedWith(
+                        compareBy<ItemEntity> { it.position }
+                            .thenBy { it.createdAt }
+                    )
+
+                orderedItems.filterNot { it.completed } +
+                    orderedItems.filter { it.completed }
             }
 
-        val listState = rememberLazyListState()
+        LaunchedEffect(
+            pendingScrollItemId,
+            displayedItems
+        ) {
+            val targetId = pendingScrollItemId
+
+            if (
+                targetId != null &&
+                displayedItems.firstOrNull()?.id == targetId
+            ) {
+                listState.scrollToItem(0)
+                pendingScrollItemId = null
+            }
+        }
+
         val resizeHintHeightPx =
             with(LocalDensity.current) {
                 48.dp.roundToPx()
