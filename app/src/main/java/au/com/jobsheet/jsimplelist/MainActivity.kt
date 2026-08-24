@@ -134,6 +134,10 @@ private fun SimpleListApp() {
     val itemsByList = remember {
         mutableStateMapOf<String, SnapshotStateList<ItemEntity>>()
     }
+    val pagerState = rememberPagerState(
+        pageCount = { lists.size }
+    )
+    var activeListRestored by remember { mutableStateOf(false) }
 
     LaunchedEffect(database) {
         LegacyDataImporter(
@@ -153,11 +157,42 @@ private fun SimpleListApp() {
                     addAll(dao.loadItems(list.id))
                 }
         }
+
+        if (lists.isNotEmpty()) {
+            val savedListId = store.loadLastActiveListId()
+            val savedIndex =
+                lists.indexOfFirst { it.id == savedListId }
+            val targetIndex =
+                if (savedIndex >= 0) {
+                    savedIndex
+                } else {
+                    0
+                }
+
+            pagerState.requestScrollToPage(targetIndex)
+        }
+
+        activeListRestored = true
     }
 
-    val pagerState = rememberPagerState(
-        pageCount = { lists.size }
-    )
+    LaunchedEffect(
+        pagerState.currentPage,
+        activeListRestored,
+        lists.size
+    ) {
+        if (activeListRestored && lists.isNotEmpty()) {
+            val currentIndex =
+                pagerState.currentPage.coerceIn(
+                    0,
+                    lists.lastIndex
+                )
+
+            store.saveLastActiveListId(
+                lists[currentIndex].id
+            )
+        }
+    }
+
     val coroutineScope = rememberCoroutineScope()
     var fontScale by remember { mutableFloatStateOf(store.loadFontScale()) }
     var showMenu by remember { mutableStateOf(false) }
@@ -701,7 +736,7 @@ private fun SimpleListApp() {
             )
         }
 
-        if (lists.isNotEmpty()) {
+        if (activeListRestored && lists.isNotEmpty()) {
             val currentIndex =
                 pagerState.currentPage.coerceIn(0, lists.lastIndex)
             val currentList = lists[currentIndex]
@@ -1035,7 +1070,7 @@ private fun SimpleListApp() {
                     }
                 }
             }
-        } else {
+        } else if (activeListRestored) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

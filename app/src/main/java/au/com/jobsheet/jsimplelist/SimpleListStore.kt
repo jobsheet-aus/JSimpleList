@@ -60,6 +60,15 @@ class SimpleListStore(context: Context) {
             .apply()
     }
 
+    fun loadLastActiveListId(): String? =
+        preferences.getString(KEY_LAST_ACTIVE_LIST_ID, null)
+
+    fun saveLastActiveListId(listId: String) {
+        preferences.edit()
+            .putString(KEY_LAST_ACTIVE_LIST_ID, listId)
+            .apply()
+    }
+
     private fun itemsKey(kind: ListKind): String =
         when (kind) {
             ListKind.TODO -> KEY_TODO_ITEMS
@@ -75,5 +84,6 @@ class SimpleListStore(context: Context) {
         private const val KEY_TODO_ITEMS = "todo_items"
         private const val KEY_SHOPPING_ITEMS = "shopping_items"
         private const val KEY_FONT_SCALE = "font_scale"
+        private const val KEY_LAST_ACTIVE_LIST_ID = "last_active_list_id"
     }
 }
