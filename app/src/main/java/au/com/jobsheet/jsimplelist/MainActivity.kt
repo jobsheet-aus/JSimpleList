@@ -111,6 +111,16 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
+private val MIGRATION_2_3 = object : Migration(2, 3) {
+    override suspend fun migrate(
+        connection: androidx.sqlite.SQLiteConnection
+    ) {
+        connection.execSQL(
+            "ALTER TABLE items ADD COLUMN deletedAt INTEGER"
+        )
+    }
+}
+
 @Composable
 private fun SimpleListApp() {
     val context = LocalContext.current
@@ -125,7 +135,10 @@ private fun SimpleListApp() {
             name = "jsimplelist.db"
         )
             .setDriver(AndroidSQLiteDriver())
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(
+                MIGRATION_1_2,
+                MIGRATION_2_3
+            )
             .build()
     }
 
@@ -1061,9 +1074,31 @@ private fun SimpleListApp() {
                                     }
                                 }
                             },
-                            onItemDeleted = { itemId ->
+                            onItemDeleted = { item ->
                                 coroutineScope.launch {
-                                    dao.deleteItem(itemId)
+                                    if (list.onlineState == "LOCAL") {
+                                        dao.deleteItem(item.id)
+                                    } else {
+                                        val now = System.currentTimeMillis()
+                                        val deletedItem =
+                                            item.copy(
+                                                updatedAt = now,
+                                                deletedAt = now
+                                            )
+
+                                        dao.updateItem(deletedItem)
+
+                                        try {
+                                            listSyncRepository.deleteOnlineItem(
+                                                item.id
+                                            )
+                                        } catch (exception: Exception) {
+                                            Log.e(
+                                                "JSimpleListSync",
+                                                "Item tombstone push failed id=${item.id} list=${list.id}: ${exception::class.simpleName}"
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         )
@@ -1122,7 +1157,7 @@ private fun ListScreen(
     onFontScaleChange: (Float) -> Unit,
     onItemAdded: (ItemEntity) -> Unit,
     onItemUpdated: (ItemEntity) -> Unit,
-    onItemDeleted: (String) -> Unit
+    onItemDeleted: (ItemEntity) -> Unit
 ) {
     var description by remember(kind) { mutableStateOf("") }
     var quantityText by remember(kind) { mutableStateOf("1") }
@@ -1350,7 +1385,7 @@ private fun ListScreen(
                         },
                         onDelete = {
                             items.removeAll { it.id == item.id }
-                            onItemDeleted(item.id)
+                            onItemDeleted(item)
                         }
                     )
 

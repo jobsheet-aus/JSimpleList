@@ -179,6 +179,17 @@ class ListSyncRepository(
             )
     }
 
+    suspend fun deleteOnlineItem(itemId: String) {
+        requireSignedIn()
+
+        client.postgrest.rpc(
+            function = "delete_online_item",
+            parameters = buildJsonObject {
+                put("target_item_id", itemId)
+            }
+        )
+    }
+
     suspend fun loadSnapshot(listId: String): ListSyncSnapshot {
         requireSignedIn()
 

@@ -18,6 +18,7 @@ interface JSimpleListDao {
         """
         SELECT * FROM items
         WHERE listId = :listId
+          AND deletedAt IS NULL
         ORDER BY completed, position, createdAt
         """
     )
