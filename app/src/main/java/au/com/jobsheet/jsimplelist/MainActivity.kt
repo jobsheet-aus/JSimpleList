@@ -902,25 +902,129 @@ private fun SimpleListApp() {
             val hasCompletedItems =
                 currentItems?.any { it.completed } == true
 
+            val uncheckAllItems = {
+                val affectedItems =
+                    currentItems
+                        ?.filter { it.completed }
+                        ?.toList()
+                        ?: emptyList()
+
+                if (affectedItems.isNotEmpty()) {
+                    val operationTime =
+                        System.currentTimeMillis()
+
+                    affectedItems.forEach { item ->
+                        val index =
+                            currentItems?.indexOfFirst {
+                                it.id == item.id
+                            } ?: -1
+
+                        if (index >= 0) {
+                            val updatedItem =
+                                item.copy(
+                                    completed = false,
+                                    updatedAt = operationTime
+                                )
+
+                            currentItems?.set(
+                                index,
+                                updatedItem
+                            )
+
+                            coroutineScope.launch {
+                                persistItemUpdate(
+                                    list = currentList,
+                                    item = updatedItem
+                                )
+                            }
+                        }
+                    }
+
+                    coroutineScope.launch {
+                        val result =
+                            snackbarHostState.showSnackbar(
+                                message = "All items unchecked",
+                                actionLabel = "Undo",
+                                duration = SnackbarDuration.Long
+                            )
+
+                        if (
+                            result ==
+                            SnackbarResult.ActionPerformed
+                        ) {
+                            val undoTime =
+                                System.currentTimeMillis()
+
+                            affectedItems.forEach { originalItem ->
+                                val index =
+                                    currentItems?.indexOfFirst {
+                                        it.id == originalItem.id
+                                    } ?: -1
+
+                                if (index >= 0) {
+                                    val currentItem =
+                                        currentItems?.getOrNull(index)
+
+                                    if (
+                                        currentItem != null &&
+                                        !currentItem.completed &&
+                                        currentItem.updatedAt ==
+                                        operationTime
+                                    ) {
+                                        val restoredItem =
+                                            currentItem.copy(
+                                                completed = true,
+                                                updatedAt = undoTime
+                                            )
+
+                                        currentItems?.set(
+                                            index,
+                                            restoredItem
+                                        )
+
+                                        coroutineScope.launch {
+                                            persistItemUpdate(
+                                                list = currentList,
+                                                item = restoredItem
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
-                        start = 16.dp,
+                        start = if (showListSelector) {
+                            16.dp
+                        } else {
+                            4.dp
+                        },
                         top = 4.dp,
                         end = 8.dp,
                         bottom = 6.dp
                     ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+
+
                 Column(
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            showListSelector = !showListSelector
+                        }
                 ) {
                     Text(
                         text = if (showListSelector) {
                             "Lists"
                         } else {
-                            currentList.name
+                            "${currentList.name} ▾"
                         },
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold
@@ -943,100 +1047,13 @@ private fun SimpleListApp() {
                     }
                 }
 
-                if (
-                    !showListSelector &&
-                    hasCompletedItems
-                ) {
+                if (showListSelector) {
                     TextButton(
                         onClick = {
-                            val affectedItems =
-                                currentItems
-                                    ?.filter { it.completed }
-                                    ?.toList()
-                                    ?: emptyList()
-
-                            if (affectedItems.isNotEmpty()) {
-                                val operationTime =
-                                    System.currentTimeMillis()
-
-                                affectedItems.forEach { item ->
-                                    val index =
-                                        currentItems?.indexOfFirst {
-                                            it.id == item.id
-                                        } ?: -1
-
-                                    if (index >= 0) {
-                                        val updatedItem =
-                                            item.copy(
-                                                completed = false,
-                                                updatedAt = operationTime
-                                            )
-
-                                        currentItems[index] = updatedItem
-
-                                        coroutineScope.launch {
-                                            persistItemUpdate(
-                                                list = currentList,
-                                                item = updatedItem
-                                            )
-                                        }
-                                    }
-                                }
-
-                                coroutineScope.launch {
-                                    val result =
-                                        snackbarHostState.showSnackbar(
-                                            message = "All items unchecked",
-                                            actionLabel = "Undo",
-                                            duration = SnackbarDuration.Long
-                                        )
-
-                                    if (
-                                        result ==
-                                        SnackbarResult.ActionPerformed
-                                    ) {
-                                        val undoTime =
-                                            System.currentTimeMillis()
-
-                                        affectedItems.forEach { originalItem ->
-                                            val index =
-                                                currentItems?.indexOfFirst {
-                                                    it.id == originalItem.id
-                                                } ?: -1
-
-                                            if (index >= 0) {
-                                                val currentItem =
-                                                    currentItems[index]
-
-                                                if (
-                                                    !currentItem.completed &&
-                                                    currentItem.updatedAt ==
-                                                    operationTime
-                                                ) {
-                                                    val restoredItem =
-                                                        currentItem.copy(
-                                                            completed = true,
-                                                            updatedAt = undoTime
-                                                        )
-
-                                                    currentItems[index] =
-                                                        restoredItem
-
-                                                    coroutineScope.launch {
-                                                        persistItemUpdate(
-                                                            list = currentList,
-                                                            item = restoredItem
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            showListSelector = false
                         }
                     ) {
-                        Text("Uncheck all")
+                        Text("Close")
                     }
                 }
 
@@ -1095,20 +1112,6 @@ private fun SimpleListApp() {
                             }
                         )
                     }
-                }
-
-                TextButton(
-                    onClick = {
-                        showListSelector = !showListSelector
-                    }
-                ) {
-                    Text(
-                        text = if (showListSelector) {
-                            "Close"
-                        } else {
-                            "Lists"
-                        }
-                    )
                 }
             }
 
@@ -1339,6 +1342,8 @@ private fun SimpleListApp() {
                             listId = list.id,
                             kind = kind,
                             items = items,
+                            hasCompletedItems = hasCompletedItems,
+                            onUncheckAll = uncheckAllItems,
                             fontScale = fontScale,
                             onFontScaleChange = { fontScale = it },
                             onItemAdded = { item ->
@@ -1457,6 +1462,8 @@ private fun ListScreen(
     listId: String,
     kind: ListKind,
     items: MutableList<ItemEntity>,
+    hasCompletedItems: Boolean,
+    onUncheckAll: () -> Unit,
     fontScale: Float,
     onFontScaleChange: (Float) -> Unit,
     onItemAdded: (ItemEntity) -> Unit,
@@ -1566,20 +1573,34 @@ private fun ListScreen(
             onAdd = ::addItem
         )
 
-        if (kind == ListKind.SHOPPING && items.isNotEmpty()) {
+        if (items.isNotEmpty()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 6.dp)
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Spacer(modifier = Modifier.width(48.dp))
-
-                Text(
-                    text = "Qty",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.width(48.dp)
+                Checkbox(
+                    checked = hasCompletedItems,
+                    enabled = hasCompletedItems,
+                    onCheckedChange = {
+                        onUncheckAll()
+                    },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = MaterialTheme.colorScheme.primary,
+                        uncheckedColor = MaterialTheme.colorScheme.outline,
+                        checkmarkColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 )
+
+                if (kind == ListKind.SHOPPING) {
+                    Text(
+                        text = "Qty",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.width(48.dp)
+                    )
+                }
 
                 Text(
                     text = "Item",
