@@ -21,7 +21,7 @@ CORE PRODUCT PRINCIPLES
 - Preserve local UUIDs as server UUIDs for online-backed lists/items; never create a second identity for the same record.
 - List ownership is absolute. The creator remains owner; ownership is not transferred or inherited.
 - Back cancels/closes the most local active operation first. Only when nothing transient is active should Back be allowed to leave JSimpleList.
-- When an existing text value is entered for editing, select the entire existing value, request focus and open the soft keyboard so typing replaces it immediately unless a specific field has a reason to behave differently.
+- Existing-value editing behaviour is field-specific: short replacement-style values such as Qty/default names select all, while item descriptions place the cursor at the end so small wording edits do not risk replacing the whole description.
 
 STACK
 -----
@@ -34,9 +34,9 @@ Compile SDK: 36.1
 Android Studio bundled JDK 21
 AndroidX Core KTX pinned to 1.18.0 because 1.19.0 requires compile SDK 37
 Room 3 / androidx.room3 with AndroidSQLiteDriver for 2.0 local persistence
-SharedPreferences retained only for font scale and one-time legacy 1.1 JSON import
+SharedPreferences retained for font scale, one-time legacy 1.1 JSON import, last active list ID and a persistent per-install client instance UUID
 Supabase/PostgreSQL selected for optional 2.0 online services
-supabase-kt 3.2.1 Auth/PostgREST + Ktor Android 3.2.1
+supabase-kt 3.2.1 Auth/PostgREST/Realtime + Ktor CIO 3.2.1. CIO is required because the previous Ktor Android engine did not provide the WebSocket capability needed by Supabase Realtime
 Manrope bundled with the APK
 Compose Foundation explicit dependency for HorizontalPager
 Android 2.0 manifest has INTERNET permission; released 1.1 did not
@@ -66,7 +66,7 @@ JSimpleList 1.1 was submitted to Google Play Production. The context at submissi
 
 2.0 LOCAL DATA MODEL
 --------------------
-Room schema version 1 contains `lists` and `items`.
+Room schema version 3 contains `lists` and `items`.
 
 ListEntity:
 - id: UUID string
@@ -74,6 +74,7 @@ ListEntity:
 - kind: TODO / SHOPPING / DISCUSSION
 - position: explicit persisted list order
 - createdAt: epoch millis
+- onlineState: `LOCAL`, `ONLINE_OWNER`, future `ONLINE_MEMBER`
 
 ItemEntity:
 - id: UUID string
@@ -84,13 +85,15 @@ ItemEntity:
 - position: explicit persisted item order
 - createdAt
 - updatedAt
+- deletedAt: nullable epoch millis tombstone for online-safe deletion
 
-Room is authoritative for current 2.0 list/item data.
+Room remains the authoritative local/cache copy used by the Android UI. Online-backed lists reconcile against authoritative Supabase snapshots when refreshed.
 
 Legacy upgrade:
 - Legacy 1.1 SharedPreferences JSON is imported only when the Room database has no lists and genuine `todo_items` / `shopping_items` keys exist.
 - A fresh 2.0 install starts with zero lists and must not fabricate legacy To-do/Shopping lists.
 - Genuine upgrade import creates ordinary To-do and Shopping ListEntity rows and preserves descriptions, quantities, completion and order.
+- Existing local data migrates safely through Room schema upgrades; online state defaults to `LOCAL` and item tombstones default to null.
 - Legacy JSON is left untouched during import.
 - `LegacySimpleListItem` exists only for import compatibility; new writes must not use the old JSON format.
 - Before public 2.0 release, perform a real Google-signed update from installed 1.1 and verify preservation of To-do/Shopping items, quantities, completed states and font scale.
@@ -124,15 +127,17 @@ Item ordering:
 - Manual item reordering should work for all list kinds.
 - Discussion points may later render derived numbering from item order.
 - Manual list ordering is also planned and should use persisted list position.
+- `Uncheck all` is implemented for the current list and appears in the list header/control area only when checked items exist. It unchecks all completed items using the normal item-update/sync path. A temporary `Undo` action restores only items that have not been changed since the bulk operation, so a newer change from another client is not overwritten. Real-device testing confirmed the placement and behaviour.
 
 Editing UX:
 - Existing items edit inline.
-- Existing item description enters editing fully selected, receives focus and opens the keyboard immediately.
-- Shopping edit Qty also selects its existing value on focus.
+- Existing item descriptions enter editing with the cursor at the end rather than selecting the whole description. This is intentional because description edits are commonly small changes such as `grapes` -> `purple grapes`.
+- Shopping Qty selects its entire existing value on focus so typing replaces it immediately.
+- Qty select-all is applied after focus settles so the tap does not overwrite the selection.
 - Shopping edit Qty is 48 x 48 dp.
 - Edit description is 48 dp high, matching the normal entry geometry.
 - Item Cancel logic is centralised and shared by the visible Cancel button and Android Back.
-- The same overwrite-ready editing principle applies to list rename, display-name editing and future existing-value text editors.
+- Default/new-name style editors may still use select-all where overwrite-ready behaviour is appropriate.
 
 Visual/interaction decisions:
 - Keep list rows compact without making controls fiddly.
@@ -187,21 +192,23 @@ ONLINE ACCOUNT / OWNERSHIP
 
 SUPABASE BACKEND FOUNDATION
 ---------------------------
-Committed milestones:
+Committed milestones include:
     ee9e561 Add Supabase backend foundation
     14f7277 Add Supabase Android client
     e9a0f09 Update JSimpleList Supabase context
+    76fdf45 Add safe online item tombstones
+    7c98a9c Add realtime list refresh and sync signalling
 
 Supabase:
 - Custom schema `jsimplelist` exposed for the Data API.
-- SQL migrations 001-014 live under `migrations/`.
-- Implemented concepts include profiles/users, lists, list_members, invitations and items.
+- SQL migrations 001-019 live under `migrations/`.
+- Implemented concepts include profiles/users, lists, list_members, invitations, items, tombstones and private realtime broadcast authorisation.
 - Local Room UUIDs are reused as remote UUIDs for online-backed lists/items.
 - `list_members.position` stores per-user list order.
 - `items.position` stores shared item order within a list.
 - Normal list/item reads hide deleted rows.
-- Controlled sync snapshot can expose active/deleted/removed/not_found state so offline clients can learn tombstones/removal without weakening normal RLS reads.
-- Sensitive membership/list-creation paths use controlled security-definer RPCs rather than unrestricted direct writes.
+- Controlled sync snapshot exposes active/deleted/removed/not_found state so offline clients can learn tombstones/removal without weakening normal RLS reads.
+- Sensitive membership/list-creation/deletion paths use controlled security-definer RPCs rather than unrestricted direct writes.
 - Direct list creation is revoked; use the controlled creation RPC.
 - Normal active members may write permitted item/list changes under RLS.
 - Supabase URL and publishable key are supplied through local BuildConfig/local.properties.
@@ -212,61 +219,82 @@ Important RPC/state contract:
 - `create_online_list(target_list_id uuid, target_name text, target_kind text, target_position integer, target_created_at timestamptz, target_updated_at timestamptz)` creates the list and owner membership.
 - `get_list_sync_snapshot(target_list_id uuid)` returns authoritative JSON state including active/deleted/removed/not_found; active state includes list, current membership and items including tombstones.
 - `set_my_list_position()` changes the current user's membership/list order without changing another member's order.
+- `delete_online_item(target_item_id uuid, target_origin_client_id uuid)` creates the server tombstone and records the transient origin used for realtime self-suppression.
+
+Realtime contract:
+- Private topic: `jsimplelist:list:<list UUID>`.
+- Authorised recipients are the list owner or an active member.
+- Database item INSERT/UPDATE changes emit a lightweight private `list_changed` Broadcast containing only `list_id` and optional `origin_client_id`.
+- Broadcast payloads are notifications only; clients do not trust them as row data. A receiving client loads and reconciles the authoritative snapshot.
+- Each Android installation has a persistent random client instance UUID.
+- Android writes include that UUID as `origin_client_id`; the originating client ignores the matching broadcast.
+- The origin is transient server metadata and is cleared after signalling so later/manual server changes are not falsely attributed to an old client.
+- Migration 019 fixes PostgreSQL/PostgREST UPSERT double-signalling so an originating edit produces one self-identifiable broadcast rather than a second null-origin broadcast.
 
 LIST SYNC FOUNDATION
 --------------------
-The first online-list round trip is now working on Android.
+The Android online-list contract now supports local-first writes, safe deletion, manual authoritative refresh and realtime refresh signalling.
 
 Current behaviour:
 - Local lists remain local and are never uploaded merely because the user signs in.
 - Lists persist an `onlineState` value in Room.
 - Current states are `LOCAL`, `ONLINE_OWNER` and future `ONLINE_MEMBER`.
-- Room schema version 2 adds `lists.onlineState` with existing lists defaulting safely to `LOCAL`.
 - A local list can be explicitly shared from the Lists management surface.
 - Successful sharing persists `ONLINE_OWNER` and removes the Share action for that list.
 - `create_online_list` is retry-safe for an existing list owned by the same user.
 - Room list/item UUIDs are preserved as Supabase UUIDs.
-- `makeListOnline(list, items)` upserts the current item set and then loads the authoritative snapshot.
-- `loadSnapshot` calls `get_list_sync_snapshot` and decodes the returned JSON object as `ListSyncSnapshot`.
+- `makeListOnline(list, items, originClientId)` upserts the current item set and then loads the authoritative snapshot.
 - Add, edit, tick and untick operations write Room first and then automatically upsert the individual item to Supabase when the list is online.
+- Online deletion uses a local `deletedAt` tombstone plus controlled server tombstone RPC rather than hard-deleting the sync identity.
 - Local-only lists continue to write Room only.
-- Automatic item pushes were proven on a physical Android device for add, edit, tick and untick using the same item UUID.
-- Local list counts include completed as well as incomplete items.
+- Manual `Refresh` is available on the current online list. It loads `get_list_sync_snapshot`, merges remote items/tombstones into Room by UUID/timestamp, reloads the visible list and reports success/failure.
+- Reconciliation imports missing remote items, applies remote tombstones, and applies newer remote active rows while avoiding stale resurrection.
+- Remote manual/server changes must advance `updated_at` to win timestamp reconciliation.
+- Supabase Realtime subscribes only to the currently displayed online list.
+- A remote `list_changed` Broadcast triggers the same snapshot reconciler and updates the visible Room-backed list.
+- Broadcasts from the same Android client instance are ignored, preventing needless self-refresh.
+- Realtime server -> Android refresh and Android own-origin suppression have both been proven on a physical device.
 - The full Room copy remains available offline.
+- The last active list ID is persisted and restored safely across app restarts.
 
 Important limitations still to implement:
-- Failed online writes retain the Room change, but durable retry/reconciliation is not yet implemented.
-- Online item deletion needs tombstone semantics before it is wired to automatic sync.
-- Remote changes are not yet pulled/reconciled automatically.
+- Failed online writes retain the Room change, but durable retry/reconciliation of those failed writes is not yet implemented.
+- Realtime is a change signal, not a replay log; a client disconnected during a change can miss the signal.
+- Add a sensible app-foreground snapshot refresh as a safety net without aggressive polling.
+- List-level changes such as rename and ordering are not yet synchronised.
 - Shared-member import and `ONLINE_MEMBER` behaviour are not yet implemented.
+- Invitations/member controls and owner/member leave/remove/destroy UX remain to implement.
+- Realtime change bursts are not currently debounced/coalesced; household-scale use is acceptable, but this can be improved later if necessary.
 
 FUTURE SHARING / SYNC
 ---------------------
-After the now-proven one-list round trip:
-- implement invitations/member UI
+Remaining sharing/sync direction:
+- implement invitations/member UI and `ONLINE_MEMBER`
 - owner/member remove/leave/destroy semantics
-- conservative two-way synchronization
-- server tombstone/removal reconciliation that prevents stale resurrection
+- durable retry/reconciliation for failed offline/online writes
+- app-foreground snapshot refresh as a missed-realtime safety net
+- sync list-level rename and ordering
+- server tombstone/removal reconciliation must continue to prevent stale resurrection
 - small red unseen-activity marker for changes by other members
 - per-user seen state such as last_seen_at rather than one global notification flag
 - clear unseen marker when the user actually views the changed list
 - initially prefer in-app unseen markers over Android push notifications
-- add genuine manual refresh/reload
-- successful refresh may show `List refreshed`
-- failed refresh retains the local cached list and shows a concise failure
-- realtime/background traffic should be conservative; avoid aggressive polling
-- prefer meaningful sync triggers such as app foreground, local edits, manual refresh and lightweight realtime notification
+- keep manual Refresh as a fallback even with realtime
+- realtime/background traffic should remain conservative; avoid aggressive polling
+- consider coalescing/debouncing bursts if multi-item operations create unnecessary repeated snapshot refreshes
 
 NEXT ANDROID SYNC WORK
 ----------------------
-Preferred order:
-1. Persist and restore the last active list across app restarts.
-2. Implement safe online item deletion using server tombstones so offline deletion cannot later resurrect stale items.
-3. Implement manual remote snapshot refresh/reconciliation.
-4. Add sensible automatic refresh triggers such as app foreground without aggressive polling.
-5. Sync list-level changes such as rename and ordering.
-6. Add the shared/network indicator and shared-list information/member controls.
-7. Implement member/invitation flows and `ONLINE_MEMBER` state.
+Preferred remaining Android order:
+1. Add an app-foreground snapshot refresh for the current online list so missed realtime broadcasts cannot leave a stale cache indefinitely.
+2. Sync list-level changes such as rename and ordering.
+3. Add shared/network indicator and shared-list information/member controls.
+4. Implement member/invitation flows and `ONLINE_MEMBER` state.
+5. Implement owner/member leave/remove/destroy semantics.
+6. Add durable retry/reconciliation for failed online writes.
+7. Add unseen-change state/indicator if it remains useful after the second-client/browser workflow is proven.
+8. Implement privileged Delete online account / Disable sharing before public 2.0 release.
+9. `Uncheck all` with conservative Undo is implemented and real-device tested.
 
 BROWSER CLIENT
 --------------
@@ -274,8 +302,10 @@ BROWSER CLIENT
 - Preferred hostname: jslist.jobsheet.com.au
 - Browser is another client, not a phone bridge and not a separate backend.
 - Browser exposes online-backed lists only; local-only lists never leave the phone and therefore never appear in browser.
-- Initial browser scope can remain minimal: choose list, add/edit/tick/delete, Shopping quantity, refresh/unseen behaviour.
-- Build the browser client only after the shared online-list contract is proven on Android.
+- The Android online contract is now sufficiently proven to begin a minimal browser client.
+- Building the browser client next is useful both as a product feature and as the first genuine second client for two-way sync testing.
+- Initial browser scope should stay deliberately small: sign in, list online lists, open one list, add/edit/tick/untick/delete, Shopping quantity, manual refresh and realtime change signalling.
+- Use it to prove browser -> Android, Android -> browser, tombstone deletion, same-account multi-client behaviour, then later different shared accounts.
 
 SETTINGS / PREFERENCES
 ----------------------
@@ -335,11 +365,16 @@ Assume Windows CMD, normally from:
 Use CMD-compatible one-line commands and `&&` when dependent commands should run sequentially.
 Prefer `git --no-pager ...` where supported.
 
-Build debug:
-    gradlew.bat assembleDebug
+Normal debug workflow:
+    build_debug && install_debug
 
-After BUILD SUCCESSFUL:
-    git diff --check && "%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe" install -r app\build\outputs\apk\debug\app-debug.apk
+Tracked helper scripts in the repository root:
+- `build_debug.bat` runs `gradlew.bat assembleDebug` and then `git diff --check`.
+- `install_debug.bat` installs `app\build\outputs\apk\debug\app-debug.apk` using the Android SDK ADB path.
+- The helpers exist specifically so normal development does not require remembering long SDK/APK command strings.
+
+Underlying build command if needed:
+    gradlew.bat assembleDebug
 
 Build signed release:
     gradlew.bat assembleRelease
@@ -405,17 +440,20 @@ CONTRIBUTING.md preserves practical future relicensing flexibility for substanti
 
 README currently describes the released local-only app. Update README/privacy/listing wording before a public network-enabled 2.0 release.
 
-CURRENT GIT CHECKPOINT - 24 AUG 2026
+CURRENT GIT CHECKPOINT - 25 AUG 2026
 ------------------------------------
-Immediately before this context-document update:
-    26a689b (HEAD -> main, origin/main) Improve item editing and back navigation
-    2d0c2a0 Add list sync foundation and improve list ordering
-    a25f1fe Add JSimpleList authentication and profile foundation
-    e9a0f09 Update JSimpleList Supabase context
+Clean pushed checkpoint at session close:
+    7c98a9c (HEAD -> main, origin/main, origin/HEAD) Add realtime list refresh and sync signalling
+    76fdf45 Add safe online item tombstones
+    2aec18f Remember last active list
+    2177c47 Add online list state and automatic item sync
+    02044f7 Refresh JSimpleList project context
 
-`git status --short` was clean.
+`git status --short` was clean immediately after pushing 7c98a9c.
 
 Other important 2.0 commits:
+    2d0c2a0 Add list sync foundation and improve list ordering
+    a25f1fe Add JSimpleList authentication and profile foundation
     14f7277 Add Supabase Android client
     ee9e561 Add Supabase backend foundation
     ffc1a40 Add dynamic list selector
@@ -428,30 +466,42 @@ Other important 2.0 commits:
     caaeb41 Add legacy data importer
     eb88951 Add Room database foundation
 
-SESSION CLOSEOUT - 24 AUG 2026
+SESSION CLOSEOUT - 25 AUG 2026
 ------------------------------
-Completed and pushed:
-- auth/profile foundation
-- first sync repository foundation
-- item/list ordering UX improvements
-- new items at top with automatic scroll into view under keyboard
-- blank-space tap closes Lists selector
-- existing item text selects fully, receives focus and opens keyboard
-- edit Qty/description geometry matches normal 48 dp entry controls
-- Back cancels item edit or closes Lists before app exit
-- ListSyncRepository final newline cleanup
+Completed, tested and pushed:
+- persisted/restored last active list (`2aec18f`)
+- safe local/server online item tombstones (`76fdf45`)
+- manual authoritative online-list Refresh and Room snapshot reconciliation
+- Supabase Realtime private per-list Broadcast signalling
+- Ktor CIO engine for WebSocket support
+- persistent per-install Android client instance UUID
+- write-origin propagation and self-broadcast suppression
+- server-side private realtime receive authorisation for owners/active members
+- migrations 017, 018 and 019, including transient origin handling and final UPSERT duplicate-broadcast fix
+- remote server/database item changes refresh the open Android list automatically
+- originating Android edits now produce one matching-origin broadcast which is ignored by that same client
+- Qty select-all behaviour fixed so taps do not immediately undo the selection
+- item descriptions now place the cursor at the end rather than selecting the whole description
+- root `build_debug.bat` and `install_debug.bat` helpers; normal phone cycle is `build_debug && install_debug`
+- `build_debug.bat` now returns a definite non-zero exit code after Gradle or `git diff --check` failure, preventing `&& install_debug` from installing a stale APK
+- temporary one-off patch scripts removed before commit
+- realtime diagnostic logging reduced to useful change/failure logs
 
-Real-phone testing confirmed the new editing, keyboard, sizing, item-insertion and Back-navigation behaviour.
+Real-phone testing confirmed manual Refresh, remote realtime refresh, own-origin suppression, Qty selection behaviour, description editing behaviour, and `Uncheck all` with temporary conservative Undo.
+
+New design TODO recorded:
+- `Uncheck all` for the current list is implemented and real-device tested.
+- It appears in the list header/control area only when checked items exist.
+- A temporary `Undo` restores only items untouched since the bulk operation, protecting newer shared-list changes from being overwritten.
+- The existing Room + Supabase item-update path is reused for both uncheck and undo.
 
 NEXT TASK
 ---------
-1. Start with `git status --short` and `git --no-pager log --oneline -4`.
-2. Wire an explicit per-list `make online` action into the existing Lists management surface.
-3. Use `ListSyncRepository.makeListOnline()` for one deliberately selected local list.
-4. Prove Room -> Supabase -> Room with the same list/item UUIDs and preserve name, kind, quantities, completion, ordering and timestamps.
-5. Consume/reconcile the authoritative `get_list_sync_snapshot` result while keeping Room fully usable offline.
-6. Only then implement conservative two-way sync, tombstone/removal handling and stale-resurrection prevention.
-7. Then add invitations/member UI, unseen marker/realtime/manual refresh and owner/member leave/remove/destroy UX.
-8. Implement privileged Delete online account / Disable sharing before public 2.0 release; Sign out remains non-destructive.
-9. Build the browser client only after the common online-list contract is proven on Android.
-10. Before releasing 2.0, perform the real Google-signed 1.1 -> 2.0 upgrade test.
+1. Start with `git status --short` and `git --no-pager log --oneline --decorate -5`; expected clean checkpoint is `7c98a9c`.
+2. The likely next substantial milestone is the minimal browser client at `jslist.jobsheet.com.au`, now that Android realtime/snapshot/tombstone behaviour is proven.
+3. Keep the browser deliberately small: sign in, list/open online lists, add/edit/tick/untick/delete, Shopping Qty, snapshot refresh and the same realtime Broadcast contract.
+4. Use the browser as the second real client to test browser -> Android and Android -> browser changes, tombstone deletion and same-account multi-client behaviour.
+5. On Android, add a foreground snapshot-refresh safety net because realtime Broadcast is not replayed after disconnect.
+6. Then continue list-level sync (rename/order), member/invitation/`ONLINE_MEMBER` behaviour, owner/member controls and durable retry.
+7. Implement privileged Delete online account / Disable sharing before public 2.0 release; Sign out remains non-destructive.
+8. Before releasing 2.0, perform the real Google-signed 1.1 -> 2.0 upgrade test.

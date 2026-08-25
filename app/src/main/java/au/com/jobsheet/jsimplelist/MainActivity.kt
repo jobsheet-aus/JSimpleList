@@ -46,6 +46,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CheckboxDefaults
@@ -343,6 +347,28 @@ private fun SimpleListApp() {
     var deleteListId by remember { mutableStateOf<String?>(null) }
     var makingOnlineListId by remember { mutableStateOf<String?>(null) }
     val uriHandler = LocalUriHandler.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    suspend fun persistItemUpdate(
+        list: ListEntity,
+        item: ItemEntity
+    ) {
+        dao.updateItem(item)
+
+        if (list.onlineState != "LOCAL") {
+            try {
+                listSyncRepository.upsertItem(
+                    item = item,
+                    originClientId = clientInstanceId
+                )
+            } catch (exception: Exception) {
+                Log.e(
+                    "JSimpleListSync",
+                    "Item push failed after update id=${item.id} list=${list.id}: ${exception::class.simpleName}"
+                )
+            }
+        }
+    }
 
     BackHandler(enabled = showListSelector) {
         showListSelector = false
@@ -353,13 +379,16 @@ private fun SimpleListApp() {
         store.saveFontScale(fontScale)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
+    Box(
+        modifier = Modifier.fillMaxSize()
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding()
+        ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -870,6 +899,8 @@ private fun SimpleListApp() {
             val currentKind = ListKind.valueOf(currentList.kind)
             val currentItemCount =
                 currentItems?.size ?: 0
+            val hasCompletedItems =
+                currentItems?.any { it.completed } == true
 
             Row(
                 modifier = Modifier
@@ -909,6 +940,103 @@ private fun SimpleListApp() {
                             color =
                                 MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+
+                if (
+                    !showListSelector &&
+                    hasCompletedItems
+                ) {
+                    TextButton(
+                        onClick = {
+                            val affectedItems =
+                                currentItems
+                                    ?.filter { it.completed }
+                                    ?.toList()
+                                    ?: emptyList()
+
+                            if (affectedItems.isNotEmpty()) {
+                                val operationTime =
+                                    System.currentTimeMillis()
+
+                                affectedItems.forEach { item ->
+                                    val index =
+                                        currentItems?.indexOfFirst {
+                                            it.id == item.id
+                                        } ?: -1
+
+                                    if (index >= 0) {
+                                        val updatedItem =
+                                            item.copy(
+                                                completed = false,
+                                                updatedAt = operationTime
+                                            )
+
+                                        currentItems[index] = updatedItem
+
+                                        coroutineScope.launch {
+                                            persistItemUpdate(
+                                                list = currentList,
+                                                item = updatedItem
+                                            )
+                                        }
+                                    }
+                                }
+
+                                coroutineScope.launch {
+                                    val result =
+                                        snackbarHostState.showSnackbar(
+                                            message = "All items unchecked",
+                                            actionLabel = "Undo",
+                                            duration = SnackbarDuration.Long
+                                        )
+
+                                    if (
+                                        result ==
+                                        SnackbarResult.ActionPerformed
+                                    ) {
+                                        val undoTime =
+                                            System.currentTimeMillis()
+
+                                        affectedItems.forEach { originalItem ->
+                                            val index =
+                                                currentItems?.indexOfFirst {
+                                                    it.id == originalItem.id
+                                                } ?: -1
+
+                                            if (index >= 0) {
+                                                val currentItem =
+                                                    currentItems[index]
+
+                                                if (
+                                                    !currentItem.completed &&
+                                                    currentItem.updatedAt ==
+                                                    operationTime
+                                                ) {
+                                                    val restoredItem =
+                                                        currentItem.copy(
+                                                            completed = true,
+                                                            updatedAt = undoTime
+                                                        )
+
+                                                    currentItems[index] =
+                                                        restoredItem
+
+                                                    coroutineScope.launch {
+                                                        persistItemUpdate(
+                                                            list = currentList,
+                                                            item = restoredItem
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    ) {
+                        Text("Uncheck all")
                     }
                 }
 
@@ -1234,21 +1362,10 @@ private fun SimpleListApp() {
                             },
                             onItemUpdated = { item ->
                                 coroutineScope.launch {
-                                    dao.updateItem(item)
-
-                                    if (list.onlineState != "LOCAL") {
-                                        try {
-                                            listSyncRepository.upsertItem(
-                                                item = item,
-                                                originClientId = clientInstanceId
-                                            )
-                                        } catch (exception: Exception) {
-                                            Log.e(
-                                                "JSimpleListSync",
-                                                "Item push failed after update id=${item.id} list=${list.id}: ${exception::class.simpleName}"
-                                            )
-                                        }
-                                    }
+                                    persistItemUpdate(
+                                        list = list,
+                                        item = item
+                                    )
                                 }
                             },
                             onItemDeleted = { item ->
@@ -1316,6 +1433,15 @@ private fun SimpleListApp() {
                 }
             }
         }
+    }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(16.dp)
+        )
     }
 }
 
