@@ -29,7 +29,10 @@ private data class OnlineItemInsert(
     val updatedAt: String,
 
     @SerialName("deleted_at")
-    val deletedAt: String? = null
+    val deletedAt: String? = null,
+
+    @SerialName("origin_client_id")
+    val originClientId: String? = null
 )
 
 @Serializable
@@ -115,7 +118,8 @@ class ListSyncRepository(
 ) {
     suspend fun makeListOnline(
         list: ListEntity,
-        items: List<ItemEntity>
+        items: List<ItemEntity>,
+        originClientId: String
     ): ListSyncSnapshot {
         requireSignedIn()
 
@@ -149,7 +153,8 @@ class ListSyncRepository(
                             createdAt =
                                 Instant.ofEpochMilli(item.createdAt).toString(),
                             updatedAt =
-                                Instant.ofEpochMilli(item.updatedAt).toString()
+                                Instant.ofEpochMilli(item.updatedAt).toString(),
+                            originClientId = originClientId
                         )
                     }
                 )
@@ -158,7 +163,10 @@ class ListSyncRepository(
         return loadSnapshot(list.id)
     }
 
-    suspend fun upsertItem(item: ItemEntity) {
+    suspend fun upsertItem(
+        item: ItemEntity,
+        originClientId: String
+    ) {
         requireSignedIn()
 
         client
@@ -174,18 +182,23 @@ class ListSyncRepository(
                     createdAt =
                         Instant.ofEpochMilli(item.createdAt).toString(),
                     updatedAt =
-                        Instant.ofEpochMilli(item.updatedAt).toString()
+                        Instant.ofEpochMilli(item.updatedAt).toString(),
+                    originClientId = originClientId
                 )
             )
     }
 
-    suspend fun deleteOnlineItem(itemId: String) {
+    suspend fun deleteOnlineItem(
+        itemId: String,
+        originClientId: String
+    ) {
         requireSignedIn()
 
         client.postgrest.rpc(
             function = "delete_online_item",
             parameters = buildJsonObject {
                 put("target_item_id", itemId)
+                put("target_origin_client_id", originClientId)
             }
         )
     }
@@ -201,6 +214,44 @@ class ListSyncRepository(
                 }
             )
             .decodeAs<ListSyncSnapshot>()
+    }
+
+    suspend fun refreshList(
+        listId: String,
+        dao: JSimpleListDao
+    ): ListSyncSnapshot {
+        val snapshot = loadSnapshot(listId)
+
+        check(snapshot.state == "active") {
+            "List is no longer active"
+        }
+
+        val remoteItems =
+            snapshot.items.map { item ->
+                ItemEntity(
+                    id = item.id,
+                    listId = item.listId,
+                    description = item.description,
+                    quantity = item.quantity,
+                    completed = item.completed,
+                    position = item.position,
+                    createdAt =
+                        Instant.parse(item.createdAt).toEpochMilli(),
+                    updatedAt =
+                        Instant.parse(item.updatedAt).toEpochMilli(),
+                    deletedAt =
+                        item.deletedAt?.let {
+                            Instant.parse(it).toEpochMilli()
+                        }
+                )
+            }
+
+        dao.mergeRemoteItems(
+            listId = listId,
+            remoteItems = remoteItems
+        )
+
+        return snapshot
     }
 
     private fun requireSignedIn() {

@@ -24,6 +24,15 @@ interface JSimpleListDao {
     )
     suspend fun loadItems(listId: String): List<ItemEntity>
 
+    @Query(
+        """
+        SELECT * FROM items
+        WHERE listId = :listId
+        ORDER BY position, createdAt
+        """
+    )
+    suspend fun loadAllItems(listId: String): List<ItemEntity>
+
     @Insert
     suspend fun insertList(list: ListEntity)
 
@@ -47,6 +56,32 @@ interface JSimpleListDao {
 
     @Query("DELETE FROM items WHERE id = :itemId")
     suspend fun deleteItem(itemId: String)
+
+    @Transaction
+    suspend fun mergeRemoteItems(
+        listId: String,
+        remoteItems: List<ItemEntity>
+    ) {
+        val localItems =
+            loadAllItems(listId).associateBy { it.id }
+
+        remoteItems.forEach { remoteItem ->
+            val localItem = localItems[remoteItem.id]
+
+            if (localItem == null) {
+                insertItem(remoteItem)
+            } else if (remoteItem.deletedAt != null) {
+                if (localItem.deletedAt == null) {
+                    updateItem(remoteItem)
+                }
+            } else if (
+                localItem.deletedAt == null &&
+                remoteItem.updatedAt > localItem.updatedAt
+            ) {
+                updateItem(remoteItem)
+            }
+        }
+    }
 
     @Transaction
     suspend fun insertInitialDataIfEmpty(

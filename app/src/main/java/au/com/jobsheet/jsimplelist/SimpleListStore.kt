@@ -2,6 +2,7 @@ package au.com.jobsheet.jsimplelist
 
 import android.content.Context
 import org.json.JSONArray
+import java.util.UUID
 
 data class LegacySimpleListItem(
     val id: Long,
@@ -69,6 +70,23 @@ class SimpleListStore(context: Context) {
             .apply()
     }
 
+    fun loadOrCreateClientInstanceId(): String {
+        val existing =
+            preferences.getString(KEY_CLIENT_INSTANCE_ID, null)
+
+        if (existing != null) {
+            return existing
+        }
+
+        val generated = UUID.randomUUID().toString()
+
+        preferences.edit()
+            .putString(KEY_CLIENT_INSTANCE_ID, generated)
+            .apply()
+
+        return generated
+    }
+
     private fun itemsKey(kind: ListKind): String =
         when (kind) {
             ListKind.TODO -> KEY_TODO_ITEMS
@@ -85,5 +103,6 @@ class SimpleListStore(context: Context) {
         private const val KEY_SHOPPING_ITEMS = "shopping_items"
         private const val KEY_FONT_SCALE = "font_scale"
         private const val KEY_LAST_ACTIVE_LIST_ID = "last_active_list_id"
+        private const val KEY_CLIENT_INSTANCE_ID = "client_instance_id"
     }
 }

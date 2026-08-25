@@ -84,9 +84,24 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import au.com.jobsheet.jsimplelist.ui.theme.SimpleListTheme
+import io.github.jan.supabase.realtime.broadcastFlow
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.realtime
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import java.util.UUID
+
+@Serializable
+private data class RealtimeListChangedPayload(
+    @SerialName("list_id")
+    val listId: String,
+
+    @SerialName("origin_client_id")
+    val originClientId: String? = null
+)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -126,6 +141,9 @@ private fun SimpleListApp() {
     val context = LocalContext.current
     val applicationContext = context.applicationContext
     val store = remember { SimpleListStore(applicationContext) }
+    val clientInstanceId = remember {
+        store.loadOrCreateClientInstanceId()
+    }
     val authRepository = remember { AuthRepository() }
     val profileRepository = remember { ProfileRepository() }
     val listSyncRepository = remember { ListSyncRepository() }
@@ -206,6 +224,100 @@ private fun SimpleListApp() {
         }
     }
 
+    val currentRealtimeListId =
+        if (activeListRestored && lists.isNotEmpty()) {
+            val currentIndex =
+                pagerState.currentPage.coerceIn(
+                    0,
+                    lists.lastIndex
+                )
+
+            lists[currentIndex]
+                .takeIf { it.onlineState != "LOCAL" }
+                ?.id
+        } else {
+            null
+        }
+
+    LaunchedEffect(
+        currentRealtimeListId,
+        clientInstanceId
+    ) {
+        val listId = currentRealtimeListId ?: return@LaunchedEffect
+
+        val client = JSimpleListSupabase.client
+
+        val channel =
+            client.channel(
+                "jsimplelist:list:$listId"
+            ) {
+                isPrivate = true
+            }
+
+        try {
+            client.realtime.setAuth()
+
+            val changes =
+                channel.broadcastFlow<RealtimeListChangedPayload>(
+                    event = "list_changed"
+                )
+
+            channel.subscribe(
+                blockUntilSubscribed = false
+            )
+
+            changes.collect { payload ->
+                if (payload.listId != listId) {
+                    return@collect
+                }
+
+                if (payload.originClientId == clientInstanceId) {
+                    Log.d(
+                        "JSimpleListSync",
+                        "Ignoring own realtime change list=$listId"
+                    )
+                    return@collect
+                }
+
+                Log.i(
+                    "JSimpleListSync",
+                    "Realtime change received list=$listId origin=${payload.originClientId}"
+                )
+
+                try {
+                    listSyncRepository.refreshList(
+                        listId = listId,
+                        dao = dao
+                    )
+
+                    val refreshedItems =
+                        dao.loadItems(listId)
+
+                    itemsByList[listId]?.apply {
+                        clear()
+                        addAll(refreshedItems)
+                    }
+                } catch (exception: Exception) {
+                    Log.e(
+                        "JSimpleListSync",
+                        "Realtime refresh failed list=$listId",
+                        exception
+                    )
+                }
+            }
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            Log.e(
+                "JSimpleListSync",
+                "Realtime subscription failed list=$listId",
+                exception
+            )
+        } finally {
+            client.realtime.removeChannel(channel)
+        }
+    }
+
     val coroutineScope = rememberCoroutineScope()
     var fontScale by remember { mutableFloatStateOf(store.loadFontScale()) }
     var showMenu by remember { mutableStateOf(false) }
@@ -213,6 +325,7 @@ private fun SimpleListApp() {
     var showDisableSharing by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     var showListSelector by remember { mutableStateOf(false) }
+    var refreshingListId by remember { mutableStateOf<String?>(null) }
     var showNewListDialog by remember { mutableStateOf(false) }
     var newListName by remember {
         mutableStateOf(
@@ -799,6 +912,63 @@ private fun SimpleListApp() {
                     }
                 }
 
+                if (
+                    !showListSelector &&
+                    currentList.onlineState != "LOCAL"
+                ) {
+                    TextButton(
+                        enabled = refreshingListId == null,
+                        onClick = {
+                            coroutineScope.launch {
+                                refreshingListId = currentList.id
+
+                                try {
+                                    listSyncRepository.refreshList(
+                                        listId = currentList.id,
+                                        dao = dao
+                                    )
+
+                                    val refreshedItems =
+                                        dao.loadItems(currentList.id)
+
+                                    currentItems?.apply {
+                                        clear()
+                                        addAll(refreshedItems)
+                                    }
+
+                                    Toast.makeText(
+                                        context,
+                                        "List refreshed",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } catch (exception: Exception) {
+                                    Log.e(
+                                        "JSimpleListSync",
+                                        "Refresh failed for list id=${currentList.id}: ${exception::class.simpleName}"
+                                    )
+
+                                    Toast.makeText(
+                                        context,
+                                        exception.message
+                                            ?: "Could not refresh list",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } finally {
+                                    refreshingListId = null
+                                }
+                            }
+                        }
+                    ) {
+                        Text(
+                            if (refreshingListId == currentList.id) {
+                                "Refreshing"
+                            } else {
+                                "Refresh"
+                            }
+                        )
+                    }
+                }
+
                 TextButton(
                     onClick = {
                         showListSelector = !showListSelector
@@ -922,7 +1092,8 @@ private fun SimpleListApp() {
                                             val snapshot =
                                                 listSyncRepository.makeListOnline(
                                                     list = list,
-                                                    items = localItems
+                                                    items = localItems,
+                                                    originClientId = clientInstanceId
                                                 )
 
                                             check(snapshot.state == "active") {
@@ -1048,7 +1219,10 @@ private fun SimpleListApp() {
 
                                     if (list.onlineState != "LOCAL") {
                                         try {
-                                            listSyncRepository.upsertItem(item)
+                                            listSyncRepository.upsertItem(
+                                                item = item,
+                                                originClientId = clientInstanceId
+                                            )
                                         } catch (exception: Exception) {
                                             Log.e(
                                                 "JSimpleListSync",
@@ -1064,7 +1238,10 @@ private fun SimpleListApp() {
 
                                     if (list.onlineState != "LOCAL") {
                                         try {
-                                            listSyncRepository.upsertItem(item)
+                                            listSyncRepository.upsertItem(
+                                                item = item,
+                                                originClientId = clientInstanceId
+                                            )
                                         } catch (exception: Exception) {
                                             Log.e(
                                                 "JSimpleListSync",
@@ -1090,7 +1267,8 @@ private fun SimpleListApp() {
 
                                         try {
                                             listSyncRepository.deleteOnlineItem(
-                                                item.id
+                                                itemId = item.id,
+                                                originClientId = clientInstanceId
                                             )
                                         } catch (exception: Exception) {
                                             Log.e(
@@ -1435,6 +1613,19 @@ private fun EntryRow(
     var quantityFocused by remember { mutableStateOf(false) }
     var descriptionFocused by remember { mutableStateOf(false) }
 
+    LaunchedEffect(quantityFocused) {
+        if (quantityFocused) {
+            delay(50)
+
+            quantityFieldValue = quantityFieldValue.copy(
+                selection = TextRange(
+                    0,
+                    quantityFieldValue.text.length
+                )
+            )
+        }
+    }
+
     val entryTextStyle = TextStyle(
         color = MaterialTheme.colorScheme.onSurface,
         fontSize = entryFieldSp(16f, fontScale),
@@ -1490,15 +1681,6 @@ private fun EntryRow(
                     )
                     .onFocusChanged { focusState ->
                         quantityFocused = focusState.isFocused
-
-                        if (focusState.isFocused) {
-                            quantityFieldValue = quantityFieldValue.copy(
-                                selection = TextRange(
-                                    0,
-                                    quantityFieldValue.text.length
-                                )
-                            )
-                        }
                     },
                 decorationBox = { innerTextField ->
                     Box(
@@ -1610,7 +1792,21 @@ private fun ListItemRow(
         )
     }
 
+    var editQuantityFocused by remember { mutableStateOf(false) }
     val editDescriptionFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(editQuantityFocused) {
+        if (editQuantityFocused) {
+            delay(50)
+
+            editQuantityFieldValue = editQuantityFieldValue.copy(
+                selection = TextRange(
+                    0,
+                    editQuantityFieldValue.text.length
+                )
+            )
+        }
+    }
 
     LaunchedEffect(editing) {
         if (editing) {
@@ -1621,10 +1817,7 @@ private fun ListItemRow(
     fun cancelEdit() {
         editDescription = TextFieldValue(
             text = item.description,
-            selection = TextRange(
-                0,
-                item.description.length
-            )
+            selection = TextRange(item.description.length)
         )
         editQuantity = item.quantity?.toString().orEmpty()
         editQuantityFieldValue = TextFieldValue(
@@ -1705,14 +1898,7 @@ private fun ListItemRow(
                             .width(48.dp)
                             .height(48.dp)
                             .onFocusChanged { focusState ->
-                                if (focusState.isFocused) {
-                                    editQuantityFieldValue = editQuantityFieldValue.copy(
-                                        selection = TextRange(
-                                            0,
-                                            editQuantityFieldValue.text.length
-                                        )
-                                    )
-                                }
+                                editQuantityFocused = focusState.isFocused
                             }
                     )
                 }
@@ -1810,10 +1996,7 @@ private fun ListItemRow(
                     .clickable {
                         editDescription = TextFieldValue(
                             text = item.description,
-                            selection = TextRange(
-                                0,
-                                item.description.length
-                            )
+                            selection = TextRange(item.description.length)
                         )
                         editing = true
                     }
