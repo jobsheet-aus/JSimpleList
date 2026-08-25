@@ -111,9 +111,9 @@ Legacy upgrade:
 - Permanent 1.1 tabs are removed in 2.0.
 - One current list fills the screen.
 - Horizontal swipe moves to the adjacent list.
-- `Lists` opens the full-width list selector for direct navigation and list management.
+- Tapping the current list title/chevron opens the full-width Lists selector for direct navigation and list management; the previous standalone `Lists` button was removed to reduce header clutter.
 - The Lists selector currently provides `+ New list`, Rename and Delete.
-- Tapping blank space in Lists closes the selector. Tapping a list navigates to it.
+- The selector header provides an explicit `Close` action. Tapping blank space also closes it, and tapping a list navigates to it.
 - Create/Rename/Delete dialogs close themselves without implicitly closing the underlying Lists view.
 - Back closes the Lists selector before Android can leave the app.
 - The selector is the intended home for future list reordering, Local/Synced/Shared metadata, unseen markers and owner/member actions.
@@ -127,7 +127,7 @@ Item ordering:
 - Manual item reordering should work for all list kinds.
 - Discussion points may later render derived numbering from item order.
 - Manual list ordering is also planned and should use persisted list position.
-- `Uncheck all` is implemented for the current list and appears in the list header/control area only when checked items exist. It unchecks all completed items using the normal item-update/sync path. A temporary `Undo` action restores only items that have not been changed since the bulk operation, so a newer change from another client is not overwritten. Real-device testing confirmed the placement and behaviour.
+- Bulk uncheck is implemented as a checkbox in the list column-heading row, aligned directly above the item checkboxes (`checkbox / Qty / Item` for Shopping and `checkbox / Item` for other kinds). It is checked/enabled whenever at least one item is completed and disabled/empty otherwise. Tapping it unchecks all completed items using the normal item-update/sync path. A temporary `Undo` restores only items that have not been changed since the bulk operation, so a newer change from another client is not overwritten. Real-device testing confirmed the final placement and behaviour.
 
 Editing UX:
 - Existing items edit inline.
@@ -298,14 +298,19 @@ Preferred remaining Android order:
 
 BROWSER CLIENT
 --------------
-- Browser access should use the same account/list/membership/sync service as Android.
-- Preferred hostname: jslist.jobsheet.com.au
-- Browser is another client, not a phone bridge and not a separate backend.
-- Browser exposes online-backed lists only; local-only lists never leave the phone and therefore never appear in browser.
-- The Android online contract is now sufficiently proven to begin a minimal browser client.
-- Building the browser client next is useful both as a product feature and as the first genuine second client for two-way sync testing.
-- Initial browser scope should stay deliberately small: sign in, list online lists, open one list, add/edit/tick/untick/delete, Shopping quantity, manual refresh and realtime change signalling.
-- Use it to prove browser -> Android, Android -> browser, tombstone deletion, same-account multi-client behaviour, then later different shared accounts.
+- Browser access uses the same Supabase account/list/membership/sync service as Android. Preferred hostname remains `jslist.jobsheet.com.au`.
+- Browser is another client, not a phone bridge and not a separate backend. It exposes online-backed lists only; local-only lists never leave the phone and therefore never appear in browser.
+- A minimal React + TypeScript + Vite client now lives under `web/` and is committed in `bc6aa4a`.
+- Browser Supabase configuration uses `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`; real values live only in ignored `web/.env.local`. `.env.example` documents both variable names.
+- Email OTP sign-in works against the existing Supabase Auth account, and the browser session persists normally.
+- The signed-in browser discovers active online lists through `list_members` plus `lists`, preserving per-user membership order.
+- Opening a list calls `get_list_sync_snapshot(target_list_id)` and renders authoritative active items, Shopping quantity, completion state and the same incomplete-before-completed presentation.
+- Browser checkbox tick/untick writes the full current item row with a fresh `updated_at` and `origin_client_id`, then reloads the authoritative snapshot.
+- Each browser installation has a persistent random UUID stored in localStorage. Browser writes use it as `origin_client_id`.
+- The browser subscribes to the same private `jsimplelist:list:<list UUID>` / `list_changed` Realtime contract as Android. It ignores matching own-origin broadcasts and reloads the authoritative snapshot for genuine remote changes.
+- Same-account browser -> Android and Android -> browser realtime changes have both been proven in live testing without manual Refresh.
+- Manual browser Refresh remains available as a fallback.
+- Browser add, edit description/quantity and safe delete/tombstone operations are not yet implemented; these are the next browser milestone before invitations/member workflow.
 
 SETTINGS / PREFERENCES
 ----------------------
@@ -443,13 +448,13 @@ README currently describes the released local-only app. Update README/privacy/li
 CURRENT GIT CHECKPOINT - 25 AUG 2026
 ------------------------------------
 Clean pushed checkpoint at session close:
-    7c98a9c (HEAD -> main, origin/main, origin/HEAD) Add realtime list refresh and sync signalling
+    bc6aa4a (HEAD -> main, origin/main, origin/HEAD) Add browser sync client and refine list controls
+    2fbe23e Add uncheck all with safe undo
+    7c98a9c Add realtime list refresh and sync signalling
     76fdf45 Add safe online item tombstones
     2aec18f Remember last active list
-    2177c47 Add online list state and automatic item sync
-    02044f7 Refresh JSimpleList project context
 
-`git status --short` was clean immediately after pushing 7c98a9c.
+`git status --short` was clean immediately after pushing bc6aa4a.
 
 Other important 2.0 commits:
     2d0c2a0 Add list sync foundation and improve list ordering
@@ -469,39 +474,30 @@ Other important 2.0 commits:
 SESSION CLOSEOUT - 25 AUG 2026
 ------------------------------
 Completed, tested and pushed:
-- persisted/restored last active list (`2aec18f`)
-- safe local/server online item tombstones (`76fdf45`)
-- manual authoritative online-list Refresh and Room snapshot reconciliation
-- Supabase Realtime private per-list Broadcast signalling
-- Ktor CIO engine for WebSocket support
-- persistent per-install Android client instance UUID
-- write-origin propagation and self-broadcast suppression
-- server-side private realtime receive authorisation for owners/active members
-- migrations 017, 018 and 019, including transient origin handling and final UPSERT duplicate-broadcast fix
-- remote server/database item changes refresh the open Android list automatically
-- originating Android edits now produce one matching-origin broadcast which is ignored by that same client
-- Qty select-all behaviour fixed so taps do not immediately undo the selection
-- item descriptions now place the cursor at the end rather than selecting the whole description
-- root `build_debug.bat` and `install_debug.bat` helpers; normal phone cycle is `build_debug && install_debug`
-- `build_debug.bat` now returns a definite non-zero exit code after Gradle or `git diff --check` failure, preventing `&& install_debug` from installing a stale APK
-- temporary one-off patch scripts removed before commit
-- realtime diagnostic logging reduced to useful change/failure logs
-
-Real-phone testing confirmed manual Refresh, remote realtime refresh, own-origin suppression, Qty selection behaviour, description editing behaviour, and `Uncheck all` with temporary conservative Undo.
-
-New design TODO recorded:
-- `Uncheck all` for the current list is implemented and real-device tested.
-- It appears in the list header/control area only when checked items exist.
-- A temporary `Undo` restores only items untouched since the bulk operation, protecting newer shared-list changes from being overwritten.
-- The existing Room + Supabase item-update path is reused for both uncheck and undo.
+- Android last-active-list persistence, safe online item tombstones, authoritative snapshot reconciliation and private per-list Realtime signalling remain working.
+- `2fbe23e Add uncheck all with safe undo` introduced bulk uncheck with conservative Undo.
+- The bulk action's final UI is a checkbox in the list column-heading row directly above item checkboxes. It is checked/enabled when any item is completed and disabled/empty otherwise; Shopping aligns it before `Qty`, other kinds before `Item`.
+- The current list title/chevron now opens the Lists selector, removing the standalone `Lists` header button. The selector has an explicit `Close` action while Back and blank-space close behaviour remain available.
+- Browser client foundation under `web/`: React 19 + TypeScript + Vite + Supabase JS.
+- Browser email OTP sign-in and persisted session.
+- Browser online-list discovery from active memberships and list rows.
+- Browser authoritative list snapshot loading and rendering.
+- Browser tick/untick item writes with fresh timestamp and persistent browser-origin UUID.
+- Browser private Realtime subscription using the same `list_changed` contract and own-origin suppression as Android.
+- Live same-account two-client testing proved browser -> Android and Android -> browser updates automatically without manual Refresh.
+- Browser manual Refresh remains available.
+- Web `.env.local`, `dist/` and `node_modules/` are ignored; `.env.example` documents only public client configuration variable names.
+- Unused Vite starter assets/README/favicon were removed and the page title is `JSimpleList`.
+- Android `build_debug`, web `npm run build`, web `npm run lint`, and `git diff --check` all passed before commit.
+- Pushed checkpoint: `bc6aa4a Add browser sync client and refine list controls`.
 
 NEXT TASK
 ---------
-1. Start with `git status --short` and `git --no-pager log --oneline --decorate -5`; expected clean checkpoint is `7c98a9c`.
-2. The likely next substantial milestone is the minimal browser client at `jslist.jobsheet.com.au`, now that Android realtime/snapshot/tombstone behaviour is proven.
-3. Keep the browser deliberately small: sign in, list/open online lists, add/edit/tick/untick/delete, Shopping Qty, snapshot refresh and the same realtime Broadcast contract.
-4. Use the browser as the second real client to test browser -> Android and Android -> browser changes, tombstone deletion and same-account multi-client behaviour.
-5. On Android, add a foreground snapshot-refresh safety net because realtime Broadcast is not replayed after disconnect.
-6. Then continue list-level sync (rename/order), member/invitation/`ONLINE_MEMBER` behaviour, owner/member controls and durable retry.
+1. Start with `git pull && git status --short && git --no-pager log --oneline --decorate -5`; expected clean code checkpoint is `bc6aa4a` plus the context-document commit made at this closeout.
+2. Continue the minimal browser client with the remaining everyday item operations: add item, edit description/Shopping quantity, and safe delete using the existing tombstone/RPC contract.
+3. Prove each browser operation propagates correctly to Android through the existing Realtime signal + authoritative snapshot path; keep manual Refresh as fallback.
+4. After browser item CRUD is complete, move to invitations/member workflow and `ONLINE_MEMBER`, using the browser as a convenient second account/client test surface.
+5. On Android, add a foreground snapshot-refresh safety net because Realtime Broadcast is not replayed after disconnect.
+6. Continue list-level sync (rename/order), owner/member controls and durable retry/reconciliation.
 7. Implement privileged Delete online account / Disable sharing before public 2.0 release; Sign out remains non-destructive.
 8. Before releasing 2.0, perform the real Google-signed 1.1 -> 2.0 upgrade test.
