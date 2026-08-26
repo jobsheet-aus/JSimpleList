@@ -226,3 +226,81 @@
 .auth-panel .item-check-button.checked:hover {
   background: #076f91;
 }
+
+.item-entry-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.auth-panel .item-entry-quantity {
+  width: 64px;
+  flex: 0 0 64px;
+  text-align: right;
+}
+
+.auth-panel .item-entry-description {
+  min-width: 0;
+  flex: 1;
+}
+
+.auth-panel .item-entry-add {
+  width: auto;
+  flex: 0 0 auto;
+  min-height: 48px;
+}
+
+.auth-panel .item-description-button {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: inherit;
+  text-align: left;
+}
+
+.auth-panel .item-description-button:hover {
+  background: transparent;
+  color: #087ea4;
+}
+
+.auth-panel .item-edit-quantity {
+  width: 64px;
+  flex: 0 0 64px;
+  text-align: right;
+}
+
+.auth-panel .item-edit-description {
+  min-width: 0;
+  flex: 1;
+}
+
+.auth-panel .item-edit-action {
+  flex: 0 0 auto;
+}
+
+.auth-panel .item-quantity-button {
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #64748b;
+  font-weight: inherit;
+  text-align: right;
+}
+
+.auth-panel .item-quantity-button:hover {
+  background: transparent;
+  color: #087ea4;
+}
+
+.auth-panel .item-delete-button {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 4px 8px;
+  color: #087ea4;
+  font-size: 12px;
+}

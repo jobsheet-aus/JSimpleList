@@ -64,6 +64,13 @@ function App() {
   const [selectedSnapshot, setSelectedSnapshot] =
     useState<ListSyncSnapshot | null>(null)
   const [snapshotLoading, setSnapshotLoading] = useState(false)
+  const [newItemDescription, setNewItemDescription] = useState('')
+  const [newItemQuantity, setNewItemQuantity] = useState('1')
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
+  const [editingFocus, setEditingFocus] =
+    useState<'description' | 'quantity'>('description')
+  const [editDescription, setEditDescription] = useState('')
+  const [editQuantity, setEditQuantity] = useState('1')
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
@@ -199,6 +206,169 @@ function App() {
     }
 
     await openOnlineList(item.list_id)
+  }
+
+  function startEditingItem(
+    item: OnlineItemSnapshot,
+    focus: 'description' | 'quantity',
+  ) {
+    setEditingItemId(item.id)
+    setEditingFocus(focus)
+    setEditDescription(item.description)
+    setEditQuantity(
+      item.quantity === null
+        ? '1'
+        : String(item.quantity),
+    )
+    setMessage('')
+  }
+
+  function cancelEditingItem() {
+    setEditingItemId(null)
+    setEditDescription('')
+    setEditQuantity('1')
+  }
+
+  async function saveEditedItem(item: OnlineItemSnapshot) {
+    const trimmedDescription = editDescription.trim()
+
+    if (!trimmedDescription) {
+      return
+    }
+
+    let quantity = item.quantity
+
+    if (selectedSnapshot?.list?.kind === 'SHOPPING') {
+      const trimmedQuantity = editQuantity.trim()
+      const integerText = /^[+-]?\d+$/.test(trimmedQuantity)
+      const parsedQuantity =
+        integerText ? Number(trimmedQuantity) : Number.NaN
+
+      quantity =
+        Number.isInteger(parsedQuantity) &&
+        parsedQuantity >= -2147483648 &&
+        parsedQuantity <= 2147483647
+          ? Math.max(parsedQuantity, 1)
+          : 1
+    }
+
+    const updatedItem = {
+      id: item.id,
+      list_id: item.list_id,
+      description: trimmedDescription,
+      quantity,
+      completed: item.completed,
+      position: item.position,
+      created_at: item.created_at,
+      updated_at: new Date().toISOString(),
+      deleted_at: item.deleted_at,
+      origin_client_id: browserClientInstanceId,
+    }
+
+    setMessage('')
+
+    const { error } = await supabase
+      .from('items')
+      .upsert(updatedItem)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    cancelEditingItem()
+    await openOnlineList(item.list_id)
+  }
+
+  async function deleteOnlineItem(item: OnlineItemSnapshot) {
+    setMessage('')
+
+    const { error } = await supabase.rpc(
+      'delete_online_item',
+      {
+        target_item_id: item.id,
+        target_origin_client_id: browserClientInstanceId,
+      },
+    )
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    if (editingItemId === item.id) {
+      cancelEditingItem()
+    }
+
+    await openOnlineList(item.list_id)
+  }
+
+  async function addOnlineItem() {
+    const list = selectedSnapshot?.list
+    const trimmedDescription = newItemDescription.trim()
+
+    if (!list || !trimmedDescription) {
+      return
+    }
+
+    let quantity: number | null = null
+
+    if (list.kind === 'SHOPPING') {
+      const trimmedQuantity = newItemQuantity.trim()
+      const integerText = /^[+-]?\d+$/.test(trimmedQuantity)
+      const parsedQuantity =
+        integerText ? Number(trimmedQuantity) : Number.NaN
+
+      quantity =
+        Number.isInteger(parsedQuantity) &&
+        parsedQuantity >= -2147483648 &&
+        parsedQuantity <= 2147483647
+          ? Math.max(parsedQuantity, 1)
+          : 1
+    }
+
+    const activeItems =
+      (selectedSnapshot.items ?? [])
+        .filter((item) => item.deleted_at === null)
+
+    const minimumPosition =
+      activeItems.length === 0
+        ? 10
+        : Math.min(...activeItems.map((item) => item.position))
+
+    const now = new Date().toISOString()
+
+    const newItem = {
+      id: crypto.randomUUID(),
+      list_id: list.id,
+      description: trimmedDescription,
+      quantity,
+      completed: false,
+      position: minimumPosition - 10,
+      created_at: now,
+      updated_at: now,
+      deleted_at: null,
+      origin_client_id: browserClientInstanceId,
+    }
+
+    setMessage('')
+
+    const { error } = await supabase
+      .from('items')
+      .insert(newItem)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setNewItemDescription('')
+
+    if (list.kind === 'SHOPPING') {
+      setNewItemQuantity('1')
+    }
+
+    await openOnlineList(list.id)
   }
 
   const openOnlineList = useCallback(
@@ -417,11 +587,54 @@ function App() {
             </button>
           </div>
 
-          {snapshotLoading ? (
-            <p className="secondary">
-              Loading list
-            </p>
-          ) : activeItems.length === 0 ? (
+          <form
+            className="item-entry-form"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void addOnlineItem()
+            }}
+          >
+            {selectedSnapshot.list.kind === 'SHOPPING' && (
+              <input
+                type="text"
+                inputMode="numeric"
+                className="item-entry-quantity"
+                aria-label="Quantity"
+                value={newItemQuantity}
+                onFocus={(event) => {
+                  event.currentTarget.select()
+                }}
+                onChange={(event) => {
+                  setNewItemQuantity(event.target.value)
+                }}
+              />
+            )}
+
+            <input
+              type="text"
+              className="item-entry-description"
+              aria-label="Item"
+              placeholder="Item"
+              autoComplete="off"
+              value={newItemDescription}
+              onChange={(event) => {
+                setNewItemDescription(event.target.value)
+              }}
+            />
+
+            <button
+              type="submit"
+              className="item-entry-add"
+              disabled={
+                snapshotLoading ||
+                newItemDescription.trim().length === 0
+              }
+            >
+              Add
+            </button>
+          </form>
+
+          {activeItems.length === 0 ? (
             <p className="secondary">
               No items
             </p>
@@ -433,6 +646,14 @@ function App() {
                   className={`item-row ${
                     item.completed ? 'completed' : ''
                   }`}
+                  onBlur={(event) => {
+                    if (
+                      editingItemId === item.id &&
+                      !event.currentTarget.contains(event.relatedTarget)
+                    ) {
+                      cancelEditingItem()
+                    }
+                  }}
                 >
                   <button
                     type="button"
@@ -454,15 +675,111 @@ function App() {
                     {item.completed ? '✓' : ''}
                   </button>
 
-                  {selectedSnapshot.list?.kind === 'SHOPPING' && (
-                    <span className="item-quantity">
-                      {item.quantity ?? ''}
-                    </span>
-                  )}
+                  {editingItemId === item.id ? (
+                    <>
+                      {selectedSnapshot.list?.kind === 'SHOPPING' && (
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          className="item-edit-quantity"
+                          aria-label="Quantity"
+                          value={editQuantity}
+                          autoFocus={editingFocus === 'quantity'}
+                          onFocus={(event) => {
+                            event.currentTarget.select()
+                          }}
+                          onChange={(event) => {
+                            setEditQuantity(event.target.value)
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Escape') {
+                              cancelEditingItem()
+                            }
+                          }}
+                        />
+                      )}
 
-                  <span className="item-description">
-                    {item.description}
-                  </span>
+                      <input
+                        type="text"
+                        className="item-edit-description"
+                        aria-label="Item"
+                        autoComplete="off"
+                        value={editDescription}
+                        autoFocus={editingFocus === 'description'}
+                        onFocus={(event) => {
+                          const length = event.currentTarget.value.length
+                          event.currentTarget.setSelectionRange(
+                            length,
+                            length,
+                          )
+                        }}
+                        onChange={(event) => {
+                          setEditDescription(event.target.value)
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault()
+                            void saveEditedItem(item)
+                          } else if (event.key === 'Escape') {
+                            cancelEditingItem()
+                          }
+                        }}
+                      />
+
+                      <button
+                        type="button"
+                        className="secondary-button compact-button item-edit-action"
+                        disabled={editDescription.trim().length === 0}
+                        onClick={() => {
+                          void saveEditedItem(item)
+                        }}
+                      >
+                        Save
+                      </button>
+
+                      <button
+                        type="button"
+                        className="secondary-button compact-button item-edit-action"
+                        onClick={cancelEditingItem}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {selectedSnapshot.list?.kind === 'SHOPPING' && (
+                        <button
+                          type="button"
+                          className="item-quantity item-quantity-button"
+                          onClick={() => {
+                            startEditingItem(item, 'quantity')
+                          }}
+                        >
+                          {item.quantity ?? ''}
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        className="item-description item-description-button"
+                        onClick={() => {
+                          startEditingItem(item, 'description')
+                        }}
+                      >
+                        {item.description}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="secondary-button compact-button item-delete-button"
+                        onClick={() => {
+                          void deleteOnlineItem(item)
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
