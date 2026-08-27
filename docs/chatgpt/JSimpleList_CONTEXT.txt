@@ -300,17 +300,25 @@ BROWSER CLIENT
 --------------
 - Browser access uses the same Supabase account/list/membership/sync service as Android. Preferred hostname remains `jslist.jobsheet.com.au`.
 - Browser is another client, not a phone bridge and not a separate backend. It exposes online-backed lists only; local-only lists never leave the phone and therefore never appear in browser.
-- A minimal React + TypeScript + Vite client now lives under `web/` and is committed in `bc6aa4a`.
+- A React + TypeScript + Vite client lives under `web/`. Foundation was committed in `bc6aa4a`; everyday item CRUD was completed in `91a997c`.
 - Browser Supabase configuration uses `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`; real values live only in ignored `web/.env.local`. `.env.example` documents both variable names.
 - Email OTP sign-in works against the existing Supabase Auth account, and the browser session persists normally.
 - The signed-in browser discovers active online lists through `list_members` plus `lists`, preserving per-user membership order.
 - Opening a list calls `get_list_sync_snapshot(target_list_id)` and renders authoritative active items, Shopping quantity, completion state and the same incomplete-before-completed presentation.
 - Browser checkbox tick/untick writes the full current item row with a fresh `updated_at` and `origin_client_id`, then reloads the authoritative snapshot.
+- Browser item creation uses a true INSERT with a new UUID, the same position rule as Android, and one creation/update timestamp. Using UPSERT for brand-new browser rows did not produce the required Android realtime behaviour; INSERT is the proven creation path.
+- Browser item editing supports description and Shopping quantity. Clicking description focuses description with the cursor at the end; clicking Qty focuses Qty and selects the whole value. Save commits, while Cancel, Escape and clicking outside the edit row abandon the edit.
+- Browser safe delete calls `delete_online_item(target_item_id, target_origin_client_id)` so deletion is represented by the existing server tombstone contract rather than a hard delete.
+- Browser refreshes keep the existing list rendered instead of temporarily replacing it with a loading state, avoiding visible list disappearance after add/edit/delete/tick operations.
+- Browser Delete is intentionally a small blue secondary action to mirror Android's visual grammar rather than using a harsh destructive red.
 - Each browser installation has a persistent random UUID stored in localStorage. Browser writes use it as `origin_client_id`.
 - The browser subscribes to the same private `jsimplelist:list:<list UUID>` / `list_changed` Realtime contract as Android. It ignores matching own-origin broadcasts and reloads the authoritative snapshot for genuine remote changes.
-- Same-account browser -> Android and Android -> browser realtime changes have both been proven in live testing without manual Refresh.
-- Manual browser Refresh remains available as a fallback.
-- Browser add, edit description/quantity and safe delete/tombstone operations are not yet implemented; these are the next browser milestone before invitations/member workflow.
+- Same-account browser -> Android and Android -> browser realtime changes have been proven for tick/untick, add, edit and safe delete. Manual Refresh remains available as a fallback and snapshot reconciliation recovers previously missed server changes.
+- The browser client is publicly deployed at `https://jslist.jobsheet.com.au`.
+- Hosting is DigitalOcean App Platform as a Static Site in SYD1, app `jsimplelist`, component `jsimplelist-web`, source `web/`, branch `main`, autodeploy enabled, build command `npm install && npm run build`, output directory `dist`.
+- Production configuration uses DigitalOcean environment variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Only the public Supabase publishable key is used; no secret/service-role key is exposed.
+- Custom DNS uses `jslist.jobsheet.com.au` CNAME to the DigitalOcean starter hostname. HTTPS is working.
+- Public live testing confirmed the deployed browser can sign in and operate correctly against the existing online-list service.
 
 SETTINGS / PREFERENCES
 ----------------------
@@ -326,6 +334,21 @@ Current decisions:
 - A possible future ordering preference is new items top/bottom; current intended default is top.
 - A possible future ordering preference is checked items move to bottom/remain in place; current intended default is bottom.
 - Add Settings only when there are enough genuinely useful preferences/features to justify it.
+
+PUBLIC WEBSITE / LEGAL / PLAY STORE
+-----------------------------------
+- Public JSimpleList product page: `https://jobsheet.com.au/jslist/`.
+- Legacy landing path `https://jobsheet.com.au/jsimplelist/` is retained as a redirect to `/jslist/`.
+- Browser app: `https://jslist.jobsheet.com.au`.
+- Privacy Policy URL intentionally remains `https://jobsheet.com.au/jsimplelist-privacy.html` because it is already registered with Google Play.
+- Terms of Use URL intentionally remains `https://jobsheet.com.au/jsimplelist-terms.html`.
+- JSimpleList Privacy and Terms pages use JSimpleList branding/navigation rather than the JobSheet sidebar. JobSheet / 21 TWELVE CONSULTING PTY LTD remains identified in the legal text as the producer/legal entity.
+- Current legal documents cover local-only lists, optional online accounts, private sharing/synchronisation, service communications, future service/pricing changes, account/data handling and South Australian governing law.
+- Current product-page positioning: `Simple list keeping`, local or privately shared lists, browser access, `No ads. No fees.` as a present-state statement rather than a permanent promise.
+- Google Play Website field is set to `https://jobsheet.com.au/jslist/`.
+- Google Play Privacy Policy field is confirmed as `https://jobsheet.com.au/jsimplelist-privacy.html`.
+- Before submitting 2.0, review and update Google Play Data safety because 2.0 introduces optional account/email/display-name data, Supabase-backed online/shared list data, invitations/memberships and network processing that did not exist in released 1.1.
+- Before public 2.0 release, also reconcile README/store-listing wording so released metadata no longer describes JSimpleList as strictly local-only.
 
 FUNDING / COST FUTURE-PROOFING
 ------------------------------
@@ -445,18 +468,23 @@ CONTRIBUTING.md preserves practical future relicensing flexibility for substanti
 
 README currently describes the released local-only app. Update README/privacy/listing wording before a public network-enabled 2.0 release.
 
-CURRENT GIT CHECKPOINT - 25 AUG 2026
+CURRENT GIT CHECKPOINT - 27 AUG 2026
 ------------------------------------
-Clean pushed checkpoint at session close:
-    bc6aa4a (HEAD -> main, origin/main, origin/HEAD) Add browser sync client and refine list controls
+Clean pushed code checkpoint remains:
+    91a997c (HEAD -> main, origin/main, origin/HEAD) Add browser item CRUD
+    83a63b2 Update JSimpleList browser sync context
+    bc6aa4a Add browser sync client and refine list controls
     2fbe23e Add uncheck all with safe undo
     7c98a9c Add realtime list refresh and sync signalling
-    76fdf45 Add safe online item tombstones
-    2aec18f Remember last active list
 
-`git status --short` was clean immediately after pushing bc6aa4a.
+At session close, `git status --short` showed only:
+    M docs/chatgpt/JSimpleList_CONTEXT.txt
+
+No JSimpleList source-code changes were made during the 27 Aug deployment/legal session.
 
 Other important 2.0 commits:
+    76fdf45 Add safe online item tombstones
+    2aec18f Remember last active list
     2d0c2a0 Add list sync foundation and improve list ordering
     a25f1fe Add JSimpleList authentication and profile foundation
     14f7277 Add Supabase Android client
@@ -471,33 +499,36 @@ Other important 2.0 commits:
     caaeb41 Add legacy data importer
     eb88951 Add Room database foundation
 
-SESSION CLOSEOUT - 25 AUG 2026
+SESSION CLOSEOUT - 27 AUG 2026
 ------------------------------
-Completed, tested and pushed:
-- Android last-active-list persistence, safe online item tombstones, authoritative snapshot reconciliation and private per-list Realtime signalling remain working.
-- `2fbe23e Add uncheck all with safe undo` introduced bulk uncheck with conservative Undo.
-- The bulk action's final UI is a checkbox in the list column-heading row directly above item checkboxes. It is checked/enabled when any item is completed and disabled/empty otherwise; Shopping aligns it before `Qty`, other kinds before `Item`.
-- The current list title/chevron now opens the Lists selector, removing the standalone `Lists` header button. The selector has an explicit `Close` action while Back and blank-space close behaviour remain available.
-- Browser client foundation under `web/`: React 19 + TypeScript + Vite + Supabase JS.
-- Browser email OTP sign-in and persisted session.
-- Browser online-list discovery from active memberships and list rows.
-- Browser authoritative list snapshot loading and rendering.
-- Browser tick/untick item writes with fresh timestamp and persistent browser-origin UUID.
-- Browser private Realtime subscription using the same `list_changed` contract and own-origin suppression as Android.
-- Live same-account two-client testing proved browser -> Android and Android -> browser updates automatically without manual Refresh.
-- Browser manual Refresh remains available.
-- Web `.env.local`, `dist/` and `node_modules/` are ignored; `.env.example` documents only public client configuration variable names.
-- Unused Vite starter assets/README/favicon were removed and the page title is `JSimpleList`.
-- Android `build_debug`, web `npm run build`, web `npm run lint`, and `git diff --check` all passed before commit.
-- Pushed checkpoint: `bc6aa4a Add browser sync client and refine list controls`.
+Completed outside the JSimpleList source tree, with the browser app and public/legal presence now live:
+- Published the existing `web/` browser client to DigitalOcean App Platform as a free Static Site in SYD1.
+- Production browser URL `https://jslist.jobsheet.com.au` is live and working over HTTPS.
+- DigitalOcean production environment variables use only `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`; no secret/service-role key is exposed.
+- The browser deployment uses the existing `web/` source on `main`, with autodeploy enabled.
+- Created/reworked the JSimpleList public landing page at `https://jobsheet.com.au/jslist/`.
+- Retained `https://jobsheet.com.au/jsimplelist/` as a redirect to the shorter `/jslist/` path.
+- Reworked the JSimpleList Privacy Policy and Terms of Use so they use JSimpleList branding/navigation instead of the JobSheet sidebar.
+- Deliberately preserved the existing legal URLs:
+    `https://jobsheet.com.au/jsimplelist-privacy.html`
+    `https://jobsheet.com.au/jsimplelist-terms.html`
+- Added/updated 2.0 legal coverage for optional online accounts, private sharing/sync, service communications, future pricing/service changes and online data handling.
+- Public landing-page wording now presents JSimpleList as simple local-or-shared list keeping with browser access and current-state `No ads. No fees.` positioning.
+- Updated Google Play Website to `https://jobsheet.com.au/jslist/`.
+- Confirmed Google Play Privacy Policy still points to the preserved privacy-policy URL.
+- Recorded that Google Play Data safety must be reviewed before 2.0 submission because the network-enabled 2.0 data model differs materially from local-only 1.1.
+- JobSheet marketing/legal deployment containing these public-page changes was committed and pushed separately in the JobSheet repository at `e6d63e7 Align JSimpleList branding and public URLs`.
 
 NEXT TASK
 ---------
-1. Start with `git pull && git status --short && git --no-pager log --oneline --decorate -5`; expected clean code checkpoint is `bc6aa4a` plus the context-document commit made at this closeout.
-2. Continue the minimal browser client with the remaining everyday item operations: add item, edit description/Shopping quantity, and safe delete using the existing tombstone/RPC contract.
-3. Prove each browser operation propagates correctly to Android through the existing Realtime signal + authoritative snapshot path; keep manual Refresh as fallback.
-4. After browser item CRUD is complete, move to invitations/member workflow and `ONLINE_MEMBER`, using the browser as a convenient second account/client test surface.
-5. On Android, add a foreground snapshot-refresh safety net because Realtime Broadcast is not replayed after disconnect.
-6. Continue list-level sync (rename/order), owner/member controls and durable retry/reconciliation.
-7. Implement privileged Delete online account / Disable sharing before public 2.0 release; Sign out remains non-destructive.
-8. Before releasing 2.0, perform the real Google-signed 1.1 -> 2.0 upgrade test.
+1. Start with `git pull && git status --short && git --no-pager log --oneline --decorate -5`; expected JSimpleList code checkpoint is `91a997c Add browser item CRUD` plus the context-document closeout commit made after this session.
+2. Resume 2.0 product work rather than further marketing work.
+3. Add an Android app-foreground authoritative snapshot refresh for the current online list so missed Realtime broadcasts cannot leave a stale cache indefinitely.
+4. Sync list-level changes such as rename and ordering.
+5. Implement invitations/member workflow and `ONLINE_MEMBER`, using the now-public browser as a convenient second account/client test surface.
+6. Implement owner/member leave/remove/destroy semantics and clear UX for cached lists after access is removed.
+7. Add durable retry/reconciliation for failed online writes so local-first changes are eventually pushed after temporary failure.
+8. Implement privileged `Delete online account` / real `Disable sharing` before public 2.0 release; Sign out remains non-destructive.
+9. Decide whether unseen-change state/indicator is still useful after member workflow is working; keep realtime/background traffic conservative.
+10. Before release, perform the real Google-signed 1.1 -> 2.0 upgrade test and verify list contents, quantities, completed states and font scale survive.
+11. Before submitting 2.0, update Google Play Data safety and reconcile README/store-listing/privacy wording with the network-enabled release.
