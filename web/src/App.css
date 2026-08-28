@@ -185,6 +185,32 @@
   margin-bottom: 2px;
 }
 
+.auth-panel .list-name-button {
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  text-align: left;
+}
+
+.auth-panel .list-name-button:hover {
+  background: transparent;
+  color: #087ea4;
+}
+
+.auth-panel .list-name-edit {
+  width: min(360px, 60vw);
+  min-height: 0;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
 .item-heading-row {
   min-height: 36px;
   display: flex;

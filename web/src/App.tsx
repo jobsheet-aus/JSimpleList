@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from 'react'
 import type { Session } from '@supabase/supabase-js'
@@ -106,6 +107,10 @@ function App() {
     useState<'description' | 'quantity'>('description')
   const [editDescription, setEditDescription] = useState('')
   const [editQuantity, setEditQuantity] = useState('1')
+  const [editingListName, setEditingListName] = useState(false)
+  const [editListName, setEditListName] = useState('')
+  const [listNameSaving, setListNameSaving] = useState(false)
+  const cancelListRenameRef = useRef(false)
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
@@ -210,6 +215,68 @@ function App() {
 
     setOnlineLists(loadedLists)
     setListsLoading(false)
+  }
+
+  function startEditingListName() {
+    const list = selectedSnapshot?.list
+
+    if (!list) {
+      return
+    }
+
+    cancelListRenameRef.current = false
+    setEditListName(list.name)
+    setEditingListName(true)
+    setMessage('')
+  }
+
+  function cancelEditingListName() {
+    cancelListRenameRef.current = true
+    setEditingListName(false)
+    setEditListName('')
+  }
+
+  async function saveEditedListName() {
+    const list = selectedSnapshot?.list
+    const trimmedName = editListName.trim()
+
+    if (!list || !trimmedName || listNameSaving) {
+      return
+    }
+
+    if (trimmedName === list.name) {
+      setEditingListName(false)
+      setEditListName('')
+      return
+    }
+
+    setListNameSaving(true)
+    setMessage('')
+
+    const { error } = await supabase.rpc(
+      'rename_online_list',
+      {
+        target_list_id: list.id,
+        target_name: trimmedName,
+        target_origin_client_id: browserClientInstanceId,
+      },
+    )
+
+    setListNameSaving(false)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setEditingListName(false)
+    setEditListName('')
+
+    await openOnlineList(list.id)
+
+    if (session) {
+      await loadOnlineLists(session.user.id)
+    }
   }
 
   async function updateOnlineItem(
@@ -686,6 +753,14 @@ function App() {
 
     const itemCount = activeItems.length
 
+    const currentListRole =
+      onlineLists.find(
+        (list) => list.id === selectedSnapshot.list?.id,
+      )?.role
+
+    const canRenameList =
+      currentListRole === 'owner'
+
     return (
       <main className="app-shell">
         <section className="auth-panel list-panel">
@@ -693,7 +768,85 @@ function App() {
             <div>
               <p className="app-brand">JSimpleList</p>
               <h1>
-                <OnlineListName name={selectedSnapshot.list.name} />
+                {editingListName ? (
+                  <span className="list-name-with-status">
+                    <input
+                      type="text"
+                      className="list-name-edit"
+                      aria-label="List name"
+                      autoFocus
+                      maxLength={100}
+                      value={editListName}
+                      disabled={listNameSaving}
+                      onFocus={(event) => {
+                        event.currentTarget.select()
+                      }}
+                      onChange={(event) => {
+                        setEditListName(event.target.value)
+                      }}
+                      onBlur={() => {
+                        if (cancelListRenameRef.current) {
+                          cancelListRenameRef.current = false
+                          return
+                        }
+
+                        void saveEditedListName()
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          void saveEditedListName()
+                        } else if (event.key === 'Escape') {
+                          event.preventDefault()
+                          cancelEditingListName()
+                        }
+                      }}
+                    />
+
+                    <span
+                      className="online-list-status"
+                      role="img"
+                      aria-label="Online list"
+                      title="Online list"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <path
+                          d="M10.6 13.4a4 4 0 0 0 5.66 0l2.12-2.12a4 4 0 0 0-5.66-5.66L11.5 6.84"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                        />
+                        <path
+                          d="M13.4 10.6a4 4 0 0 0-5.66 0l-2.12 2.12a4 4 0 0 0 5.66 5.66l1.22-1.22"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </span>
+                  </span>
+                ) : canRenameList ? (
+                  <button
+                    type="button"
+                    className="list-name-button"
+                    aria-label={`Rename ${selectedSnapshot.list.name}`}
+                    onClick={startEditingListName}
+                  >
+                    <OnlineListName
+                      name={selectedSnapshot.list.name}
+                    />
+                  </button>
+                ) : (
+                  <OnlineListName
+                    name={selectedSnapshot.list.name}
+                  />
+                )}
               </h1>
               <p className="secondary">
                 {selectedSnapshot.list.kind === 'TODO'
