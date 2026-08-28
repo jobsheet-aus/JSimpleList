@@ -787,7 +787,7 @@ function App() {
 
           <button
             type="button"
-            className="secondary-button"
+            className="secondary-button compact-button"
             disabled={snapshotLoading}
             onClick={() => {
               void openOnlineList(selectedSnapshot.list!.id)
@@ -807,15 +807,15 @@ function App() {
   if (session) {
     return (
       <main className="app-shell">
-        <section className="auth-panel">
+        <section className="auth-panel list-panel">
           <h1>JSimpleList</h1>
-          <p className="signed-in">
+          <p className="secondary signed-in">
             Signed in as {session.user.email}
           </p>
 
           <div className="online-lists">
             <div className="online-lists-heading">
-              <h2>Online lists</h2>
+              <h2>Lists</h2>
 
               <button
                 type="button"
@@ -835,7 +835,7 @@ function App() {
               </p>
             ) : onlineLists.length === 0 ? (
               <p className="secondary">
-                No online lists
+                No lists available
               </p>
             ) : (
               <div className="online-list-rows">
@@ -871,7 +871,7 @@ function App() {
 
           <button
             type="button"
-            className="secondary-button"
+            className="secondary-button compact-button"
             disabled={busy}
             onClick={() => void signOut()}
           >
