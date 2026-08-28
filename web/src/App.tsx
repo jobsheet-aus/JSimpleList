@@ -347,6 +347,45 @@ function App() {
     await openOnlineList(item.list_id)
   }
 
+  async function deleteAllOnlineItems() {
+    const list = selectedSnapshot?.list
+    const activeItems =
+      (selectedSnapshot?.items ?? [])
+        .filter((item) => item.deleted_at === null)
+
+    if (!list || activeItems.length === 0) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Delete all ${activeItems.length} ${
+        activeItems.length === 1 ? 'item' : 'items'
+      } from "${list.name}"?`,
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setMessage('')
+
+    const { error } = await supabase.rpc(
+      'delete_all_online_items',
+      {
+        target_list_id: list.id,
+        target_origin_client_id: browserClientInstanceId,
+      },
+    )
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    cancelEditingItem()
+    await openOnlineList(list.id)
+  }
+
   async function addOnlineItem() {
     const list = selectedSnapshot?.list
     const trimmedDescription = newItemDescription.trim()
@@ -711,6 +750,17 @@ function App() {
               <span className="item-heading-description">
                 Item
               </span>
+
+              <button
+                type="button"
+                className="secondary-button compact-button item-delete-all-button"
+                disabled={snapshotLoading}
+                onClick={() => {
+                  void deleteAllOnlineItems()
+                }}
+              >
+                Delete all
+              </button>
             </div>
           )}
 
