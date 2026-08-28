@@ -208,6 +208,50 @@ function App() {
     await openOnlineList(item.list_id)
   }
 
+  async function uncheckAllItems() {
+    const list = selectedSnapshot?.list
+    const completedItems =
+      (selectedSnapshot?.items ?? [])
+        .filter(
+          (item) =>
+            item.deleted_at === null &&
+            item.completed,
+        )
+
+    if (!list || completedItems.length === 0) {
+      return
+    }
+
+    const updatedAt = new Date().toISOString()
+
+    const updatedItems =
+      completedItems.map((item) => ({
+        id: item.id,
+        list_id: item.list_id,
+        description: item.description,
+        quantity: item.quantity,
+        completed: false,
+        position: item.position,
+        created_at: item.created_at,
+        updated_at: updatedAt,
+        deleted_at: item.deleted_at,
+        origin_client_id: browserClientInstanceId,
+      }))
+
+    setMessage('')
+
+    const { error } = await supabase
+      .from('items')
+      .upsert(updatedItems)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    await openOnlineList(list.id)
+  }
+
   function startEditingItem(
     item: OnlineItemSnapshot,
     focus: 'description' | 'quantity',
@@ -563,11 +607,17 @@ function App() {
           return left.created_at.localeCompare(right.created_at)
         })
 
+    const hasCompletedItems =
+      activeItems.some((item) => item.completed)
+
+    const itemCount = activeItems.length
+
     return (
       <main className="app-shell">
         <section className="auth-panel list-panel">
           <div className="list-header">
             <div>
+              <p className="app-brand">JSimpleList</p>
               <h1>{selectedSnapshot.list.name}</h1>
               <p className="secondary">
                 {selectedSnapshot.list.kind === 'TODO'
@@ -575,6 +625,8 @@ function App() {
                   : selectedSnapshot.list.kind === 'SHOPPING'
                     ? 'Shopping'
                     : 'Discussion points'}
+                {' · '}
+                {itemCount} {itemCount === 1 ? 'item' : 'items'}
               </p>
             </div>
 
@@ -633,6 +685,34 @@ function App() {
               Add
             </button>
           </form>
+
+          {activeItems.length > 0 && (
+            <div className="item-heading-row">
+              <button
+                type="button"
+                className={`item-check item-check-button ${
+                  hasCompletedItems ? 'checked' : ''
+                }`}
+                aria-label="Uncheck all completed items"
+                disabled={!hasCompletedItems || snapshotLoading}
+                onClick={() => {
+                  void uncheckAllItems()
+                }}
+              >
+                {hasCompletedItems ? '✓' : ''}
+              </button>
+
+              {selectedSnapshot.list.kind === 'SHOPPING' && (
+                <span className="item-heading-quantity">
+                  Qty
+                </span>
+              )}
+
+              <span className="item-heading-description">
+                Item
+              </span>
+            </div>
+          )}
 
           {activeItems.length === 0 ? (
             <p className="secondary">

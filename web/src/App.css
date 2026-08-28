@@ -155,14 +155,40 @@
   gap: 16px;
 }
 
+.app-brand {
+  margin: 0 0 2px;
+  color: #087ea4;
+  font-size: 14px;
+  font-weight: 650;
+}
+
 .list-header h1 {
   margin-bottom: 2px;
+}
+
+.item-heading-row {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.item-heading-quantity {
+  width: 36px;
+  flex: 0 0 36px;
+  text-align: right;
+}
+
+.item-heading-description {
+  flex: 1;
 }
 
 .item-rows {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid #e2e8f0;
 }
 
 .item-row {
