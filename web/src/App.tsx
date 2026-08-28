@@ -51,6 +51,41 @@ type ListSyncSnapshot = {
   removed_at?: string
 }
 
+function OnlineListName({ name }: { name: string }) {
+  return (
+    <span className="list-name-with-status">
+      <span>{name}</span>
+      <span
+        className="online-list-status"
+        role="img"
+        aria-label="Online list"
+        title="Online list"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path
+            d="M10.6 13.4a4 4 0 0 0 5.66 0l2.12-2.12a4 4 0 0 0-5.66-5.66L11.5 6.84"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+          <path
+            d="M13.4 10.6a4 4 0 0 0-5.66 0l-2.12 2.12a4 4 0 0 0 5.66 5.66l1.22-1.22"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        </svg>
+      </span>
+    </span>
+  )
+}
+
 function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [authReady, setAuthReady] = useState(false)
@@ -657,7 +692,9 @@ function App() {
           <div className="list-header">
             <div>
               <p className="app-brand">JSimpleList</p>
-              <h1>{selectedSnapshot.list.name}</h1>
+              <h1>
+                <OnlineListName name={selectedSnapshot.list.name} />
+              </h1>
               <p className="secondary">
                 {selectedSnapshot.list.kind === 'TODO'
                   ? 'To-do'
@@ -978,7 +1015,9 @@ function App() {
                     onClick={() => void openOnlineList(list.id)}
                   >
                     <div>
-                      <strong>{list.name}</strong>
+                      <strong>
+                        <OnlineListName name={list.name} />
+                      </strong>
                       <span>
                         {list.kind === 'TODO'
                           ? 'To-do'
