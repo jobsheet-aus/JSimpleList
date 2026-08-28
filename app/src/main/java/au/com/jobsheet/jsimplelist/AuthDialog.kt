@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 fun AuthDialog(
     repository: AuthRepository,
     profileRepository: ProfileRepository,
+    onSignedIn: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -408,6 +409,7 @@ fun AuthDialog(
                                             repository.currentUserEmail()
                                                 ?: email.trim()
 
+                                        onSignedIn()
                                         message = null
                                     } catch (error: Exception) {
                                         message =

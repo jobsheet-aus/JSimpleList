@@ -194,6 +194,20 @@ private fun SimpleListApp() {
             dao = dao
         ).importIfNeeded()
 
+        if (authRepository.currentUserId() != null) {
+            try {
+                listSyncRepository.discoverOnlineLists(
+                    dao = dao
+                )
+            } catch (exception: Exception) {
+                Log.e(
+                    "JSimpleListSync",
+                    "Online list discovery failed at startup",
+                    exception
+                )
+            }
+        }
+
         val loadedLists = dao.loadLists()
 
         lists.clear()
@@ -507,6 +521,41 @@ private fun SimpleListApp() {
             AuthDialog(
                 repository = authRepository,
                 profileRepository = profileRepository,
+                onSignedIn = {
+                    coroutineScope.launch {
+                        try {
+                            listSyncRepository.discoverOnlineLists(
+                                dao = dao
+                            )
+
+                            val loadedLists = dao.loadLists()
+
+                            lists.clear()
+                            itemsByList.clear()
+
+                            loadedLists.forEach { list ->
+                                lists.add(list)
+                                itemsByList[list.id] =
+                                    mutableStateListOf<ItemEntity>().apply {
+                                        addAll(dao.loadItems(list.id))
+                                    }
+                            }
+                        } catch (exception: Exception) {
+                            Log.e(
+                                "JSimpleListSync",
+                                "Online list discovery failed after sign-in",
+                                exception
+                            )
+
+                            Toast.makeText(
+                                context,
+                                exception.message
+                                    ?: "Could not load online lists",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                },
                 onDismiss = {
                     showListSharing = false
                 }

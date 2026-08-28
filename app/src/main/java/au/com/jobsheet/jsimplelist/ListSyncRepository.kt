@@ -36,6 +36,21 @@ private data class OnlineItemInsert(
 )
 
 @Serializable
+private data class OnlineListDiscovery(
+    val id: String,
+    val name: String,
+    val kind: String,
+    val role: String,
+    val position: Int,
+
+    @SerialName("created_at")
+    val createdAt: String,
+
+    @SerialName("updated_at")
+    val updatedAt: String
+)
+
+@Serializable
 data class ListSyncSnapshot(
     val state: String,
 
@@ -125,6 +140,8 @@ class ListSyncRepository(
 
         val createdAt =
             Instant.ofEpochMilli(list.createdAt).toString()
+        val updatedAt =
+            Instant.ofEpochMilli(list.updatedAt).toString()
 
         client.postgrest.rpc(
             function = "create_online_list",
@@ -134,7 +151,7 @@ class ListSyncRepository(
                 put("target_kind", list.kind)
                 put("target_position", list.position)
                 put("target_created_at", createdAt)
-                put("target_updated_at", createdAt)
+                put("target_updated_at", updatedAt)
             }
         )
 
@@ -201,6 +218,88 @@ class ListSyncRepository(
                 put("target_origin_client_id", originClientId)
             }
         )
+    }
+
+    suspend fun discoverOnlineLists(
+        dao: JSimpleListDao
+    ): List<ListEntity> {
+        requireSignedIn()
+
+        val discoveredLists =
+            client.postgrest
+                .rpc(
+                    function = "get_my_online_lists"
+                )
+                .decodeAs<List<OnlineListDiscovery>>()
+
+        discoveredLists.forEach { discovered ->
+            val onlineState =
+                when (discovered.role) {
+                    "owner" -> "ONLINE_OWNER"
+                    "member" -> "ONLINE_MEMBER"
+                    else -> error(
+                        "Unknown online list role: ${discovered.role}"
+                    )
+                }
+
+            val remoteCreatedAt =
+                Instant.parse(discovered.createdAt).toEpochMilli()
+            val remoteUpdatedAt =
+                Instant.parse(discovered.updatedAt).toEpochMilli()
+
+            val localList = dao.loadList(discovered.id)
+
+            if (localList == null) {
+                dao.insertList(
+                    ListEntity(
+                        id = discovered.id,
+                        name = discovered.name,
+                        kind = discovered.kind,
+                        position = discovered.position,
+                        createdAt = remoteCreatedAt,
+                        updatedAt = remoteUpdatedAt,
+                        onlineState = onlineState
+                    )
+                )
+            } else {
+                val remoteMetadataIsNewer =
+                    remoteUpdatedAt > localList.updatedAt
+
+                val updatedList =
+                    localList.copy(
+                        name =
+                            if (remoteMetadataIsNewer) {
+                                discovered.name
+                            } else {
+                                localList.name
+                            },
+                        kind =
+                            if (remoteMetadataIsNewer) {
+                                discovered.kind
+                            } else {
+                                localList.kind
+                            },
+                        position = discovered.position,
+                        updatedAt =
+                            maxOf(
+                                localList.updatedAt,
+                                remoteUpdatedAt
+                            ),
+                        onlineState = onlineState
+                    )
+
+                if (updatedList != localList) {
+                    dao.updateList(updatedList)
+                }
+            }
+
+            refreshList(
+                listId = discovered.id,
+                dao = dao
+            )
+        }
+
+        return dao.loadLists()
     }
 
     suspend fun loadSnapshot(listId: String): ListSyncSnapshot {
