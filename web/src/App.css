@@ -102,26 +102,26 @@
 .online-list-rows {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid #e2e8f0;
+  gap: 8px;
 }
 
-.online-list-row {
+.auth-panel .online-list-row {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 0;
-  border: 0;
-  border-bottom: 1px solid #e2e8f0;
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
   text-align: left;
   cursor: pointer;
 }
 
-.online-list-row:hover {
+.auth-panel .online-list-row:hover {
+  border-color: #94a3b8;
   background: #f8fafc;
 }
 
