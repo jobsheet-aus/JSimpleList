@@ -308,6 +308,20 @@ private fun SimpleListApp() {
                         dao = dao
                     )
 
+                    val refreshedList =
+                        dao.loadList(listId)
+
+                    if (refreshedList != null) {
+                        val listIndex =
+                            lists.indexOfFirst {
+                                it.id == listId
+                            }
+
+                        if (listIndex >= 0) {
+                            lists[listIndex] = refreshedList
+                        }
+                    }
+
                     val refreshedItems =
                         dao.loadItems(listId)
 
@@ -1087,6 +1101,20 @@ private fun SimpleListApp() {
                                         listId = currentList.id,
                                         dao = dao
                                     )
+
+                                    val refreshedList =
+                                        dao.loadList(currentList.id)
+
+                                    if (refreshedList != null) {
+                                        val listIndex =
+                                            lists.indexOfFirst {
+                                                it.id == currentList.id
+                                            }
+
+                                        if (listIndex >= 0) {
+                                            lists[listIndex] = refreshedList
+                                        }
+                                    }
 
                                     val refreshedItems =
                                         dao.loadItems(currentList.id)

@@ -14,6 +14,9 @@ interface JSimpleListDao {
     @Query("SELECT * FROM lists ORDER BY position, createdAt")
     suspend fun loadLists(): List<ListEntity>
 
+    @Query("SELECT * FROM lists WHERE id = :listId LIMIT 1")
+    suspend fun loadList(listId: String): ListEntity?
+
     @Query(
         """
         SELECT * FROM items

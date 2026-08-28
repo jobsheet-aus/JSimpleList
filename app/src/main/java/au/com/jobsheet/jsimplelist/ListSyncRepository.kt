@@ -226,6 +226,28 @@ class ListSyncRepository(
             "List is no longer active"
         }
 
+        val remoteList =
+            checkNotNull(snapshot.list) {
+                "Active snapshot is missing list"
+            }
+
+        val localList = dao.loadList(listId)
+        val remoteUpdatedAt =
+            Instant.parse(remoteList.updatedAt).toEpochMilli()
+
+        if (
+            localList != null &&
+            remoteUpdatedAt > localList.updatedAt
+        ) {
+            dao.updateList(
+                localList.copy(
+                    name = remoteList.name,
+                    kind = remoteList.kind,
+                    updatedAt = remoteUpdatedAt
+                )
+            )
+        }
+
         val remoteItems =
             snapshot.items.map { item ->
                 ItemEntity(
