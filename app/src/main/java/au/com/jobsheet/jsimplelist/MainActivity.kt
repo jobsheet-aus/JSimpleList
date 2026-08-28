@@ -140,6 +140,19 @@ private val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+private val MIGRATION_3_4 = object : Migration(3, 4) {
+    override suspend fun migrate(
+        connection: androidx.sqlite.SQLiteConnection
+    ) {
+        connection.execSQL(
+            "ALTER TABLE lists ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0"
+        )
+        connection.execSQL(
+            "UPDATE lists SET updatedAt = createdAt WHERE updatedAt = 0"
+        )
+    }
+}
+
 @Composable
 private fun SimpleListApp() {
     val context = LocalContext.current
@@ -159,7 +172,8 @@ private fun SimpleListApp() {
             .setDriver(AndroidSQLiteDriver())
             .addMigrations(
                 MIGRATION_1_2,
-                MIGRATION_2_3
+                MIGRATION_2_3,
+                MIGRATION_3_4
             )
             .build()
     }
@@ -721,7 +735,8 @@ private fun SimpleListApp() {
                                 kind = newListKind.name,
                                 position =
                                     (lists.maxOfOrNull { it.position } ?: 0) + 10,
-                                createdAt = now
+                                createdAt = now,
+                                updatedAt = now
                             )
 
                             coroutineScope.launch {

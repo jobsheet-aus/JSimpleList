@@ -25,14 +25,16 @@ class LegacyDataImporter(
                 name = "To-do",
                 kind = ListKind.TODO.name,
                 position = 10,
-                createdAt = now
+                createdAt = now,
+                updatedAt = now
             ),
             ListEntity(
                 id = shoppingListId,
                 name = "Shopping",
                 kind = ListKind.SHOPPING.name,
                 position = 20,
-                createdAt = now
+                createdAt = now,
+                updatedAt = now
             )
         )
 
