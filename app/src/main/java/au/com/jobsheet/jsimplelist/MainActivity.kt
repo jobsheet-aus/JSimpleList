@@ -43,6 +43,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -54,6 +55,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -473,7 +475,21 @@ private fun SimpleListApp() {
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = "List sharing",
+                                text = "Manage lists",
+                                fontSize = 16.sp
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            showListSelector = true
+                        },
+                        modifier = Modifier.height(58.dp)
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "Sharing",
                                 fontSize = 16.sp
                             )
                         },
@@ -483,22 +499,6 @@ private fun SimpleListApp() {
                         },
                         modifier = Modifier.height(58.dp)
                     )
-
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                text = "Disable sharing",
-                                fontSize = 16.sp
-                            )
-                        },
-                        onClick = {
-                            showMenu = false
-                            showDisableSharing = true
-                        },
-                        modifier = Modifier.height(58.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
 
                     DropdownMenuItem(
                         text = {
@@ -521,6 +521,10 @@ private fun SimpleListApp() {
             AuthDialog(
                 repository = authRepository,
                 profileRepository = profileRepository,
+                onDisableSharing = {
+                    showListSharing = false
+                    showDisableSharing = true
+                },
                 onSignedIn = {
                     coroutineScope.launch {
                         try {
@@ -811,7 +815,7 @@ private fun SimpleListApp() {
 
                                 showNewListDialog = false
 
-                                pagerState.animateScrollToPage(
+                                pagerState.requestScrollToPage(
                                     lists.lastIndex
                                 )
                             }
@@ -1163,21 +1167,41 @@ private fun SimpleListApp() {
 
 
                 Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable {
-                            showListSelector = !showListSelector
-                        }
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Text(
-                        text = if (showListSelector) {
-                            "Lists"
-                        } else {
-                            "${currentList.name} ▾"
-                        },
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    if (showListSelector) {
+                        Text(
+                            text = "Manage lists",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = currentList.name,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+
+                            if (currentList.onlineState != "LOCAL") {
+                                Spacer(modifier = Modifier.width(5.dp))
+
+                                Icon(
+                                    painter = painterResource(
+                                        R.drawable.ic_online_list
+                                    ),
+                                    contentDescription = "Online list",
+                                    tint =
+                                        MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .width(15.dp)
+                                        .height(15.dp)
+                                )
+                            }
+                        }
+                    }
 
                     if (!showListSelector) {
                         Text(
@@ -1206,74 +1230,23 @@ private fun SimpleListApp() {
                     }
                 }
 
-                if (
-                    !showListSelector &&
-                    currentList.onlineState != "LOCAL"
-                ) {
+                if (!showListSelector) {
                     TextButton(
-                        enabled = refreshingListId == null,
                         onClick = {
-                            coroutineScope.launch {
-                                refreshingListId = currentList.id
+                            val defaultName = "To-do list"
 
-                                try {
-                                    listSyncRepository.refreshList(
-                                        listId = currentList.id,
-                                        dao = dao
-                                    )
-
-                                    val refreshedList =
-                                        dao.loadList(currentList.id)
-
-                                    if (refreshedList != null) {
-                                        val listIndex =
-                                            lists.indexOfFirst {
-                                                it.id == currentList.id
-                                            }
-
-                                        if (listIndex >= 0) {
-                                            lists[listIndex] = refreshedList
-                                        }
-                                    }
-
-                                    val refreshedItems =
-                                        dao.loadItems(currentList.id)
-
-                                    currentItems?.apply {
-                                        clear()
-                                        addAll(refreshedItems)
-                                    }
-
-                                    Toast.makeText(
-                                        context,
-                                        "List refreshed",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                } catch (exception: Exception) {
-                                    Log.e(
-                                        "JSimpleListSync",
-                                        "Refresh failed for list id=${currentList.id}: ${exception::class.simpleName}"
-                                    )
-
-                                    Toast.makeText(
-                                        context,
-                                        exception.message
-                                            ?: "Could not refresh list",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                } finally {
-                                    refreshingListId = null
-                                }
-                            }
+                            newListName = TextFieldValue(
+                                text = defaultName,
+                                selection = TextRange(
+                                    0,
+                                    defaultName.length
+                                )
+                            )
+                            newListKind = ListKind.TODO
+                            showNewListDialog = true
                         }
                     ) {
-                        Text(
-                            if (refreshingListId == currentList.id) {
-                                "Refreshing"
-                            } else {
-                                "Refresh"
-                            }
-                        )
+                        Text("+ List")
                     }
                 }
             }
@@ -1289,31 +1262,6 @@ private fun SimpleListApp() {
                             showListSelector = false
                         }
                 ) {
-                    item {
-                        TextButton(
-                            onClick = {
-                                val defaultName = "To-do list"
-
-                                newListName = TextFieldValue(
-                                    text = defaultName,
-                                    selection = TextRange(
-                                        0,
-                                        defaultName.length
-                                    )
-                                )
-                                newListKind = ListKind.TODO
-                                showNewListDialog = true
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp)
-                        ) {
-                            Text("+ New list")
-                        }
-
-                        HorizontalDivider()
-                    }
-
                     items(
                         items = lists,
                         key = { list -> list.id }
@@ -1347,11 +1295,33 @@ private fun SimpleListApp() {
                                     }
                                     .padding(vertical = 6.dp)
                             ) {
-                                Text(
-                                    text = list.name,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = list.name,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+
+                                    if (list.onlineState != "LOCAL") {
+                                        Spacer(
+                                            modifier = Modifier.width(5.dp)
+                                        )
+
+                                        Icon(
+                                            painter = painterResource(
+                                                R.drawable.ic_online_list
+                                            ),
+                                            contentDescription = "Online list",
+                                            tint =
+                                                MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier
+                                                .width(15.dp)
+                                                .height(15.dp)
+                                        )
+                                    }
+                                }
 
                                 Text(
                                     text =
@@ -1516,6 +1486,81 @@ private fun SimpleListApp() {
                             items = items,
                             hasCompletedItems = hasCompletedItems,
                             onUncheckAll = uncheckAllItems,
+                            isRefreshing =
+                                refreshingListId == list.id,
+                            onRefresh = {
+                                if (refreshingListId == null) {
+                                    coroutineScope.launch {
+                                        refreshingListId = list.id
+
+                                        try {
+                                            if (
+                                                authRepository
+                                                    .currentUserId() != null
+                                            ) {
+                                                listSyncRepository
+                                                    .discoverOnlineLists(
+                                                        dao = dao
+                                                    )
+
+                                                val loadedLists =
+                                                    dao.loadLists()
+
+                                                lists.clear()
+                                                itemsByList.clear()
+
+                                                loadedLists.forEach {
+                                                    loadedList ->
+                                                    lists.add(loadedList)
+                                                    itemsByList[
+                                                        loadedList.id
+                                                    ] =
+                                                        mutableStateListOf<
+                                                            ItemEntity
+                                                        >().apply {
+                                                            addAll(
+                                                                dao.loadItems(
+                                                                    loadedList.id
+                                                                )
+                                                            )
+                                                        }
+                                                }
+
+                                                val refreshedIndex =
+                                                    lists.indexOfFirst {
+                                                        it.id == list.id
+                                                    }
+
+                                                if (
+                                                    refreshedIndex >= 0 &&
+                                                    lists.isNotEmpty()
+                                                ) {
+                                                    pagerState.scrollToPage(
+                                                        refreshedIndex
+                                                    )
+                                                }
+                                            }
+                                        } catch (
+                                            exception: Exception
+                                        ) {
+                                            Log.e(
+                                                "JSimpleListSync",
+                                                "Pull refresh failed",
+                                                exception
+                                            )
+
+                                            Toast.makeText(
+                                                context,
+                                                exception.message
+                                                    ?: "Could not refresh",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        } finally {
+                                            refreshingListId = null
+                                        }
+                                    }
+                                }
+                            },
                             fontScale = fontScale,
                             onFontScaleChange = { fontScale = it },
                             onItemAdded = { item ->
@@ -1636,6 +1681,8 @@ private fun ListScreen(
     items: MutableList<ItemEntity>,
     hasCompletedItems: Boolean,
     onUncheckAll: () -> Unit,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
     fontScale: Float,
     onFontScaleChange: (Float) -> Unit,
     onItemAdded: (ItemEntity) -> Unit,
@@ -1838,7 +1885,9 @@ private fun ListScreen(
             }
         }
 
-        Box(
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
             modifier = Modifier
                 .fillMaxSize()
                 .weight(1f)

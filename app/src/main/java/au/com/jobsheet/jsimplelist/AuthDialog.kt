@@ -36,6 +36,7 @@ fun AuthDialog(
     repository: AuthRepository,
     profileRepository: ProfileRepository,
     onSignedIn: () -> Unit,
+    onDisableSharing: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -108,7 +109,7 @@ fun AuthDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("List sharing")
+            Text("Sharing")
         },
         text = {
             Column {
@@ -294,6 +295,15 @@ fun AuthDialog(
                             enabled = !busy
                         ) {
                             Text("Sign out")
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        TextButton(
+                            onClick = onDisableSharing,
+                            enabled = !busy
+                        ) {
+                            Text("Disable sharing")
                         }
                     }
                 } else {
