@@ -220,6 +220,34 @@ class ListSyncRepository(
         )
     }
 
+    suspend fun deleteOnlineList(
+        listId: String,
+        originClientId: String
+    ) {
+        requireSignedIn()
+
+        client.postgrest.rpc(
+            function = "delete_online_list",
+            parameters = buildJsonObject {
+                put("target_list_id", listId)
+                put("target_origin_client_id", originClientId)
+            }
+        )
+    }
+
+    suspend fun leaveOnlineList(
+        listId: String
+    ) {
+        requireSignedIn()
+
+        client.postgrest.rpc(
+            function = "leave_online_list",
+            parameters = buildJsonObject {
+                put("target_list_id", listId)
+            }
+        )
+    }
+
     suspend fun discoverOnlineLists(
         dao: JSimpleListDao
     ): List<ListEntity> {

@@ -911,16 +911,29 @@ private fun SimpleListApp() {
             }
 
         if (deleteList != null) {
+            val isLeavingList =
+                deleteList.onlineState == "ONLINE_MEMBER"
+
             AlertDialog(
                 onDismissRequest = {
                     deleteListId = null
                 },
                 title = {
-                    Text("Delete list")
+                    Text(
+                        if (isLeavingList) {
+                            "Leave list"
+                        } else {
+                            "Delete list"
+                        }
+                    )
                 },
                 text = {
                     Text(
-                        "Delete \"${deleteList.name}\" and all its items?"
+                        if (isLeavingList) {
+                            "Leave \"${deleteList.name}\"?"
+                        } else {
+                            "Delete \"${deleteList.name}\" and all its items?"
+                        }
                     )
                 },
                 confirmButton = {
@@ -932,29 +945,87 @@ private fun SimpleListApp() {
                                 }
 
                             coroutineScope.launch {
-                                dao.deleteList(deleteList.id)
+                                try {
+                                    when (deleteList.onlineState) {
+                                        "LOCAL" -> Unit
 
-                                itemsByList.remove(deleteList.id)
+                                        "ONLINE_OWNER" -> {
+                                            listSyncRepository
+                                                .deleteOnlineList(
+                                                    listId =
+                                                        deleteList.id,
+                                                    originClientId =
+                                                        clientInstanceId
+                                                )
+                                        }
 
-                                if (deleteIndex >= 0) {
-                                    lists.removeAt(deleteIndex)
-                                }
+                                        "ONLINE_MEMBER" -> {
+                                            listSyncRepository
+                                                .leaveOnlineList(
+                                                    listId =
+                                                        deleteList.id
+                                                )
+                                        }
 
-                                deleteListId = null
+                                        else -> {
+                                            error(
+                                                "Unknown list state: " +
+                                                    deleteList.onlineState
+                                            )
+                                        }
+                                    }
 
-                                if (lists.isNotEmpty()) {
-                                    val targetIndex =
-                                        deleteIndex.coerceIn(
-                                            0,
-                                            lists.lastIndex
+                                    dao.deleteList(deleteList.id)
+
+                                    itemsByList.remove(deleteList.id)
+
+                                    if (deleteIndex >= 0) {
+                                        lists.removeAt(deleteIndex)
+                                    }
+
+                                    deleteListId = null
+
+                                    if (lists.isNotEmpty()) {
+                                        val targetIndex =
+                                            deleteIndex.coerceIn(
+                                                0,
+                                                lists.lastIndex
+                                            )
+
+                                        pagerState.scrollToPage(
+                                            targetIndex
                                         )
+                                    }
+                                } catch (exception: Exception) {
+                                    Log.e(
+                                        "JSimpleListSync",
+                                        "List removal failed for " +
+                                            "id=${deleteList.id} " +
+                                            "state=${deleteList.onlineState}",
+                                        exception
+                                    )
 
-                                    pagerState.scrollToPage(targetIndex)
+                                    Toast.makeText(
+                                        context,
+                                        exception.message
+                                            ?: if (isLeavingList) {
+                                                "Could not leave list"
+                                            } else {
+                                                "Could not delete list"
+                                            },
+                                        Toast.LENGTH_LONG
+                                    ).show()
                                 }
                             }
                         }
                     ) {
-                        Text("Delete")
+                        Text(
+                            if (isLeavingList) {
+                                "Leave list"
+                            } else {
+                                "Delete"
+                            }
+                        )
                     }
                 },
                 dismissButton = {
@@ -1413,7 +1484,16 @@ private fun SimpleListApp() {
                                     deleteListId = list.id
                                 }
                             ) {
-                                Text("Delete")
+                                Text(
+                                    if (
+                                        list.onlineState ==
+                                        "ONLINE_MEMBER"
+                                    ) {
+                                        "Leave list"
+                                    } else {
+                                        "Delete"
+                                    }
+                                )
                             }
                         }
 
