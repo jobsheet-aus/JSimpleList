@@ -66,16 +66,16 @@ JSimpleList 1.1 was submitted to Google Play Production. The context at submissi
 
 2.0 LOCAL DATA MODEL
 --------------------
-Room schema version 4 contains `lists` and `items`.
+Room schema version 5 contains `lists`, `items` and `list_accounts`.
 
 ListEntity:
 - id: UUID string
 - name: user-controlled
 - kind: TODO / SHOPPING / DISCUSSION
-- position: explicit persisted per-user list order
+- position: explicit persisted list order/cache position
 - createdAt: epoch millis
 - updatedAt: epoch millis used for list-metadata reconciliation
-- onlineState: `LOCAL`, `ONLINE_OWNER`, `ONLINE_MEMBER`
+- onlineState: legacy/current-render convenience value `LOCAL`, `ONLINE_OWNER` or `ONLINE_MEMBER`; account-specific authority now lives in `list_accounts`
 
 ItemEntity:
 - id: UUID string
@@ -88,14 +88,32 @@ ItemEntity:
 - updatedAt
 - deletedAt: nullable epoch millis tombstone for online-safe deletion
 
-Room remains the authoritative local/cache copy used by the Android UI. Online-backed lists reconcile against authoritative Supabase snapshots/discovery results when refreshed.
+ListAccountEntity / `list_accounts`:
+- composite primary key `(listId, accountId)`
+- listId references `lists(id)` with ON DELETE CASCADE
+- accountId is the authenticated Supabase user UUID
+- onlineState is the role/state for that account on that list, currently `ONLINE_OWNER` or `ONLINE_MEMBER`
+- the same cached list may therefore be owner for one account and member for another on the same device
+- a genuinely device-local list has no `list_accounts` relationship rows
+
+Visibility contract:
+- local lists belong to the device and remain visible whether signed in or signed out
+- shared/online lists belong to authenticated user relationships, not to the device as a whole
+- signed out: show only genuine local lists
+- signed in as account A: show local lists plus online lists related to account A
+- account A's online lists must not remain visible merely because account B later signs in on the same device
+- `loadVisibleLists(accountId)` projects the active account's relationship `onlineState` into the returned `ListEntity`
+- legacy online rows with no `list_accounts` relationship are deliberately hidden until authoritative Supabase discovery associates them with the signed-in account
+
+Room remains the local/cache copy used by the Android UI. Online-backed lists reconcile against authoritative Supabase discovery/snapshot results.
 
 Legacy upgrade:
 - Legacy 1.1 SharedPreferences JSON is imported only when the Room database has no lists and genuine `todo_items` / `shopping_items` keys exist.
 - A fresh 2.0 install starts with zero lists and must not fabricate legacy To-do/Shopping lists.
 - Genuine upgrade import creates ordinary To-do and Shopping ListEntity rows and preserves descriptions, quantities, completion and order.
 - Room v4 added `lists.updatedAt`; migration initialises it from `createdAt`.
-- Existing local data migrates safely through Room schema upgrades; online state defaults to `LOCAL` and item tombstones default to null.
+- Room v5 adds `list_accounts`; migration 4->5 creates the relationship table and indexes without guessing account ownership for pre-existing online cache rows.
+- Existing local data migrates safely through Room schema upgrades; item tombstones default to null.
 - Legacy JSON is left untouched during import.
 - `LegacySimpleListItem` exists only for import compatibility; new writes must not use the old JSON format.
 - Before public 2.0 release, perform a real Google-signed update from installed 1.1 and verify preservation of To-do/Shopping items, quantities, completed states and font scale.
@@ -108,26 +126,32 @@ Legacy upgrade:
 - New-list flow is Type -> Name -> Create.
 - Default names: `To-do list`, `Shopping list`, `Discussion points`.
 - Default names are fully selected ready to overwrite. Changing type updates/reselects only while the name is blank or still a previous default; custom text is preserved.
-- Creating a list now navigates directly into the newly created list using pager `requestScrollToPage`.
+- Creating a list navigates directly into the newly created list using pager `requestScrollToPage`.
 - Renaming changes only name; it must not alter UUID, kind, contents, sharing identity or membership.
-- Zero lists is valid. Deleting the final list leaves a `No lists` / `+ New list` state.
+- Zero lists is valid. Deleting the final list leaves a `No lists` state with a New list path.
 - Permanent 1.1 tabs are removed in 2.0.
-- One current list fills the screen.
-- Horizontal swipe moves to the adjacent list. The list strip is not circular; both directions have a natural end.
-- Horizontal swipe is the primary nearby-list navigation.
-- The current list title is plain identity text and is no longer clickable or decorated with a selector chevron.
-- A permanent `+ List` action beside the current heading opens New list directly.
-- The top-right hamburger is intentionally small and stable: `Manage lists`, `Sharing`, `About`.
-- Individual list shortcuts were deliberately removed from the hamburger because swipe already provides fast adjacent navigation and a growing list set would make the root menu noisy.
-- `Manage lists` is the canonical arbitrary-list navigation and administration surface. Tapping a list's main name/details area opens that list; actions alongside it handle Share, Rename and Delete/Leave.
-- `Manage lists` reuses the existing full-width list-management view rather than creating a second management UI.
-- Local lists show `Share`; online owners no longer show Share; online members use the exact action label `Leave list` rather than Delete.
-- Online/shared list identity is marked by a small muted chain/link icon beside the list name. The icon is a separate status element, not part of the stored name.
-- Android uses the same 24x24 chain-link path geometry as the browser SVG via `res/drawable/ic_online_list.xml`, rendered at about 15 dp with `onSurfaceVariant`.
-- The online icon appears beside the current list heading and beside online lists in Manage lists for both `ONLINE_OWNER` and `ONLINE_MEMBER`; local lists have no icon.
-- Visible text `Refresh` was removed. Pull-to-refresh on the current list now performs discovery/reconciliation and reloads Room-backed lists/items.
-- Pull refresh remains a deliberate user fallback; Realtime remains the normal change signal.
+- One current list fills the screen; horizontal swipe moves to adjacent lists with natural ends.
+- Manage lists remains the canonical arbitrary-list navigator/admin surface.
+- Online/shared list identity is marked by the muted chain/link icon; local lists are unmarked.
+- Pull-to-refresh performs discovery/reconciliation; visible `Refresh` text is removed.
 - Back closes Manage lists before Android can leave the app.
+
+Current account/menu/sharing UX:
+- JSimpleList deliberately supports one authenticated account at a time per device for clarity.
+- Hamburger contains `New list`, `Manage lists`, `Sharing`, dynamic `Sign in`/`Sign out`, signed-in `Delete account`, and `About`.
+- When signed in, the Sign out menu item also shows the authenticated email address in smaller text.
+- `Sign in` opens the existing sharing/auth dialog.
+- `Sign out` uses a confirmation dialog: `Shared lists will be unavailable on this device until you sign in again. Local lists will remain available.`
+- Sign-out reloads `loadVisibleLists(null)`, so shared lists disappear while genuine device-local lists remain.
+- Sharing is non-destructive profile/account information. It shows `List sharing is enabled`, the signed-in email and a large tappable display name for editing.
+- The older `Disable sharing` action has been removed. Account deletion is a separate explicit hamburger action.
+- The prominent current-list action is now `Share list`; the former prominent `+ List` action has moved into the hamburger as `New list`.
+- `Share list` distinguishes two intentions without exposing the term self-share:
+  1. `Use this list on my other devices` / `Make available online` for the current authenticated account.
+  2. `Invite someone` by email for another account.
+- For an online list, the Share dialog explains that it is available wherever the signed-in account is used and provides the invitation email field.
+- The owner-side invitation UI and backend send path are implemented. The recipient one-click onboarding experience is deliberately not considered finished.
+- Detailed invitation/onboarding architecture is authoritative in `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`.
 
 Item ordering:
 - New items are inserted at the top by assigning a position below the current minimum.
@@ -138,69 +162,61 @@ Item ordering:
 - Manual item reordering should work for all list kinds.
 - Discussion points may later render derived numbering from item order.
 - Manual list ordering is also planned and should use persisted per-user membership/list position.
-- Bulk uncheck is implemented as a checkbox in the list column-heading row, aligned directly above the item checkboxes (`checkbox / Qty / Item` for Shopping and `checkbox / Item` for other kinds). It is checked/enabled whenever at least one item is completed and disabled/empty otherwise. Tapping it unchecks all completed items using the normal item-update/sync path. A temporary `Undo` restores only items that have not been changed since the bulk operation, so a newer change from another client is not overwritten.
+- Bulk uncheck is implemented as a checkbox in the list column-heading row, aligned directly above the item checkboxes. Tapping it unchecks all completed items using the normal item-update/sync path; temporary Undo restores only items not changed since the bulk operation.
 
 Editing UX:
 - Existing items edit inline.
 - Existing item descriptions enter editing with the cursor at the end rather than selecting the whole description.
 - Shopping Qty selects its entire existing value on focus so typing replaces it immediately.
-- Qty select-all is applied after focus settles so the tap does not overwrite the selection.
-- Shopping edit Qty is 48 x 48 dp.
-- Edit description is 48 dp high, matching the normal entry geometry.
-- Item Cancel logic is centralised and shared by the visible Cancel button and Android Back.
-- Default/new-name style editors may still use select-all where overwrite-ready behaviour is appropriate.
+- Shopping edit Qty is 48 x 48 dp; edit description is 48 dp high.
+- Item Cancel logic is centralised and shared by visible Cancel and Android Back.
 
 Visual/interaction decisions:
 - Keep list rows compact without making controls fiddly.
 - Use available phone width for item text; avoid unnecessary outer padding.
 - Add/Delete remain visually secondary.
-- Pinch resizes list/content text, not structural UI such as app title, list controls, headings, Add/Delete text or hint.
-- Two-finger pinch must not consume one-finger horizontal paging or vertical scrolling.
-- Pinch hint uses actual rendered space and a reserved bottom area.
+- Pinch resizes list/content text, not structural UI.
 - Use Manrope throughout all Material typography roles and normal app text.
 - Menus/dialogs use the same white surface family as the app.
 - Use the JSimpleList logo blue/cyan colour family.
 - User-facing informational phrases generally omit trailing full stops.
-- Prefer purpose-led wording. Authentication/account controls are presented under `Sharing`; use `Email address`, not ambiguous `Email`.
+- Use `Email address`, not ambiguous `Email`.
 
 AUTH / PROFILE FOUNDATION
 -------------------------
 Committed milestone:
     a25f1fe Add JSimpleList authentication and profile foundation
 
-Implemented:
-- Modular `AuthRepository.kt` using Supabase email OTP authentication.
-- Supabase OTP configured as six digits.
-- OTP delivery through Supabase -> Resend -> jsimplelist@jobsheet.com.au proven on the real phone.
-- Auth session persists across normal app close/reopen.
-- Uninstalling the debug app removes the local session as expected.
-- Re-authenticating with the same email address resolves to the same persistent Supabase user UUID.
-- Device/browser session identity must never be used as ownership identity.
-- Modular `ProfileRepository.kt`.
-- `jsimplelist.profiles` is keyed by stable `auth.users.id`.
-- Display names are user-chosen, non-unique, trimmed and database-limited to 1-50 characters.
-- First-time authenticated users choose a display name.
-- Existing display names load automatically and edit in place with select-all/focus/keyboard behaviour.
-- The hamburger contains `Manage lists`, `Sharing` and `About`.
-- `Sharing` is the user-facing auth/sharing/account home. It replaces the older separate root entries `List sharing` and `Disable sharing`.
-- When signed in, the Sharing dialog contains display-name/account details, Sign out and a secondary `Disable sharing` action.
-- `Disable sharing` still leads to the existing confirmation/informational path; privileged account deletion is not yet implemented.
-- Sign out is non-destructive and must remain separate from account deletion.
+Implemented/current:
+- Modular `AuthRepository.kt` using Supabase six-digit email OTP authentication.
+- OTP delivery through Supabase Auth -> Resend SMTP -> `jsimplelist@jobsheet.com.au` is proven on real phones.
+- Normal Magic link or OTP template uses the six-digit `{{ .Token }}` flow and includes JSimpleList landing-page and Google Play links.
+- Auth session persists across normal app close/reopen; uninstalling the debug app removes the local session.
+- Re-authenticating with the same email resolves to the same persistent Supabase user UUID.
+- Startup now waits for Supabase Auth `SessionStatus.Initializing` to finish before reading the persisted session; this fixed the race where a valid restored session could appear signed out in the UI.
+- Supabase-kt remains pinned at 3.2.1 because 3.7.0 was compiled with Kotlin 2.4 metadata and does not build against the current Kotlin 2.2.10 toolchain.
+- A known supabase-kt 3.2.1 sign-out defect can throw on remote/network failure before clearing local persisted session. `AuthRepository.signOut()` tries normal `client.auth.signOut()` and falls back to the verified public `client.auth.clearSession()` method.
+- One authenticated account at a time per device is the deliberate UX model.
+- Modular `ProfileRepository.kt`; profiles are keyed by stable `auth.users.id`.
+- Display names are user-chosen, non-unique, trimmed and limited to 1-50 characters.
+- First-time authenticated users choose a display name; existing names load/edit normally.
+- Sign out remains non-destructive and separate from account deletion.
 
 ONLINE ACCOUNT / OWNERSHIP
 --------------------------
-- Online identities are persistent Supabase Auth users with stable UUIDs.
-- Local-only use remains account-free.
-- JSimpleList must provide a transparent controlled `Delete online account` operation before public 2.0 release.
-- Local Room lists on that device are not deleted by online-account deletion.
-- Owned online/shared lists are destroyed when the owner's online account is deleted.
-- Other members consequently lose access to those owned shared lists.
-- Account deletion must be a controlled privileged server-side operation; no service-role/admin secret may ship in Android.
-- A non-owner member may leave a shared list but may not destroy it.
-- An owner may remove individual members while leaving the list alive for remaining members.
-- Owner destruction ejects all members.
-- Deletion/removal must be represented long enough for offline clients to learn authoritative server state.
-- Exact UX for a removed member's already-cached local copy remains to be decided; never silently present a stale cached copy as if it were still a live shared list.
+- Online identities are persistent Supabase Auth users with stable UUIDs; local-only use remains account-free.
+- Shared/online list relationships belong to authenticated users, not to the device globally. Local lists belong to the device.
+- Multiple different accounts may use the same Android device sequentially; only the current account's shared lists should be visible, while device-local lists remain visible to either account.
+- The same server list may legitimately have multiple `list_accounts` rows on one device, e.g. Account A owner and Account B member.
+- `Delete account` is implemented as a separate destructive hamburger action and uses the privileged hosted deletion backend.
+- Android account-deletion cleanup is account-scoped: it removes the deleted account's `list_accounts` relationships, removes cached lists that account owned, keeps genuine device-local lists, and does not convert unrelated online cache rows into local lists.
+- Disposable-account end-to-end testing succeeded: the Auth user/profile were removed, owned online list data was removed as expected, Android returned to signed-out/local-only state, and no unexplained orphan online data was found.
+- Owned online/shared lists are destroyed when the owner's online account is deleted; other members consequently lose access.
+- Non-owner account deletion removes membership but deliberately preserves items that user contributed to another owner's shared list because items belong to the list, not to the contributor identity.
+- A non-owner member may leave a shared list but may not destroy it; an owner may remove members or destroy the list.
+- Account deletion remains a controlled privileged server-side operation; no service-role/admin secret may ship in Android/browser.
+- Google Play release work still requires the external/web account-deletion resource/page in addition to the in-app path.
+- Dormant empty-account cleanup is deliberately deferred; do not auto-purge accounts merely because they currently own no online lists.
 
 SUPABASE BACKEND FOUNDATION
 ---------------------------
@@ -215,108 +231,100 @@ Committed milestones include:
 
 Supabase:
 - Custom schema `jsimplelist` exposed for the Data API.
-- SQL migrations 001-023 live under `migrations/` and have been manually applied through the Supabase SQL editor as developed.
-- Implemented concepts include profiles/users, lists, list_members, invitations, items, tombstones, list metadata timestamps, discovery and private realtime broadcast authorisation.
+- SQL migrations 001-025 live under `migrations/`; migrations 024 and 025 were applied to the hosted project on 30 Aug 2026.
+- Migration 024 adds authenticated online-account data cleanup used by the `delete-account` Edge Function.
+- Migration 025 adds a partial unique index preventing duplicate simultaneous active invitations for the same list/email pair.
+- Existing schema includes profiles/users, lists, list_members, list_invitations, items, tombstones, list metadata timestamps, discovery and private realtime authorisation.
+- `list_invitations` stores invited email, inviter, role/status fields and is protected by RLS. Invitees may read only their own active invitations; owners may read/manage invitations for their lists.
+- `accept_list_invitation(target_invitation_id uuid)` validates the authenticated email against the invitation before creating/reactivating membership and marking the invitation accepted.
+- Hosted Edge Function `invite-list` is deployed. It authenticates the owner, verifies ownership, creates/reuses the pending invitation row and triggers the normal Supabase passwordless `signInWithOtp()` flow for the invited email.
+- Direct Resend invitation sending was intentionally removed from `invite-list`; authentication email generation/delivery is owned by Supabase Auth through configured Resend SMTP.
+- `InvitationRepository.kt` now contains owner send plus recipient pending-invitation discovery/acceptance methods.
 - Local Room UUIDs are reused as remote UUIDs for online-backed lists/items.
-- `list_members.position` stores per-user list order.
-- `items.position` stores shared item order within a list.
-- Normal list/item reads hide deleted rows.
-- Controlled sync snapshot exposes active/deleted/removed/not_found state so offline clients can learn tombstones/removal without weakening normal RLS reads.
+- `list_members.position` stores per-user list order; `items.position` stores shared item order.
+- Normal reads hide deleted rows; controlled snapshots expose active/deleted/removed/not_found state.
 - Sensitive membership/list-creation/deletion paths use controlled security-definer RPCs rather than unrestricted direct writes.
-- Direct list creation is revoked; use the controlled creation RPC.
-- Normal active members may write permitted item/list changes under RLS.
-- Supabase URL and publishable key are supplied through local BuildConfig/local.properties.
-- Publishable key may ship in the APK.
-- Never put a Supabase secret/service-role key or Resend API key in the app or repository.
+- Supabase URL/publishable key are supplied through BuildConfig/local.properties; publishable key may ship in APK. Never ship secret/service-role or Resend keys.
+
+Account deletion backend added/tested 30 Aug 2026:
+- `migrations/024_delete_online_account_data.sql` defines authenticated security-definer `jsimplelist.delete_online_account_data()`.
+- Cleanup hard-deletes lists owned by the current account and their items/invitations/memberships; removes the current account from other owners' lists without deleting those lists/items; removes invitations created by the account and outstanding invitations addressed to the account email; removes the profile.
+- Hosted Supabase Edge Function `delete-account` is deployed ACTIVE. It authenticates the caller using the forwarded Authorization header, runs the cleanup RPC as the caller, then uses server-side Supabase secret credentials to admin-delete exactly that Auth user.
+- Supabase CLI 2.116.0 is installed locally as a root npm devDependency; project ref is `xislrkkifqayznsgwzno`; `supabase/.temp/` and root `node_modules/` are ignored. Hosted deploy works with `npx supabase functions deploy <function> --project-ref xislrkkifqayznsgwzno --use-api`; local `supabase status` needs Docker/Podman and is not required for hosted deploy.
+- Android installs `supabase-functions`; `AuthRepository.deleteOnlineAccount()` invokes `delete-account`.
+
+Invitation email/secrets state:
+- Supabase Auth uses Resend SMTP with sender `jsimplelist@jobsheet.com.au`.
+- A replacement Resend key was created on 30 Aug 2026, recorded locally in ignored `invite-secrets.env`, and configured in Supabase Auth SMTP.
+- The same key was also stored as hosted Edge Function secret `RESEND_API_KEY` during development; current `invite-list` no longer consumes that secret, so later cleanup may remove it deliberately.
+- `invite-secrets.env` is explicitly ignored and was verified with `git check-ignore -v invite-secrets.env`. Never commit it.
 
 Important RPC/state contract:
 - `create_online_list(...)` creates the list and owner membership while preserving the client UUID.
-- `get_list_sync_snapshot(target_list_id uuid)` returns authoritative JSON state including active/deleted/removed/not_found; active state includes list, current membership and items including tombstones.
-- `get_my_online_lists()` returns the signed-in user's active online-list memberships with list metadata, role and per-user position. Android uses this for discovery/import of lists not already present in Room.
-- `set_my_list_position()` changes the current user's membership/list order without changing another member's order.
-- `delete_online_item(target_item_id uuid, target_origin_client_id uuid)` creates the server tombstone and records the transient origin used for realtime self-suppression.
-- Browser bulk Delete all uses the controlled online-item bulk-delete path rather than hard deletion.
-- `rename_online_list(target_list_id uuid, target_name text, target_origin_client_id uuid)` is owner-controlled, updates list metadata and participates in list realtime signalling.
-- `delete_online_list(target_list_id uuid, target_origin_client_id uuid)` is owner-only and retry-safe; it tombstones the list and broadcasts through the list UPDATE trigger.
-- `leave_online_list(target_list_id uuid)` is non-owner only and retry-safe; it marks the caller's membership removed. Owners cannot use Leave list.
+- `get_list_sync_snapshot(target_list_id uuid)` returns authoritative active/deleted/removed/not_found JSON including current membership/items.
+- `get_my_online_lists()` returns active online memberships with list metadata, role and per-user position.
+- `set_my_list_position()` changes current user's list order without changing another member's order.
+- `delete_online_item(...)`, `rename_online_list(...)`, `delete_online_list(...)` and `leave_online_list(...)` remain the controlled write/delete paths.
 
 Realtime contract:
 - Per-list private topic: `jsimplelist:list:<list UUID>`.
-- Authorised recipients are the list owner or an active member.
-- Database item INSERT/UPDATE changes emit a lightweight private `list_changed` Broadcast containing only `list_id` and optional `origin_client_id`.
-- List UPDATEs also broadcast `list_changed`, covering rename and server tombstone/deletion.
-- Broadcast payloads are notifications only; clients do not trust them as row data. A receiving client loads and reconciles authoritative state.
-- Each Android installation has a persistent random client instance UUID.
-- Android writes include that UUID as `origin_client_id`; the originating client ignores the matching broadcast.
-- The origin is transient server metadata and is cleared after signalling so later/manual server changes are not falsely attributed to an old client.
-- Migration 019 fixed PostgreSQL/PostgREST UPSERT double-signalling so an originating edit produces one self-identifiable broadcast rather than a second null-origin broadcast.
-- Per-list realtime cannot discover an entirely unknown list UUID. Account/user-level list-set realtime is still needed for immediate create/share/remove discovery; startup/sign-in/pull discovery remains the fallback.
+- Authorised recipients are owner or active member.
+- Item/list changes emit lightweight `list_changed` Broadcast notifications; clients load authoritative state rather than trusting payload rows.
+- Each Android installation has persistent random client UUID; originating writes include it for self-suppression.
+- Per-list realtime cannot discover an unknown list UUID; account/list-set realtime is still needed for instant create/share/remove discovery. Startup/sign-in/pull discovery remains fallback.
 
 LIST SYNC FOUNDATION
 --------------------
-The Android online-list contract now supports local-first writes, safe item deletion, list discovery, list metadata reconciliation, owner deletion/member leave, pull-to-refresh and per-list realtime signalling.
+The Android online-list contract supports local-first writes, safe item deletion, list discovery, list metadata reconciliation, owner deletion/member leave, pull-to-refresh, per-list realtime signalling and account-scoped cached-list visibility.
 
 Current behaviour:
 - Local lists remain local and are never uploaded merely because the user signs in.
-- Lists persist `LOCAL`, `ONLINE_OWNER` or `ONLINE_MEMBER` in Room.
-- A local list can be explicitly shared from Manage lists.
-- Successful sharing persists `ONLINE_OWNER` and removes the Share action for that list.
-- `create_online_list` is retry-safe for an existing list owned by the same user.
-- Room list/item UUIDs are preserved as Supabase UUIDs.
-- `makeListOnline(list, items, originClientId)` pushes the current item set and then loads the authoritative snapshot.
-- Add, edit, tick and untick operations write Room first and then automatically push the individual item to Supabase when the list is online.
-- Online item deletion uses a local `deletedAt` tombstone plus controlled server tombstone RPC rather than hard-deleting the sync identity.
-- Local-only lists continue to write Room only.
-- Android discovery calls `get_my_online_lists()` at startup when signed in and after successful sign-in. Remote owner lists absent from Room import as `ONLINE_OWNER`; remote member lists import as `ONLINE_MEMBER`.
-- Discovery also reconciles existing list membership position/state and applies newer remote list metadata by `updatedAt`, then refreshes each discovered list snapshot.
-- The discovery path was proven on-device by restoring a server-backed list that had previously been deleted only from local Room; its remote name and item completion state matched browser state.
-- Pull-to-refresh on the current list runs online-list discovery/reconciliation, reloads Room lists/items and keeps the same list selected when it still exists.
-- Reconciliation imports missing remote items, applies remote tombstones, and applies newer remote active rows while avoiding stale resurrection.
-- Supabase Realtime subscribes only to the currently displayed online list.
-- A remote `list_changed` Broadcast triggers authoritative refresh/reconciliation.
-- Broadcasts from the same client instance are ignored where origin metadata is available.
-- The full Room copy remains available offline.
-- The last active list ID is persisted and restored safely across app restarts.
-- Owner Delete list now calls `delete_online_list` first and only removes the local Room list after server success.
-- Member `Leave list` calls `leave_online_list` first and only removes the local Room list after server success.
-- Local `Delete list` remains Room-only.
-- Server-side owner deletion was proven: after deleting an online owner list on Android, it did not respawn after Android restart/discovery.
+- `list_accounts` is now the account-specific authority for whether a cached online list belongs to the currently authenticated user and whether that user is owner/member.
+- `discoverOnlineLists()` reads the current Supabase user ID, calls `get_my_online_lists()`, then after successful discovery clears that account's old `list_accounts` relationships and rebuilds them exactly from authoritative results.
+- Relationship rebuilding occurs before list snapshot refreshes so a refresh failure does not leave only a partial set of account/list relationships restored.
+- `loadVisibleLists(accountId)` returns device-local lists plus only that account's online lists, projecting the account-specific online role into returned `ListEntity.onlineState`.
+- Signed-out visibility uses `loadVisibleLists(null)` and therefore shows only device-local lists.
+- A local list made online records an `ONLINE_OWNER` `list_accounts` row for the current authenticated account.
+- Remote owner/member lists absent from Room import into cache; existing cached list metadata reconciles by `updatedAt`; each discovered list then refreshes authoritative snapshot/items.
+- Pull-to-refresh runs discovery/reconciliation; per-list realtime continues to trigger authoritative refresh.
+- Add/edit/tick/untick write Room first then push when current rendered list is online; online item deletion uses local/server tombstones.
+- Owner Delete list remains server-first; member Leave list remains server-first; local Delete remains Room-only.
+- Full Room cache remains available offline, but account visibility rules prevent one account from seeing another account's shared-list cache.
+- Last active list ID is persisted/restored safely when still visible.
 
-Important limitations still to implement:
-- Failed online writes retain the Room change, but durable retry/reconciliation of those failed writes is not yet implemented.
-- Realtime is a change signal, not a replay log; startup/sign-in/pull discovery is currently the missed-signal safety net. A dedicated foreground lifecycle refresh may still be useful later.
-- Account-level realtime for list-set changes is not yet implemented, so an unknown newly shared/created list is not discovered instantly while the app remains open.
-- Android's separate Rename action is still local-only; server/browser rename exists but Android rename must be wired to `rename_online_list` with updatedAt/origin semantics.
+Important remaining work:
+- Complete the first-class invitation/onboarding handoff described in `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`.
+- Recipient pending-invitation discovery/acceptance foundation builds, but the preferred one-click email -> web -> app authentication experience is not yet implemented.
+- Owner remove-member controls are not yet implemented.
+- Failed online writes retain Room change; durable retry/reconciliation is not yet implemented.
+- Account-level realtime for list-set changes is not yet implemented.
+- Android online-owner Rename is still local-only and must be wired to server rename RPC.
 - Manual list ordering is not yet synced.
-- Invitations/member management UI is not yet implemented even though `ONLINE_MEMBER` discovery/state now exists.
-- Realtime change bursts are not currently debounced/coalesced; household-scale use is acceptable, but this can be improved later if necessary.
+- Realtime bursts are not debounced/coalesced.
 
-FUTURE SHARING / SYNC
----------------------
-Remaining sharing/sync direction:
-- browser list creation so browser-created lists are online from birth
-- account/user-level realtime signal for list-set changes so create/share/delete/remove can trigger rediscovery without knowing the list UUID in advance
-- immediate browser eviction/reload when a selected list snapshot becomes deleted/removed/unavailable
-- invitations/member UI and full member controls
-- Android synced rename and per-user list ordering
-- owner remove-member controls and clear cached-list UX after access removal
-- durable retry/reconciliation for failed offline/online writes
-- server tombstone/removal reconciliation must continue to prevent stale resurrection
-- consider unseen-activity state only after core member workflow is working
-- keep realtime/background traffic conservative; avoid aggressive polling
-- consider coalescing/debouncing bursts if multi-item operations create unnecessary repeated snapshot refreshes
-- implement privileged Delete online account / real Disable sharing before public 2.0 release
+SHARING / INVITATION DIRECTION
+------------------------------
+- Owner-side Share list UX is implemented: same-account `Make available online` plus `Invite someone` by email.
+- Invitation access is bound to the invited authenticated email/account; possession of a link or invitation UUID alone must never grant list access.
+- Normal Supabase passwordless Auth is the single authentication path for invitation recipients; do not use Supabase Auth's separate Invite-user state as JSimpleList's product invitation authority.
+- The preferred product workflow is now a first-class one-click handoff: invitation email -> branded HTTPS handoff on `jslist.jobsheet.com.au` -> verified Android App Link when installed -> Supabase authentication completion -> pending invitation -> Accept -> existing `discoverOnlineLists()` import as `ONLINE_MEMBER`.
+- Manual six-digit OTP remains the fallback path.
+- The website handoff must also handle app-not-installed and desktop/browser cases without presenting the unfinished browser client as complete.
+- Detailed authority, URL, failure-state and implementation-boundary design is authoritative in `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`; do not duplicate it here.
+- Browser same-account use requires no invitation: sign into `jslist.jobsheet.com.au` with the same account and online lists appear.
 
-NEXT ANDROID SYNC WORK
-----------------------
-Android UI/navigation is intentionally parked after the 29 Aug refinement. Preferred next Android/backend work:
-1. Wire online-owner Rename to `rename_online_list` and advance local `updatedAt`; keep local Rename Room-only and do not grant rename to ordinary members unless permissions deliberately change.
-2. Add/sync per-user list ordering when manual Manage lists reordering is implemented.
-3. Implement invitation/member controls and owner remove-member flows.
-4. Add account-level list-set realtime and/or foreground discovery as a safety net for unknown remote list changes.
-5. Add durable retry/reconciliation for failed online writes.
-6. Implement privileged Delete online account / real Disable sharing before public 2.0 release.
-7. Leave further Android UI tweaks alone unless real use exposes a problem; current navigation model has been accepted as coherent.
+NEXT ANDROID / SHARING WORK
+---------------------------
+Immediate next phase after this closeout:
+1. Start a fresh session for `JSimpleList first-class invitation onboarding architecture`.
+2. Read `JSimpleList_RULES.txt`, this context document and `JSimpleList_INVITATION_FLOW.txt` before implementation.
+3. Inspect current `jslist.jobsheet.com.au` web hosting/routes.
+4. Inspect AndroidManifest.xml and existing intent/deep-link handling.
+5. Inspect Supabase redirect/auth callback configuration and current email-template capabilities only as needed.
+6. Settle the exact public handoff URLs, token/auth-state lifecycle, installed/not-installed/browser behaviour, Android App Link contract, website handoff contract and security/failure-state contract before coding.
+7. Then implement the invitation subsystem in the deliberate boundaries defined in `JSimpleList_INVITATION_FLOW.txt`.
+8. After invitation onboarding, continue owner member controls, Android synced rename, account/list-set realtime and durable failed-write reconciliation.
+9. Before public 2.0 release, complete external account-deletion resource/page, Google-signed 1.1->2.0 upgrade test, Google Play Data Safety, and README/store/privacy reconciliation.
 
 BROWSER CLIENT
 --------------
@@ -390,29 +398,15 @@ FUNDING / COST FUTURE-PROOFING
 - Leave room for operational safeguards: account/list/member/item limits, disable new online registrations, disable new online-list creation, suspend sync/realtime while preserving local copies.
 - Popularity/back-end failure must degrade safely: local lists remain usable and no local data is lost.
 
-SOURCE EDITING RULE
--------------------
-Run source inspections with the `audit` shortcut before code edits wherever practical.
-
-From D:\SimpleList use absolute audit paths, e.g.:
-    audit --range <start>:<end> --path D:\simplelist\<file>
-
-All find-and-replace instructions must use exact literal source copied from current audit output.
-Never provide approximate blocks, inferred indentation, guessed spacing or paraphrased search text.
-If exact current source has not been inspected, inspect it first.
-This rule is mandatory for future JSimpleList sessions.
-
-The JobSheet audit tool was improved during this project so explicit user-supplied directories bypass path exclusions while extension filtering remains active. It recognises relevant JSimpleList file types including .kts, .xml, .sql, .toml, .json, .yaml, .yml, .md, .txt, .bat, .cmd and .sh.
-
-PROJECT DOCUMENT MAINTENANCE
-----------------------------
-- ChatGPT should handle JSimpleList project-context document updates directly whenever the current session has the document available.
-- Do not hand document-maintenance work back to the user unless tool access genuinely prevents ChatGPT from performing it.
-- At session close, update existing current-state sections as well as adding the new checkpoint.
-- Remove or rewrite stale material such as old "current uncommitted files", obsolete NEXT TASK steps, superseded implementation status and outdated git checkpoints.
-- Preserve genuinely useful historical facts when they remain clearly historical, but do not allow historical wording to masquerade as current state.
-- Before finishing a document update, reconcile current implementation state, design decisions, git checkpoint and NEXT TASK so the next session can resume without reconstructing stale context.
-- Prefer one maintained current context document over accumulating contradictory append-only closeouts.
+PROJECT WORKING PROTOCOL / DOCUMENTS
+------------------------------------
+- `docs/chatgpt/JSimpleList_RULES.txt` is the authoritative durable working, source-editing, validation, secrets, Git and session-closeout protocol.
+- `docs/chatgpt/JSimpleList_CONTEXT.txt` is the concise current architecture/state/continuation reference.
+- `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt` is the authoritative subsystem design for first-class invitation/onboarding.
+- ChatGPT should handle complete project-document replacements when the current documents are available rather than handing piecemeal maintenance back to the user.
+- Remove/rewrite stale current-state and NEXT TASK material instead of accumulating contradictory append-only history.
+- Before broad rediscovery, first check whether one of the authoritative JSimpleList documents already owns the needed information.
+- Session closeout follows `JSimpleList_RULES.txt`: validate, diff-check, inspect status/diff, update authoritative documents, explicitly stage, commit/push a cohesive checkpoint, and record the exact next task.
 
 CMD / TOOLING
 -------------
@@ -479,6 +473,7 @@ Local-only/untracked areas include:
 - app/release/
 - .idea/inspectionProfiles/
 - audit.cmd
+- reset-adb.bat
 
 PUBLIC REPOSITORY / LICENCE
 ---------------------------
@@ -497,64 +492,84 @@ CONTRIBUTING.md preserves practical future relicensing flexibility for substanti
 
 README currently describes the released local-only app. Update README/privacy/listing wording before a public network-enabled 2.0 release.
 
-CURRENT GIT CHECKPOINT - 29 AUG 2026
+CURRENT GIT CHECKPOINT - 30 AUG 2026
 ------------------------------------
-Clean pushed functional checkpoint:
-    b5ab29c (HEAD -> main, origin/main, origin/HEAD) Refine Android list navigation and sharing UI
-    a8282f7 Handle online list deletion and leaving
-    6f41c0e Add online list delete and leave RPCs
-    58876b8 Discover online lists on Android
-    32c350c Add online list discovery RPC
+Functional/account/sharing/invitation checkpoint committed locally:
+    f7b5546 (HEAD -> main) Add account-scoped sharing and invitation foundation
 
-Important preceding 28 Aug milestones:
-    0c320be Add inline browser list rename
-    e829cad Add online list rename broadcasts
-    9e59e5f Reconcile remote list metadata
-    f449346 Add Room schema version 4
-    68480b6 Add list update timestamps
-    af6bd82 Add online list status icon
-    a353c6e Add browser delete all items
-    0e8f2c9 Add browser bulk uncheck controls
-    d9b4b22 Clarify browser list selector
-    3b751ac Refine browser list interface
+Previous pushed checkpoint:
+    432361b (origin/main, origin/HEAD) Update JSimpleList 29 Aug session context
+    b5ab29c Refine Android list navigation and sharing UI
 
-After pushing b5ab29c, the only remaining working-tree change was Android Studio metadata:
-    M .idea/gradle.xml
-It contained only `GradleMigrationSettings` and was deliberately discarded with `git restore .idea/gradle.xml`.
-The user confirmed the working tree is clean.
+Commit `f7b5546` contains the 30 Aug Android/backend implementation, including:
+- Room v5 account-scoped `list_accounts`
+- persisted-session restoration fix and sign-out fallback
+- account deletion client/backend path
+- Share list / New list UX changes
+- owner-side invitation send path
+- recipient pending-invitation foundation
+- migrations 024 and 025
+- Supabase Edge Functions `delete-account` and `invite-list`
+- local Supabase CLI npm dependency
+- associated build/schema/configuration changes
 
-SESSION CLOSEOUT - 29 AUG 2026
+Remaining uncommitted closeout files at this documentation checkpoint:
+- `.gitignore` with `/reset-adb.bat` added beside `/audit.cmd`
+- `docs/chatgpt/JSimpleList_RULES.txt`
+- `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`
+- this `docs/chatgpt/JSimpleList_CONTEXT.txt`
+
+`reset-adb.bat` is intentionally local-only and ignored. `git check-ignore -v reset-adb.bat` confirmed the repository rule.
+
+Ignored/local-only items include `reset-adb.bat`, `invite-secrets.env`, `node_modules/`, `supabase/.temp/`, signing material and `local.properties`. Explicit staging only; do not broad-add.
+
+The final closeout commit should contain only the intended `.gitignore` rule and the three maintained project documents, then be pushed together with `f7b5546`.
+
+SESSION CLOSEOUT - 30 AUG 2026
 ------------------------------
-Major work completed and accepted this session:
-- Added Room/list `updatedAt` support and remote list metadata reconciliation.
-- Added owner-controlled server list rename with list UPDATE realtime; browser inline rename now works.
-- Added `get_my_online_lists()` discovery and Android import/reconciliation of online lists absent from Room.
-- Proven discovery recovery on a real device with a previously local-deleted server list; remote list metadata and item state matched the browser.
-- Added owner Delete list and non-owner `Leave list` server semantics and Android server-first handling.
-- Proven deleted online owner lists do not respawn after Android restart/discovery.
-- Reworked Android navigation: current list title is plain, `+ List` is directly available, pull-to-refresh replaces the visible Refresh button, and Manage lists is reached from the hamburger.
-- Deliberately removed individual list shortcuts from the hamburger because horizontal swipe is the normal nearby-list navigation and Manage lists is the scalable arbitrary-list navigator/admin surface.
-- Hamburger is now `Manage lists`, `Sharing`, `About`.
-- Consolidated the old root `List sharing` and `Disable sharing` entries into the single `Sharing` destination; Disable sharing is now a secondary action inside the signed-in Sharing dialog.
-- Fixed newly created Android lists so Create navigates directly into the new list.
-- Added the same muted chain/link online-status icon used by the web client to Android current-list headings and Manage lists rows; local lists remain unmarked.
-- Added Android pull-to-refresh discovery/reconciliation and removed the redundant selector-level `+ New list`.
-- Browser UI work from 28 Aug includes refined list selector, bulk uncheck, Delete all, online status icon and inline list rename.
-- Identified the browser stale-deleted-list bug: inactive/deleted snapshot currently leaves stale selected content and list selector state until discovery reruns.
-- Identified the architectural need for account/user-level realtime for list-set changes because per-list realtime cannot announce an unknown list UUID.
-- Android UI/navigation is considered complete enough to stop tweaking for now; next work should return to browser/sync behaviour.
+Major work/decisions represented by this checkpoint:
+- Completed the account-scoped Room v5 model using `list_accounts(listId, accountId, onlineState)` so online cache visibility follows the authenticated account while local lists remain device-local.
+- Fixed persisted Supabase session restoration by awaiting Auth session initialisation before reading the current session.
+- Kept the supabase-kt 3.2.1 sign-out fallback to `clearSession()` for remote sign-out failures.
+- Corrected Android online-account deletion cleanup for the account-scoped model and successfully tested disposable-account deletion end to end against the deployed migration 024 / `delete-account` backend.
+- Tidied Sharing/profile UI: removed obsolete `Disable sharing`, kept display-name editing, and exposed separate Sign out and destructive Delete account actions.
+- Moved `New list` into the hamburger and promoted current-list `Share list`.
+- Implemented same-account `Make available online` and removed the duplicate Manage-lists Share path.
+- Added migration 025 to prevent duplicate active invitations for the same list/email and applied it to hosted Supabase.
+- Added/deployed `invite-list` Edge Function. Initial direct Resend delivery was replaced with normal Supabase `signInWithOtp()` so invitation recipients use the same passwordless authentication path as ordinary sign-in.
+- Rotated/recorded the JSimpleList Resend key, updated Supabase Auth SMTP, verified the local secret file is ignored, and confirmed the new Supabase OTP invitation email arrives.
+- Added owner-side invitation email UI and modular `InvitationRepository`.
+- Added recipient pending-invitation discovery/acceptance foundation. `accept_list_invitation()` remains the membership authority; accepted lists reuse `discoverOnlineLists()` and map member role to `ONLINE_MEMBER`.
+- Android debug build succeeds after these changes and the debug APK has been installed successfully.
+- Real testing exposed the remaining product-level gap: a fresh recipient should not have to reason out email + OTP manually. The accepted product direction is now a first-class one-click invitation onboarding workflow using Supabase authentication, the controlled JSimpleList website and verified Android App Links, with OTP retained as fallback.
+- Created `JSimpleList_RULES.txt` to make JSimpleList's working/session protocol authoritative in-repo.
+- Created `JSimpleList_INVITATION_FLOW.txt` as the authoritative invitation/onboarding subsystem design.
+- Committed the complete functional/account/sharing/invitation implementation checkpoint as `f7b5546 Add account-scoped sharing and invitation foundation`.
+- Kept `reset-adb.bat` as a useful local helper but deliberately ignored it alongside `audit.cmd` rather than adding it to project history.
+- Browser `jslist.jobsheet.com.au` is publicly reachable but still cannot create lists. An unsolicited external signup demonstrated that the unfinished browser experience can be encountered; do not present the browser client as complete until its basic onboarding/list-creation path is ready.
 
 NEXT TASK
 ---------
-1. Start the next session with:
-       git pull && git status --short && git --no-pager log --oneline --decorate -5
-   Expected clean pushed checkpoint is `b5ab29c Refine Android list navigation and sharing UI`, followed by the context-document closeout commit created for this update.
-2. First fix the browser stale-deleted-list behaviour: when the authoritative snapshot is deleted/removed/not active, clear the selected snapshot and immediately remove/reload the list selector rather than waiting for session/discovery refresh.
-3. Add browser Create list. Browser-created lists are online from birth using the existing controlled create RPC; browser does not create local-only lists and does not need an unshare action.
-4. Add account/user-level realtime signalling for list-set changes (create/share/delete/remove/membership) so clients can rediscover unknown list UUIDs immediately. Keep startup/sign-in/pull discovery as the authoritative fallback.
-5. Wire Android online-owner Rename to the existing server rename RPC and updatedAt/origin contract; keep local rename local-only.
-6. Continue per-user list ordering, invitations/member controls and owner remove-member flows.
-7. Add durable retry/reconciliation for failed online writes.
-8. Implement privileged Delete online account / real Disable sharing before public 2.0 release; Sign out remains non-destructive.
-9. Before release, perform the real Google-signed 1.1 -> 2.0 upgrade test and verify list contents, quantities, completed states and font scale survive.
-10. Before submitting 2.0, update Google Play Data safety and reconcile README/store-listing/privacy wording with the network-enabled release.
+Begin a fresh session titled/treated as:
+    JSimpleList first-class invitation onboarding architecture
+
+Read first:
+- `docs/chatgpt/JSimpleList_RULES.txt`
+- `docs/chatgpt/JSimpleList_CONTEXT.txt`
+- `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`
+
+Do not begin implementation immediately. The architecture phase must first determine:
+1. exact public invitation/handoff URL(s) on `jslist.jobsheet.com.au`
+2. exact Supabase token/auth-state lifecycle and where one-time state is consumed
+3. email-scanner-safe website handoff behaviour
+4. installed-app, not-installed and desktop/browser outcomes
+5. Android verified App Link / `assetlinks.json` / signing-certificate contract
+6. Android auth-completion and wrong-account handling
+7. fallback OTP behaviour and recovery states
+8. security contract proving that URL/token possession alone never grants list membership
+
+Only after that end-to-end contract is settled should implementation proceed through the boundaries in `JSimpleList_INVITATION_FLOW.txt`.
+
+SOURCE-EDITING REMINDER FOR NEXT SESSION
+----------------------------------------
+Read and follow `docs/chatgpt/JSimpleList_RULES.txt`; it is authoritative.

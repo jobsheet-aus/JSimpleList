@@ -28,5 +28,6 @@ invite-secrets.env
 /app/release/
 /.idea/inspectionProfiles/
 /audit.cmd
+/reset-adb.bat
 /node_modules/
 /supabase/.temp/

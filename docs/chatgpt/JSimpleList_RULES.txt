@@ -1,0 +1,129 @@
+JSimpleList durable working rules
+Updated: 2026-08-30
+
+REPOSITORY AND SHELL
+--------------------
+- Local repository: D:\SimpleList
+- Commands target Windows CMD.
+- Join dependent CMD commands with &&.
+- Always use git --no-pager.
+- LF-to-CRLF warnings are not failures when diff checks are clean.
+- VS Code is the normal editor.
+- Do not assume a same-named file is the intended source file; use absolute paths when opening or inspecting source.
+
+SOURCE-EDITING WORKFLOW
+-----------------------
+- Inspect exact current source before editing.
+- Give one necessary inspection command at a time unless several tightly related inspections are clearly more efficient.
+- Use audit before source edits.
+- Prefer focused audit ranges/functions/searches over broad source dumps.
+- Use absolute paths with audit when practical.
+- When supplying literal find/replace text, reproduce the inspected source exactly, including indentation, whitespace and line breaks.
+- Never provide an approximate source block as an exact replacement.
+- New files may be supplied as complete contents when their location and role are unambiguous.
+- For non-trivial or risky edits, prefer a deterministic patch helper or another exact edit method rather than many manual changes.
+- Patch helpers must use exact anchors, fail clearly and preserve unrelated code.
+- Delete temporary patch helpers only after successful execution and verification.
+- Do not continue editing after an unexpected build/source state until the cause is understood.
+
+VALIDATION
+----------
+- Run the smallest useful validation after each cohesive change.
+- Android development build command: build_debug
+- Real-device install command: install_debug
+- Prefer real-phone validation for Android UI/auth/sync behaviour.
+- Run git --no-pager diff --check before staging or committing.
+- Treat compilation/build failures as blockers; diagnose the first root cause before chasing cascading errors.
+- Do not interpret ordinary LF/CRLF warnings as failures.
+- Hosted Supabase changes must be verified separately from Android compilation.
+- Do not assume an Edge Function deploy, SQL migration, email send or Android build proves the other layers.
+- For multi-system flows, validate each boundary deliberately.
+
+GIT / COMMIT DISCIPLINE
+-----------------------
+- Inspect git status before staging.
+- Stage files explicitly; do not use broad git add . or equivalent.
+- Keep unrelated structural changes and behaviour changes separate when practical.
+- A cohesive working checkpoint may be committed and pushed before a session closes.
+- Git push is source-control work; hosted deployment is a separate deliberate operation.
+- Do not commit secrets, keystores, signing passwords, API secrets or temporary secret files.
+- Verify local secret files are ignored with git check-ignore before relying on them.
+
+SECRETS / HOSTED SERVICES
+-------------------------
+- Supabase publishable/public keys may be used by Android where intended.
+- Supabase secret/service-role credentials must never ship in Android or the browser.
+- Resend API secrets must never be committed or shipped in client code.
+- Local recoverable secret copies must live only in explicitly git-ignored files.
+- Do not rotate a working credential casually; create/replace, test, then revoke the superseded credential.
+- Hosted Supabase Auth email configuration, Edge Function secrets and local project secrets are distinct storage locations and must not be assumed to mirror one another.
+
+DATABASE / SUPABASE
+-------------------
+- Production/hosted data is not disposable.
+- Inspect existing migrations/RLS/RPC contracts before adding new database machinery.
+- Prefer existing controlled RPCs and RLS authority boundaries over duplicating logic in clients.
+- Client possession of a UUID, URL, token or invitation identifier must not by itself grant shared-list access.
+- Authentication establishes identity; JSimpleList database rules establish product authority.
+- Apply hosted migrations deliberately and record whether they have actually been applied.
+- Deploy Edge Functions deliberately and verify the deployed function separately.
+- Do not invent security-sensitive mechanisms when Supabase already provides an appropriate authenticated primitive.
+
+PRODUCT / UX
+------------
+- JSimpleList is local-first; local-only use remains account-free.
+- Online/sharing features must not make local lists online implicitly except where the user has explicitly chosen an operation whose meaning clearly requires it.
+- Prefer simple product language over backend terminology.
+- Do not expose implementation terms such as self-share to users.
+- Use Email address rather than ambiguous Email.
+- User-facing informational phrases generally omit trailing full stops.
+- Important onboarding/sharing flows should minimise unnecessary typing, repeated authentication and unexplained transitions.
+- A technically functioning workflow is not considered complete if the recipient experience remains confusing or unnecessarily frictious.
+- Security and low-friction UX should be designed together rather than traded casually against each other.
+
+PROJECT DOCUMENT MODEL
+----------------------
+- JSimpleList_RULES.txt is the authoritative durable working/session protocol for JSimpleList.
+- JSimpleList_CONTEXT.txt is the concise current project architecture/state/continuation reference.
+- Subsystem-specific design documents may be created when a subsystem is sufficiently important or complex that putting the detail in CONTEXT would make CONTEXT unwieldy.
+- JSimpleList_INVITATION_FLOW.txt is the authoritative design reference for the first-class invitation/onboarding subsystem.
+- Do not duplicate detailed subsystem design throughout CONTEXT; keep a concise summary and cross-reference there.
+- Do not create transient HANDOVER or CURRENT_TASK documents merely to compensate for an incomplete closeout.
+- Completed work should replace stale descriptions rather than accumulating contradictory historical notes.
+- Durable decisions, authority boundaries and important reasons should be recorded before relying on conversational memory.
+- Before broad rediscovery of project-specific behaviour, first check whether an existing JSimpleList reference document owns that information.
+
+SESSION HANDLING
+----------------
+- Treat a session as a bounded unit of work rather than continuing indefinitely.
+- Consider closing when:
+  - a cohesive milestone has been completed and validated;
+  - the next work crosses into a distinct subsystem or architectural phase;
+  - substantial new design work should begin from a clean context;
+  - the conversation has accumulated enough debugging/history that continuation would depend too heavily on chat memory.
+- Before closing:
+  1. Stop at a coherent source state; do not knowingly leave an unexplained broken build unless the breakage itself is the documented continuation point.
+  2. Run appropriate validation for the work completed.
+  3. Run git --no-pager diff --check.
+  4. Inspect git status and the relevant diff/stat.
+  5. Update JSimpleList_CONTEXT.txt so its current-state and next-action statements are accurate.
+  6. Update any authoritative subsystem document affected by the work.
+  7. Remove or rewrite stale TODO/current-state statements rather than appending contradictory history.
+  8. Commit a cohesive checkpoint when the source/document state is ready.
+  9. Push the checkpoint unless there is a deliberate reason to keep it local.
+  10. Record the exact immediate next task clearly enough that a new session can continue without reconstructing the previous conversation.
+- When the next task is a significant new architectural phase, prefer closing and starting a new session with the authoritative project documents supplied.
+
+INVITATION-SUBSYSTEM SESSION RULE
+---------------------------------
+- The first-class invitation/onboarding workflow is user-experience-critical and spans Android, Supabase Auth, PostgreSQL/RLS, Edge Functions, email templates, web handoff and Android App Links.
+- Do not widen implementation across several of those boundaries without first documenting the intended end-to-end state.
+- Work through the invitation subsystem in deliberate boundaries:
+  1. architecture and URL/auth-state design;
+  2. website handoff;
+  3. Android verified App Link handling;
+  4. Supabase authentication completion;
+  5. pending-invitation acceptance/import;
+  6. fallback/error states;
+  7. end-to-end real-device/browser testing and UX polish.
+- Close or checkpoint between major boundaries when doing so reduces ambiguity or conversational dependence.
