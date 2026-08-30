@@ -14,13 +14,19 @@
 .externalNativeBuild
 .cxx
 local.properties
+invite-secrets.env
+
+
 # Signing keys
 *.jks
 *.keystore
 /keys/
 /signing.properties
 
+
 # Local build and IDE files
 /app/release/
 /.idea/inspectionProfiles/
 /audit.cmd
+/node_modules/
+/supabase/.temp/

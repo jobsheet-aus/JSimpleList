@@ -155,6 +155,34 @@ private val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
+private val MIGRATION_4_5 = object : Migration(4, 5) {
+    override suspend fun migrate(
+        connection: androidx.sqlite.SQLiteConnection
+    ) {
+        connection.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS list_accounts (
+                listId TEXT NOT NULL,
+                accountId TEXT NOT NULL,
+                onlineState TEXT NOT NULL,
+                PRIMARY KEY (listId, accountId),
+                FOREIGN KEY (listId)
+                    REFERENCES lists(id)
+                    ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
+        connection.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_list_accounts_listId " +
+                "ON list_accounts(listId)"
+        )
+        connection.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_list_accounts_accountId " +
+                "ON list_accounts(accountId)"
+        )
+    }
+}
+
 @Composable
 private fun SimpleListApp() {
     val context = LocalContext.current
@@ -175,7 +203,8 @@ private fun SimpleListApp() {
             .addMigrations(
                 MIGRATION_1_2,
                 MIGRATION_2_3,
-                MIGRATION_3_4
+                MIGRATION_3_4,
+                MIGRATION_4_5
             )
             .build()
     }
@@ -189,6 +218,14 @@ private fun SimpleListApp() {
         pageCount = { lists.size }
     )
     var activeListRestored by remember { mutableStateOf(false) }
+    var signedInEmail by remember { mutableStateOf<String?>(null) }
+    val invitationRepository = remember { InvitationRepository() }
+    val pendingInvitations = remember {
+        mutableStateListOf<PendingInvitation>()
+    }
+    var acceptingInvitationId by remember {
+        mutableStateOf<String?>(null)
+    }
 
     LaunchedEffect(database) {
         LegacyDataImporter(
@@ -196,7 +233,13 @@ private fun SimpleListApp() {
             dao = dao
         ).importIfNeeded()
 
-        if (authRepository.currentUserId() != null) {
+        authRepository.awaitSessionInitialization()
+
+        signedInEmail = authRepository.currentUserEmail()
+
+        val accountId = authRepository.currentUserId()
+
+        if (accountId != null) {
             try {
                 listSyncRepository.discoverOnlineLists(
                     dao = dao
@@ -208,9 +251,23 @@ private fun SimpleListApp() {
                     exception
                 )
             }
+
+            try {
+                pendingInvitations.clear()
+                pendingInvitations.addAll(
+                    invitationRepository.loadPendingInvitations()
+                )
+            } catch (exception: Exception) {
+                Log.e(
+                    "JSimpleListInvitation",
+                    "Invitation discovery failed at startup",
+                    exception
+                )
+            }
         }
 
-        val loadedLists = dao.loadLists()
+        val loadedLists =
+            dao.loadVisibleLists(accountId)
 
         lists.clear()
         itemsByList.clear()
@@ -370,7 +427,10 @@ private fun SimpleListApp() {
     var fontScale by remember { mutableFloatStateOf(store.loadFontScale()) }
     var showMenu by remember { mutableStateOf(false) }
     var showListSharing by remember { mutableStateOf(false) }
-    var showDisableSharing by remember { mutableStateOf(false) }
+    var showSignOutConfirmation by remember { mutableStateOf(false) }
+    var signingOut by remember { mutableStateOf(false) }
+    var showDeleteAccount by remember { mutableStateOf(false) }
+    var deletingOnlineAccount by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     var showListSelector by remember { mutableStateOf(false) }
     var refreshingListId by remember { mutableStateOf<String?>(null) }
@@ -390,6 +450,9 @@ private fun SimpleListApp() {
     }
     var deleteListId by remember { mutableStateOf<String?>(null) }
     var makingOnlineListId by remember { mutableStateOf<String?>(null) }
+    var sharingListId by remember { mutableStateOf<String?>(null) }
+    var invitationEmail by remember { mutableStateOf("") }
+    var sendingInvitation by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -411,6 +474,101 @@ private fun SimpleListApp() {
                     "Item push failed after update id=${item.id} list=${list.id}: ${exception::class.simpleName}"
                 )
             }
+        }
+    }
+
+    suspend fun makeListAvailableOnline(
+        list: ListEntity,
+        listItems: List<ItemEntity>
+    ) {
+        makingOnlineListId = list.id
+
+        try {
+            Log.i(
+                "JSimpleListSync",
+                "Sharing list id=${list.id} name=${list.name} items=${listItems.size}"
+            )
+
+            val snapshot =
+                listSyncRepository.makeListOnline(
+                    list = list,
+                    items = listItems,
+                    originClientId = clientInstanceId
+                )
+
+            check(snapshot.state == "active") {
+                "Unexpected sync state: ${snapshot.state}"
+            }
+
+            check(snapshot.list?.id == list.id) {
+                "Online list UUID does not match local list"
+            }
+
+            check(
+                snapshot.items
+                    .map { it.id }
+                    .toSet() ==
+                    listItems
+                        .map { it.id }
+                        .toSet()
+            ) {
+                "Online item UUIDs do not match local items"
+            }
+
+            val listIndex =
+                lists.indexOfFirst {
+                    it.id == list.id
+                }
+
+            if (listIndex >= 0) {
+                val onlineList =
+                    lists[listIndex].copy(
+                        onlineState = "ONLINE_OWNER"
+                    )
+
+                lists[listIndex] = onlineList
+                dao.updateList(onlineList)
+
+                val accountId =
+                    checkNotNull(
+                        authRepository.currentUserId()
+                    ) {
+                        "Not signed in"
+                    }
+
+                dao.upsertListAccount(
+                    listId = onlineList.id,
+                    accountId = accountId,
+                    onlineState = "ONLINE_OWNER"
+                )
+            }
+
+            Log.i(
+                "JSimpleListSync",
+                "Shared list id=${list.id} state=${snapshot.state} items=${snapshot.items.size}"
+            )
+
+            Toast.makeText(
+                context,
+                "List available online · ${snapshot.items.size} items",
+                Toast.LENGTH_SHORT
+            ).show()
+        } catch (exception: Exception) {
+            Log.e(
+                "JSimpleListSync",
+                "Share failed for list id=${list.id} name=${list.name}: ${exception::class.simpleName}"
+            )
+
+            Toast.makeText(
+                context,
+                exception.message
+                    ?: "Could not make list available online",
+                Toast.LENGTH_LONG
+            ).show()
+
+            throw exception
+        } finally {
+            makingOnlineListId = null
         }
     }
 
@@ -475,6 +633,31 @@ private fun SimpleListApp() {
                     DropdownMenuItem(
                         text = {
                             Text(
+                                text = "New list",
+                                fontSize = 16.sp
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+
+                            val defaultName = "To-do list"
+
+                            newListName = TextFieldValue(
+                                text = defaultName,
+                                selection = TextRange(
+                                    0,
+                                    defaultName.length
+                                )
+                            )
+                            newListKind = ListKind.TODO
+                            showNewListDialog = true
+                        },
+                        modifier = Modifier.height(58.dp)
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Text(
                                 text = "Manage lists",
                                 fontSize = 16.sp
                             )
@@ -502,6 +685,57 @@ private fun SimpleListApp() {
 
                     DropdownMenuItem(
                         text = {
+                            Column {
+                                Text(
+                                    text =
+                                        if (signedInEmail == null) {
+                                            "Sign in"
+                                        } else {
+                                            "Sign out"
+                                        },
+                                    fontSize = 16.sp
+                                )
+
+                                if (signedInEmail != null) {
+                                    Text(
+                                        text = signedInEmail!!,
+                                        fontSize = 12.sp,
+                                        color =
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+
+                            if (signedInEmail == null) {
+                                showListSharing = true
+                            } else {
+                                showSignOutConfirmation = true
+                            }
+                        },
+                        modifier = Modifier.height(58.dp)
+                    )
+
+                    if (signedInEmail != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Delete account",
+                                    fontSize = 16.sp
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                showDeleteAccount = true
+                            },
+                            modifier = Modifier.height(58.dp)
+                        )
+                    }
+
+                    DropdownMenuItem(
+                        text = {
                             Text(
                                 text = "About",
                                 fontSize = 16.sp
@@ -517,14 +751,99 @@ private fun SimpleListApp() {
             }
         }
 
+        if (showSignOutConfirmation) {
+            AlertDialog(
+                onDismissRequest = {
+                    if (!signingOut) {
+                        showSignOutConfirmation = false
+                    }
+                },
+                title = {
+                    Text("Sign out?")
+                },
+                text = {
+                    Text(
+                        "Shared lists will be unavailable on this device " +
+                            "until you sign in again. Local lists will " +
+                            "remain available."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            signingOut = true
+
+                            coroutineScope.launch {
+                                try {
+                                    authRepository.signOut()
+
+                                    signedInEmail = null
+                                    pendingInvitations.clear()
+                                    acceptingInvitationId = null
+
+                                    val loadedLists =
+                                        dao.loadVisibleLists(null)
+
+                                    lists.clear()
+                                    itemsByList.clear()
+
+                                    loadedLists.forEach { list ->
+                                        lists.add(list)
+                                        itemsByList[list.id] =
+                                            mutableStateListOf<ItemEntity>().apply {
+                                                addAll(
+                                                    dao.loadItems(list.id)
+                                                )
+                                            }
+                                    }
+
+                                    showSignOutConfirmation = false
+                                } catch (exception: Exception) {
+                                    Log.e(
+                                        "JSimpleListAuth",
+                                        "Sign out failed",
+                                        exception
+                                    )
+
+                                    Toast.makeText(
+                                        context,
+                                        exception.message
+                                            ?: "Could not sign out",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } finally {
+                                    signingOut = false
+                                }
+                            }
+                        },
+                        enabled = !signingOut
+                    ) {
+                        Text(
+                            if (signingOut) {
+                                "Signing out"
+                            } else {
+                                "Sign out"
+                            }
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showSignOutConfirmation = false
+                        },
+                        enabled = !signingOut
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
         if (showListSharing) {
             AuthDialog(
                 repository = authRepository,
                 profileRepository = profileRepository,
-                onDisableSharing = {
-                    showListSharing = false
-                    showDisableSharing = true
-                },
                 onSignedIn = {
                     coroutineScope.launch {
                         try {
@@ -532,7 +851,18 @@ private fun SimpleListApp() {
                                 dao = dao
                             )
 
-                            val loadedLists = dao.loadLists()
+                            signedInEmail =
+                                authRepository.currentUserEmail()
+
+                            pendingInvitations.clear()
+                            pendingInvitations.addAll(
+                                invitationRepository.loadPendingInvitations()
+                            )
+
+                            val loadedLists =
+                                dao.loadVisibleLists(
+                                    authRepository.currentUserId()
+                                )
 
                             lists.clear()
                             itemsByList.clear()
@@ -566,49 +896,249 @@ private fun SimpleListApp() {
             )
         }
 
-        if (showDisableSharing) {
+        if (
+            !showListSharing &&
+            pendingInvitations.isNotEmpty()
+        ) {
+            val invitation = pendingInvitations.first()
+
             AlertDialog(
                 onDismissRequest = {
-                    showDisableSharing = false
+                    if (acceptingInvitationId == null) {
+                        pendingInvitations.remove(invitation)
+                    }
                 },
                 title = {
-                    Text("Disable sharing")
+                    Text("List invitation")
+                },
+                text = {
+                    Text(
+                        "You've been invited to share a JSimpleList. " +
+                            "Accept the invitation to add the shared list " +
+                            "to this device."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            acceptingInvitationId = invitation.id
+
+                            coroutineScope.launch {
+                                try {
+                                    val acceptedListId =
+                                        invitationRepository.acceptInvitation(
+                                            invitation.id
+                                        )
+
+                                    val loadedLists =
+                                        listSyncRepository.discoverOnlineLists(
+                                            dao = dao
+                                        )
+
+                                    lists.clear()
+                                    itemsByList.clear()
+
+                                    loadedLists.forEach { list ->
+                                        lists.add(list)
+                                        itemsByList[list.id] =
+                                            mutableStateListOf<ItemEntity>().apply {
+                                                addAll(
+                                                    dao.loadItems(list.id)
+                                                )
+                                            }
+                                    }
+
+                                    pendingInvitations.remove(invitation)
+
+                                    val acceptedIndex =
+                                        lists.indexOfFirst {
+                                            it.id == acceptedListId
+                                        }
+
+                                    if (acceptedIndex >= 0) {
+                                        pagerState.scrollToPage(
+                                            acceptedIndex
+                                        )
+                                    }
+
+                                    Toast.makeText(
+                                        context,
+                                        "Shared list added",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } catch (exception: Exception) {
+                                    Log.e(
+                                        "JSimpleListInvitation",
+                                        "Could not accept invitation",
+                                        exception
+                                    )
+
+                                    Toast.makeText(
+                                        context,
+                                        exception.message
+                                            ?: "Could not accept invitation",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } finally {
+                                    acceptingInvitationId = null
+                                }
+                            }
+                        },
+                        enabled = acceptingInvitationId == null
+                    ) {
+                        Text(
+                            if (
+                                acceptingInvitationId ==
+                                invitation.id
+                            ) {
+                                "Accepting"
+                            } else {
+                                "Accept"
+                            }
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            pendingInvitations.remove(invitation)
+                        },
+                        enabled = acceptingInvitationId == null
+                    ) {
+                        Text("Not now")
+                    }
+                }
+            )
+        }
+
+        if (showDeleteAccount) {
+            AlertDialog(
+                onDismissRequest = {
+                    if (!deletingOnlineAccount) {
+                        showDeleteAccount = false
+                    }
+                },
+                title = {
+                    Text("Delete account")
                 },
                 text = {
                     Column {
                         Text(
-                            "This permanently removes your JSimpleList online " +
-                                "account and shared-list access."
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Text(
-                            "Local lists stored on this device are not deleted."
+                            "This permanently removes your JSimpleList online account."
                         )
 
                         Spacer(modifier = Modifier.height(12.dp))
 
                         Text(
                             "Shared lists you own will be destroyed and other " +
-                                "members will lose access."
+                                "members will lose access to those lists."
                         )
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
                         Text(
-                            "Account deletion is not yet enabled in this " +
-                                "development build."
+                            "Lists stored on this device will remain available."
                         )
                     }
                 },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            showDisableSharing = false
-                        }
+                            deletingOnlineAccount = true
+
+                            coroutineScope.launch {
+                                try {
+                                    val accountId =
+                                        authRepository.currentUserId()
+                                            ?: error("No signed-in account")
+
+                                    val ownedListIds =
+                                        lists
+                                            .filter {
+                                                it.onlineState == "ONLINE_OWNER"
+                                            }
+                                            .map { it.id }
+
+                                    authRepository.deleteOnlineAccount()
+
+                                    dao.deleteListAccountsForAccount(accountId)
+
+                                    ownedListIds.forEach { listId ->
+                                        dao.deleteList(listId)
+                                    }
+
+                                    try {
+                                        authRepository.signOut()
+                                    } catch (exception: Exception) {
+                                        Log.w(
+                                            "JSimpleListAuth",
+                                            "Sign out after account deletion failed",
+                                            exception
+                                        )
+                                    }
+
+                                    signedInEmail = null
+                                    pendingInvitations.clear()
+                                    acceptingInvitationId = null
+
+                                    val loadedLists =
+                                        dao.loadVisibleLists(null)
+
+                                    lists.clear()
+                                    itemsByList.clear()
+
+                                    loadedLists.forEach { list ->
+                                        lists.add(list)
+                                        itemsByList[list.id] =
+                                            mutableStateListOf<ItemEntity>().apply {
+                                                addAll(dao.loadItems(list.id))
+                                            }
+                                    }
+
+                                    showDeleteAccount = false
+
+                                    Toast.makeText(
+                                        context,
+                                        "Online account deleted",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } catch (exception: Exception) {
+                                    Log.e(
+                                        "JSimpleListAuth",
+                                        "Online account deletion failed",
+                                        exception
+                                    )
+
+                                    Toast.makeText(
+                                        context,
+                                        exception.message
+                                            ?: "Could not delete online account",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } finally {
+                                    deletingOnlineAccount = false
+                                }
+                            }
+                        },
+                        enabled = !deletingOnlineAccount
                     ) {
-                        Text("Close")
+                        Text(
+                            if (deletingOnlineAccount) {
+                                "Deleting..."
+                            } else {
+                                "Delete account"
+                            }
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showDeleteAccount = false
+                        },
+                        enabled = !deletingOnlineAccount
+                    ) {
+                        Text("Cancel")
                     }
                 }
             )
@@ -696,6 +1226,260 @@ private fun SimpleListApp() {
                     }
                 }
             )
+        }
+
+        sharingListId?.let { listId ->
+            val sharingList =
+                lists.firstOrNull {
+                    it.id == listId
+                }
+
+            if (sharingList == null) {
+                sharingListId = null
+            } else {
+                val sharingItems =
+                    itemsByList[sharingList.id]?.toList()
+                        ?: emptyList()
+
+                AlertDialog(
+                    onDismissRequest = {
+                        if (
+                            makingOnlineListId == null &&
+                            !sendingInvitation
+                        ) {
+                            sharingListId = null
+                            invitationEmail = ""
+                        }
+                    },
+                    title = {
+                        Text("Share list")
+                    },
+                    text = {
+                        Column {
+                            Text(
+                                text = sharingList.name,
+                                fontWeight = FontWeight.Medium
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            if (signedInEmail == null) {
+                                Text(
+                                    "Sign in before making this list available " +
+                                        "online or sharing it with someone"
+                                )
+                            } else if (sharingList.onlineState == "LOCAL") {
+                                Text("Use this list on my other devices")
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Text(
+                                    "Make this list available online wherever " +
+                                        "$signedInEmail is signed in"
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            try {
+                                                makeListAvailableOnline(
+                                                    list = sharingList,
+                                                    listItems = sharingItems
+                                                )
+                                            } catch (_: Exception) {
+                                            }
+                                        }
+                                    },
+                                    enabled = makingOnlineListId == null
+                                ) {
+                                    Text(
+                                        if (
+                                            makingOnlineListId ==
+                                            sharingList.id
+                                        ) {
+                                            "Making available"
+                                        } else {
+                                            "Make available online"
+                                        }
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(20.dp))
+
+                                Text(
+                                    text = "Invite someone",
+                                    fontWeight = FontWeight.Medium
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                OutlinedTextField(
+                                    value = invitationEmail,
+                                    onValueChange = {
+                                        invitationEmail = it
+                                    },
+                                    label = {
+                                        Text("Email address")
+                                    },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(
+                                        keyboardType = KeyboardType.Email,
+                                        imeAction = ImeAction.Done
+                                    ),
+                                    enabled = !sendingInvitation,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            sendingInvitation = true
+
+                                            try {
+                                                invitationRepository.sendInvitation(
+                                                    listId = sharingList.id,
+                                                    email = invitationEmail
+                                                )
+
+                                                Toast.makeText(
+                                                    context,
+                                                    "Invitation sent",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+
+                                                invitationEmail = ""
+                                            } catch (error: Exception) {
+                                                Log.e(
+                                                    "JSimpleList",
+                                                    "Could not send invitation",
+                                                    error
+                                                )
+
+                                                Toast.makeText(
+                                                    context,
+                                                    "Could not send invitation",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            } finally {
+                                                sendingInvitation = false
+                                            }
+                                        }
+                                    },
+                                    enabled =
+                                        !sendingInvitation &&
+                                        invitationEmail.trim().isNotEmpty()
+                                ) {
+                                    Text(
+                                        if (sendingInvitation) {
+                                            "Sending"
+                                        } else {
+                                            "Send invitation"
+                                        }
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    "This list is available wherever " +
+                                        "$signedInEmail is signed in"
+                                )
+
+                                Spacer(modifier = Modifier.height(20.dp))
+
+                                Text(
+                                    text = "Invite someone",
+                                    fontWeight = FontWeight.Medium
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                OutlinedTextField(
+                                    value = invitationEmail,
+                                    onValueChange = {
+                                        invitationEmail = it
+                                    },
+                                    label = {
+                                        Text("Email address")
+                                    },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(
+                                        keyboardType = KeyboardType.Email,
+                                        imeAction = ImeAction.Done
+                                    ),
+                                    enabled = !sendingInvitation,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            sendingInvitation = true
+
+                                            try {
+                                                invitationRepository.sendInvitation(
+                                                    listId = sharingList.id,
+                                                    email = invitationEmail
+                                                )
+
+                                                Toast.makeText(
+                                                    context,
+                                                    "Invitation sent",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+
+                                                invitationEmail = ""
+                                            } catch (error: Exception) {
+                                                Log.e(
+                                                    "JSimpleList",
+                                                    "Could not send invitation",
+                                                    error
+                                                )
+
+                                                Toast.makeText(
+                                                    context,
+                                                    "Could not send invitation",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            } finally {
+                                                sendingInvitation = false
+                                            }
+                                        }
+                                    },
+                                    enabled =
+                                        !sendingInvitation &&
+                                        invitationEmail.trim().isNotEmpty()
+                                ) {
+                                    Text(
+                                        if (sendingInvitation) {
+                                            "Sending"
+                                        } else {
+                                            "Send invitation"
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                sharingListId = null
+                                invitationEmail = ""
+                            },
+                            enabled =
+                                makingOnlineListId == null &&
+                                !sendingInvitation
+                        ) {
+                            Text("Close")
+                        }
+                    }
+                )
+            }
         }
 
         val newListFocusRequester = remember { FocusRequester() }
@@ -1233,20 +2017,10 @@ private fun SimpleListApp() {
                 if (!showListSelector) {
                     TextButton(
                         onClick = {
-                            val defaultName = "To-do list"
-
-                            newListName = TextFieldValue(
-                                text = defaultName,
-                                selection = TextRange(
-                                    0,
-                                    defaultName.length
-                                )
-                            )
-                            newListKind = ListKind.TODO
-                            showNewListDialog = true
+                            sharingListId = currentList.id
                         }
                     ) {
-                        Text("+ List")
+                        Text("Share list")
                     }
                 }
             }
@@ -1336,101 +2110,6 @@ private fun SimpleListApp() {
                                     color =
                                         MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            }
-
-                            if (list.onlineState == "LOCAL") {
-                                TextButton(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            makingOnlineListId = list.id
-
-                                        try {
-                                            val localItems =
-                                                listItems?.toList() ?: emptyList()
-
-                                            Log.i(
-                                                "JSimpleListSync",
-                                                "Sharing list id=${list.id} name=${list.name} items=${localItems.size}"
-                                            )
-
-                                            val snapshot =
-                                                listSyncRepository.makeListOnline(
-                                                    list = list,
-                                                    items = localItems,
-                                                    originClientId = clientInstanceId
-                                                )
-
-                                            check(snapshot.state == "active") {
-                                                "Unexpected sync state: ${snapshot.state}"
-                                            }
-
-                                            check(snapshot.list?.id == list.id) {
-                                                "Online list UUID does not match local list"
-                                            }
-
-                                            check(
-                                                snapshot.items
-                                                    .map { it.id }
-                                                    .toSet() ==
-                                                    localItems
-                                                        .map { it.id }
-                                                        .toSet()
-                                            ) {
-                                                "Online item UUIDs do not match local items"
-                                            }
-
-                                            val listIndex =
-                                                lists.indexOfFirst {
-                                                    it.id == list.id
-                                                }
-
-                                            if (listIndex >= 0) {
-                                                val onlineList =
-                                                    lists[listIndex].copy(
-                                                        onlineState = "ONLINE_OWNER"
-                                                    )
-
-                                                lists[listIndex] = onlineList
-                                                dao.updateList(onlineList)
-                                            }
-
-                                            Log.i(
-                                                "JSimpleListSync",
-                                                "Shared list id=${list.id} state=${snapshot.state} items=${snapshot.items.size}"
-                                            )
-
-                                            Toast.makeText(
-                                                context,
-                                                "List shared · ${snapshot.items.size} items",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        } catch (exception: Exception) {
-                                            Log.e(
-                                                "JSimpleListSync",
-                                                "Share failed for list id=${list.id} name=${list.name}: ${exception::class.simpleName}"
-                                            )
-
-                                            Toast.makeText(
-                                                context,
-                                                exception.message
-                                                    ?: "Could not share list",
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                        } finally {
-                                            makingOnlineListId = null
-                                        }
-                                    }
-                                },
-                                enabled = makingOnlineListId == null
-                            ) {
-                                Text(
-                                    if (makingOnlineListId == list.id) {
-                                        "Sharing"
-                                    } else {
-                                        "Share"
-                                    }
-                                )
-                            }
                             }
 
                             TextButton(

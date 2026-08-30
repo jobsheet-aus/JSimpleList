@@ -4,6 +4,9 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.OTP
+import io.github.jan.supabase.auth.status.SessionStatus
+import io.github.jan.supabase.functions.functions
+import kotlinx.coroutines.flow.first
 
 class AuthRepository(
     private val client: SupabaseClient = JSimpleListSupabase.client
@@ -25,6 +28,12 @@ class AuthRepository(
         )
     }
 
+    suspend fun awaitSessionInitialization() {
+        client.auth.sessionStatus.first { status ->
+            status !is SessionStatus.Initializing
+        }
+    }
+
     fun currentUserId(): String? {
         return client.auth.currentSessionOrNull()?.user?.id
     }
@@ -33,7 +42,15 @@ class AuthRepository(
         return client.auth.currentSessionOrNull()?.user?.email
     }
 
+    suspend fun deleteOnlineAccount() {
+        client.functions.invoke("delete-account")
+    }
+
     suspend fun signOut() {
-        client.auth.signOut()
+        try {
+            client.auth.signOut()
+        } catch (error: Exception) {
+            client.auth.clearSession()
+        }
     }
 }

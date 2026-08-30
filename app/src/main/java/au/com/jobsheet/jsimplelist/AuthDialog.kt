@@ -36,7 +36,6 @@ fun AuthDialog(
     repository: AuthRepository,
     profileRepository: ProfileRepository,
     onSignedIn: () -> Unit,
-    onDisableSharing: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -174,7 +173,11 @@ fun AuthDialog(
                     } else {
                         Text("List sharing is enabled")
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text("Signed in as :")
+
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         if (editingDisplayName) {
                             Text(
@@ -241,11 +244,8 @@ fun AuthDialog(
                                 Text("Cancel")
                             }
                         } else {
-                            Text(
-                                text = profile!!.displayName,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.clickable {
+                            TextButton(
+                                onClick = {
                                     val currentName = profile!!.displayName
 
                                     displayNameEdit = TextFieldValue(
@@ -258,53 +258,20 @@ fun AuthDialog(
                                     editingDisplayName = true
                                     message = null
                                 }
-                            )
+                            ) {
+                                Text(
+                                    text = profile!!.displayName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
 
-                        Text("Signed in with")
                         Text(signedInEmail!!)
 
                         Spacer(modifier = Modifier.height(16.dp))
-
-                        Button(
-                            onClick = {
-                                busy = true
-                                message = null
-
-                                coroutineScope.launch {
-                                    try {
-                                        repository.signOut()
-                                        signedInEmail = null
-                                        email = ""
-                                        code = ""
-                                        codeRequested = false
-                                        profile = null
-                                        profileLoaded = false
-                                        displayName = ""
-                                        message = "Signed out"
-                                    } catch (error: Exception) {
-                                        message =
-                                            error.message ?: "Could not sign out"
-                                    } finally {
-                                        busy = false
-                                    }
-                                }
-                            },
-                            enabled = !busy
-                        ) {
-                            Text("Sign out")
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        TextButton(
-                            onClick = onDisableSharing,
-                            enabled = !busy
-                        ) {
-                            Text("Disable sharing")
-                        }
                     }
                 } else {
                     Text("Share selected lists with other people")

@@ -14,6 +14,84 @@ interface JSimpleListDao {
     @Query("SELECT * FROM lists ORDER BY position, createdAt")
     suspend fun loadLists(): List<ListEntity>
 
+    @Query(
+        """
+        SELECT
+            lists.id,
+            lists.name,
+            lists.kind,
+            lists.position,
+            lists.createdAt,
+            lists.updatedAt,
+            CASE
+                WHEN list_accounts.onlineState IS NOT NULL
+                    THEN list_accounts.onlineState
+                ELSE lists.onlineState
+            END AS onlineState
+        FROM lists
+        LEFT JOIN list_accounts
+            ON list_accounts.listId = lists.id
+           AND list_accounts.accountId = :accountId
+        WHERE (
+            lists.onlineState = 'LOCAL'
+            AND NOT EXISTS (
+                SELECT 1
+                FROM list_accounts AS any_account
+                WHERE any_account.listId = lists.id
+            )
+        )
+        OR list_accounts.accountId IS NOT NULL
+        ORDER BY lists.position, lists.createdAt
+        """
+    )
+    suspend fun loadVisibleLists(
+        accountId: String?
+    ): List<ListEntity>
+
+    @Query(
+        """
+        INSERT OR REPLACE INTO list_accounts (
+            listId,
+            accountId,
+            onlineState
+        )
+        VALUES (
+            :listId,
+            :accountId,
+            :onlineState
+        )
+        """
+    )
+    suspend fun upsertListAccount(
+        listId: String,
+        accountId: String,
+        onlineState: String
+    )
+
+    @Query(
+        """
+        SELECT onlineState
+        FROM list_accounts
+        WHERE listId = :listId
+          AND accountId = :accountId
+        LIMIT 1
+        """
+    )
+    suspend fun loadListAccountState(
+        listId: String,
+        accountId: String
+    ): String?
+
+    @Query(
+        """
+        DELETE FROM list_accounts
+        WHERE accountId = :accountId
+        """
+    )
+    suspend fun deleteListAccountsForAccount(
+        accountId: String
+    )
+
     @Query("SELECT * FROM lists WHERE id = :listId LIMIT 1")
     suspend fun loadList(listId: String): ListEntity?
 

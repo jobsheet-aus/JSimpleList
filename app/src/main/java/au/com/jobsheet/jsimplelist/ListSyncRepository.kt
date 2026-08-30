@@ -253,12 +253,21 @@ class ListSyncRepository(
     ): List<ListEntity> {
         requireSignedIn()
 
+        val accountId =
+            checkNotNull(
+                client.auth.currentSessionOrNull()?.user?.id
+            ) {
+                "Not signed in"
+            }
+
         val discoveredLists =
             client.postgrest
                 .rpc(
                     function = "get_my_online_lists"
                 )
                 .decodeAs<List<OnlineListDiscovery>>()
+
+        dao.deleteListAccountsForAccount(accountId)
 
         discoveredLists.forEach { discovered ->
             val onlineState =
@@ -321,13 +330,21 @@ class ListSyncRepository(
                 }
             }
 
+            dao.upsertListAccount(
+                listId = discovered.id,
+                accountId = accountId,
+                onlineState = onlineState
+            )
+        }
+
+        discoveredLists.forEach { discovered ->
             refreshList(
                 listId = discovered.id,
                 dao = dao
             )
         }
 
-        return dao.loadLists()
+        return dao.loadVisibleLists(accountId)
     }
 
     suspend fun loadSnapshot(listId: String): ListSyncSnapshot {
