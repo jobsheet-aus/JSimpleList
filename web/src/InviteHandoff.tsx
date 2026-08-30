@@ -1,8 +1,29 @@
 import './App.css'
+import { supabaseUrl } from './lib/supabase'
 
 function InviteHandoff() {
   const tokenHash =
     new URLSearchParams(window.location.search).get('token_hash')
+
+  function openInvitation() {
+    if (!tokenHash) {
+      return
+    }
+
+    const verificationUrl = new URL(
+      '/auth/v1/verify',
+      supabaseUrl,
+    )
+
+    verificationUrl.searchParams.set('token', tokenHash)
+    verificationUrl.searchParams.set('type', 'email')
+    verificationUrl.searchParams.set(
+      'redirect_to',
+      'https://jslist.jobsheet.com.au/auth/invite',
+    )
+
+    window.location.assign(verificationUrl.toString())
+  }
 
   return (
     <main className="app-shell">
@@ -17,7 +38,7 @@ function InviteHandoff() {
 
             <button
               type="button"
-              disabled
+              onClick={openInvitation}
             >
               Open JSimpleList
             </button>
