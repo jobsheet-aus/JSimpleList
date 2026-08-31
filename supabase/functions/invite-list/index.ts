@@ -187,6 +187,8 @@ Deno.serve(async (req: Request) => {
                 email,
                 options: {
                     shouldCreateUser: true,
+                    emailRedirectTo:
+                        "https://jslist.jobsheet.com.au/auth/invite",
                 },
             });
 
