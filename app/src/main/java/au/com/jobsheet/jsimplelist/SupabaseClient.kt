@@ -11,7 +11,12 @@ object JSimpleListSupabase {
         supabaseUrl = BuildConfig.SUPABASE_URL,
         supabaseKey = BuildConfig.SUPABASE_KEY
     ) {
-        install(Auth)
+        install(Auth) {
+            scheme = "https"
+            host = "jslist.jobsheet.com.au"
+            defaultRedirectUrl =
+                "https://jslist.jobsheet.com.au/auth/invite"
+        }
         install(Postgrest) {
             defaultSchema = "jsimplelist"
         }

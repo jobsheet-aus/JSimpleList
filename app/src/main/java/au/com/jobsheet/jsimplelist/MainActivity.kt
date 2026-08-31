@@ -1,5 +1,6 @@
 package au.com.jobsheet.jsimplelist
 
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -90,6 +91,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import au.com.jobsheet.jsimplelist.ui.theme.SimpleListTheme
+import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.realtime.broadcastFlow
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.realtime
@@ -110,14 +112,42 @@ private data class RealtimeListChangedPayload(
 )
 
 class MainActivity : ComponentActivity() {
+    private var authRefreshSignal by mutableStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        handleAuthIntent(intent)
+
         setContent {
             SimpleListTheme {
-                SimpleListApp()
+                SimpleListApp(
+                    authRefreshSignal = authRefreshSignal
+                )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAuthIntent(intent)
+    }
+
+    private fun handleAuthIntent(intent: Intent) {
+        val uri = intent.data
+
+        if (
+            uri?.scheme != "https" ||
+            uri.host != "jslist.jobsheet.com.au" ||
+            uri.path != "/auth/invite"
+        ) {
+            return
+        }
+
+        JSimpleListSupabase.client.handleDeeplinks(intent) {
+            authRefreshSignal += 1
         }
     }
 }
@@ -184,7 +214,9 @@ private val MIGRATION_4_5 = object : Migration(4, 5) {
 }
 
 @Composable
-private fun SimpleListApp() {
+private fun SimpleListApp(
+    authRefreshSignal: Int
+) {
     val context = LocalContext.current
     val applicationContext = context.applicationContext
     val store = remember { SimpleListStore(applicationContext) }
@@ -227,7 +259,7 @@ private fun SimpleListApp() {
         mutableStateOf<String?>(null)
     }
 
-    LaunchedEffect(database) {
+    LaunchedEffect(database, authRefreshSignal) {
         LegacyDataImporter(
             store = store,
             dao = dao
