@@ -153,7 +153,7 @@ Current account/menu/sharing UX:
   1. `Use this list on my other devices` / `Make available online` for the current authenticated account.
   2. `Invite someone` by email for another account.
 - For an online list, the Share dialog explains that it is available wherever the signed-in account is used and provides the invitation email field.
-- The owner-side invitation UI and backend send path are implemented. The recipient one-click onboarding experience is deliberately not considered finished.
+- Owner invitation sending and first-class recipient onboarding are implemented and proven end to end on real devices. Invitation email uses the scanner-safe browser handoff, Supabase Auth completion, verified Android App Link and existing pending-invitation acceptance/import flow; manual six-digit OTP remains the fallback.
 - Detailed invitation/onboarding architecture is authoritative in `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`.
 
 Item ordering:
@@ -343,11 +343,14 @@ Immediate sharing/UI work:
    - Leave the dialog open on failure so the user can retry.
 
 2. Shared-list member viewer from the list title.
-   - Tapping an online/shared list title should show:
-     - owner
-     - active members
-     - pending invitations
-   - This dialog should become the natural shared-list management surface.
+   - Implemented and real-phone tested.
+   - Tapping an online/shared list title or its chain icon opens a read-only `Shared list` dialog.
+   - The dialog shows the owner alias, active member aliases, and owner-only pending invitation email addresses.
+   - Local-only list titles remain non-clickable.
+   - Shared member aliases are resolved through profiles; RLS already permits active members to read shared-member profiles.
+   - A dedicated `SharingRepository.kt` loads active memberships, profile display names and owner-visible pending invitations.
+   - Loading/error/retry states are handled without affecting list use.
+   - This dialog is the intended management surface for the next owner/member controls.
 
 3. Owner/member management.
    - Owner may cancel a pending invitation.
@@ -577,83 +580,77 @@ CONTRIBUTING.md preserves practical future relicensing flexibility for substanti
 
 README currently describes the released local-only app. Update README/privacy/listing wording before a public network-enabled 2.0 release.
 
-CURRENT GIT CHECKPOINT - 30 AUG 2026
+CURRENT GIT CHECKPOINT - 31 AUG 2026
 ------------------------------------
-Functional/account/sharing/invitation checkpoint committed locally:
-    f7b5546 (HEAD -> main) Add account-scoped sharing and invitation foundation
+Latest pushed functional checkpoint:
+    6d21c60 Add shared list member viewer
 
-Previous pushed checkpoint:
-    432361b (origin/main, origin/HEAD) Update JSimpleList 29 Aug session context
-    b5ab29c Refine Android list navigation and sharing UI
+Important pushed checkpoints from this session:
+    13de0d0 Show shared item creator names
+    e445143 Add automatic fallback profiles
+    a58cae7 Add shared item attribution foundation
+    5de10dc Make new lists online before inviting
+    e6d0310 Fix debug app link verification
+    c7aad43 Add Android invitation app links
 
-Commit `f7b5546` contains the 30 Aug Android/backend implementation, including:
-- Room v5 account-scoped `list_accounts`
-- persisted-session restoration fix and sign-out fallback
-- account deletion client/backend path
-- Share list / New list UX changes
-- owner-side invitation send path
-- recipient pending-invitation foundation
-- migrations 024 and 025
-- Supabase Edge Functions `delete-account` and `invite-list`
-- local Supabase CLI npm dependency
-- associated build/schema/configuration changes
+Hosted/backend state:
+- Migration 026 fixes accepted invitation membership position assignment and is applied to hosted Supabase.
+- Migration 027 adds item creator/editor attribution, database-enforced attribution from `auth.uid()`, and attribution in sync snapshots; it is applied to hosted Supabase.
+- First-class invitation handoff infrastructure is deployed and working through `jslist.jobsheet.com.au`.
+- Android debug Digital Asset Links verification is proven.
+- Production Digital Asset Links still requires the actual Google Play App Signing SHA-256 certificate before public 2.0 release.
 
-Remaining uncommitted closeout files at this documentation checkpoint:
-- `.gitignore` with `/reset-adb.bat` added beside `/audit.cmd`
-- `docs/chatgpt/JSimpleList_RULES.txt`
-- `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`
-- this `docs/chatgpt/JSimpleList_CONTEXT.txt`
+Ignored/local-only items continue to include `reset-adb.bat`, `invite-secrets.env`, `node_modules/`, `supabase/.temp/`, signing material and `local.properties`. Explicit staging only; do not broad-add.
 
-`reset-adb.bat` is intentionally local-only and ignored. `git check-ignore -v reset-adb.bat` confirmed the repository rule.
-
-Ignored/local-only items include `reset-adb.bat`, `invite-secrets.env`, `node_modules/`, `supabase/.temp/`, signing material and `local.properties`. Explicit staging only; do not broad-add.
-
-The final closeout commit should contain only the intended `.gitignore` rule and the three maintained project documents, then be pushed together with `f7b5546`.
-
-SESSION CLOSEOUT - 30 AUG 2026
+SESSION CLOSEOUT - 31 AUG 2026
 ------------------------------
 Major work/decisions represented by this checkpoint:
-- Completed the account-scoped Room v5 model using `list_accounts(listId, accountId, onlineState)` so online cache visibility follows the authenticated account while local lists remain device-local.
-- Fixed persisted Supabase session restoration by awaiting Auth session initialisation before reading the current session.
-- Kept the supabase-kt 3.2.1 sign-out fallback to `clearSession()` for remote sign-out failures.
-- Corrected Android online-account deletion cleanup for the account-scoped model and successfully tested disposable-account deletion end to end against the deployed migration 024 / `delete-account` backend.
-- Tidied Sharing/profile UI: removed obsolete `Disable sharing`, kept display-name editing, and exposed separate Sign out and destructive Delete account actions.
-- Moved `New list` into the hamburger and promoted current-list `Share list`.
-- Implemented same-account `Make available online` and removed the duplicate Manage-lists Share path.
-- Added migration 025 to prevent duplicate active invitations for the same list/email and applied it to hosted Supabase.
-- Added/deployed `invite-list` Edge Function. Initial direct Resend delivery was replaced with normal Supabase `signInWithOtp()` so invitation recipients use the same passwordless authentication path as ordinary sign-in.
-- Rotated/recorded the JSimpleList Resend key, updated Supabase Auth SMTP, verified the local secret file is ignored, and confirmed the new Supabase OTP invitation email arrives.
-- Added owner-side invitation email UI and modular `InvitationRepository`.
-- Added recipient pending-invitation discovery/acceptance foundation. `accept_list_invitation()` remains the membership authority; accepted lists reuse `discoverOnlineLists()` and map member role to `ONLINE_MEMBER`.
-- Android debug build succeeds after these changes and the debug APK has been installed successfully.
-- Real testing exposed the remaining product-level gap: a fresh recipient should not have to reason out email + OTP manually. The accepted product direction is now a first-class one-click invitation onboarding workflow using Supabase authentication, the controlled JSimpleList website and verified Android App Links, with OTP retained as fallback.
-- Created `JSimpleList_RULES.txt` to make JSimpleList's working/session protocol authoritative in-repo.
-- Created `JSimpleList_INVITATION_FLOW.txt` as the authoritative invitation/onboarding subsystem design.
-- Committed the complete functional/account/sharing/invitation implementation checkpoint as `f7b5546 Add account-scoped sharing and invitation foundation`.
-- Kept `reset-adb.bat` as a useful local helper but deliberately ignored it alongside `audit.cmd` rather than adding it to project history.
-- Browser `jslist.jobsheet.com.au` is publicly reachable but still cannot create lists. An unsolicited external signup demonstrated that the unfinished browser experience can be encountered; do not present the browser client as complete until its basic onboarding/list-creation path is ready.
+- Completed and real-tested the first-class invitation onboarding path: invitation email -> scanner-safe browser handoff -> Supabase Auth -> verified Android App Link -> Android session import -> pending invitation acceptance -> shared list membership/import.
+- Kept manual six-digit OTP as the fallback authentication path.
+- Corrected Digital Asset Links so production and debug application IDs use separate certificate statements; Android debug domain verification and direct `/auth/invite` routing are proven.
+- Fixed fresh local-list invitation behaviour so Send invitation first makes that specific list online, then sends the invitation.
+- Migration 026 corrected the accepted-member position bug found during real recipient testing.
+- Added migration 027 and Room v6 item attribution fields: immutable creator plus most-recent editor IDs.
+- PostgreSQL remains authoritative for online attribution through `auth.uid()`; existing historical items remain unattributed rather than guessed.
+- New online items set creator/editor locally immediately, while edit, tick/untick and online tombstone paths update local editor attribution.
+- Added automatic fallback profiles for authenticated users with no profile, derived from the email local part plus `@`; existing aliases remain unchanged/editable.
+- Added shared-item creator aliases. Online/shared rows resolve creator UUIDs to profile display names; local-only lists show no attribution label.
+- Final creator-label UI is 10sp, right-aligned on the same row as the item description, using `onSurfaceVariant` at 0.55 alpha so it remains secondary and does not alter row height/vertical centring.
+- Profile lookup failure is non-fatal; items remain usable and simply omit creator labels.
+- Added the read-only shared-list member viewer. Tapping an online/shared list title or chain icon shows owner, active members, and owner-only pending invitations.
+- Added dedicated `SharingRepository.kt` for active membership/profile/pending-invitation reads using existing RLS; no new backend RPC was required for the viewer.
+- Shared-list viewer loading/error/retry states are implemented and real-phone testing passed.
+- Small Sharing-dialog wording cleanup: `Signed in as :` is now `Signed in as`.
+- Android debug builds and installs succeeded throughout the final attribution/profile/member-viewer work.
+- Source checkpoint `6d21c60 Add shared list member viewer` is pushed to `origin/main`.
 
 NEXT TASK
 ---------
-Begin a fresh session titled/treated as:
-    JSimpleList first-class invitation onboarding architecture
+Begin the next session as the JSimpleList shared-list management phase.
 
 Read first:
 - `docs/chatgpt/JSimpleList_RULES.txt`
 - `docs/chatgpt/JSimpleList_CONTEXT.txt`
-- `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`
+- `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt` when invitation authority/security details are relevant.
 
-Do not begin implementation immediately. The architecture phase must first determine:
-1. exact public invitation/handoff URL(s) on `jslist.jobsheet.com.au`
-2. exact Supabase token/auth-state lifecycle and where one-time state is consumed
-3. email-scanner-safe website handoff behaviour
-4. installed-app, not-installed and desktop/browser outcomes
-5. Android verified App Link / `assetlinks.json` / signing-certificate contract
-6. Android auth-completion and wrong-account handling
-7. fallback OTP behaviour and recovery states
-8. security contract proving that URL/token possession alone never grants list membership
+Immediate implementation order:
+1. Extend the existing `Shared list` dialog into the management surface.
+2. Owner: cancel a pending invitation.
+3. Owner: remove an active member.
+4. Owner: unshare the list, revoking active members/pending invitations and returning the owner's cached copy to genuine local-only state.
+5. Member: leave a shared list.
+6. Preserve authoritative removed/deleted/tombstone information so offline clients can later learn that access ended; do not silently convert stale shared cache into unrelated local data.
+7. Decide and implement the final server-copy cleanup semantics for owner unshare only after the offline/reconciliation contract is explicit.
+8. Add persistent sharing notifications, beginning with invitation accepted/member joined; realtime may supplement but must not be the sole delivery mechanism.
+9. Small outstanding invitation UX polish: after a successful invitation, clear the email and close the Share list dialog; leave it open on failure.
 
-Only after that end-to-end contract is settled should implementation proceed through the boundaries in `JSimpleList_INVITATION_FLOW.txt`.
+Before public 2.0 release also:
+- Update About/version/build information that still reflects released 1.1.
+- Add the actual Google Play App Signing SHA-256 certificate to production `assetlinks.json`.
+- Perform a real Google Play-signed 1.1 -> 2.0 upgrade test and verify local data preservation.
+- Complete the external account-deletion resource/page.
+- Update Google Play Data Safety.
+- Reconcile README/store/privacy/product wording with network-enabled 2.0 behaviour.
 
 SOURCE-EDITING REMINDER FOR NEXT SESSION
 ----------------------------------------
