@@ -239,6 +239,9 @@ private fun SimpleListApp(
     }
     val authRepository = remember { AuthRepository() }
     val profileRepository = remember { ProfileRepository() }
+    val sharingRepository = remember {
+        SharingRepository(profileRepository)
+    }
     val listSyncRepository = remember { ListSyncRepository() }
     val database = remember {
         Room.databaseBuilder<JSimpleListDatabase>(
@@ -508,10 +511,48 @@ private fun SimpleListApp(
     var deleteListId by remember { mutableStateOf<String?>(null) }
     var makingOnlineListId by remember { mutableStateOf<String?>(null) }
     var sharingListId by remember { mutableStateOf<String?>(null) }
+    var sharedListInfoListId by remember {
+        mutableStateOf<String?>(null)
+    }
+    var sharedListInfo by remember {
+        mutableStateOf<SharedListInfo?>(null)
+    }
+    var sharedListInfoLoading by remember {
+        mutableStateOf(false)
+    }
+    var sharedListInfoError by remember {
+        mutableStateOf<String?>(null)
+    }
     var invitationEmail by remember { mutableStateOf("") }
     var sendingInvitation by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
     val snackbarHostState = remember { SnackbarHostState() }
+
+    fun openSharedListInfo(listId: String) {
+        sharedListInfoListId = listId
+        sharedListInfo = null
+        sharedListInfoError = null
+        sharedListInfoLoading = true
+
+        coroutineScope.launch {
+            try {
+                sharedListInfo =
+                    sharingRepository.loadSharedListInfo(listId)
+            } catch (exception: Exception) {
+                Log.e(
+                    "JSimpleListSharing",
+                    "Could not load shared list info",
+                    exception
+                )
+
+                sharedListInfoError =
+                    exception.message
+                        ?: "Could not load sharing details"
+            } finally {
+                sharedListInfoLoading = false
+            }
+        }
+    }
 
     suspend fun persistItemUpdate(
         list: ListEntity,
@@ -1285,6 +1326,143 @@ private fun SimpleListApp(
             )
         }
 
+        sharedListInfoListId?.let { listId ->
+            val infoList =
+                lists.firstOrNull {
+                    it.id == listId
+                }
+
+            if (infoList == null) {
+                sharedListInfoListId = null
+                sharedListInfo = null
+                sharedListInfoError = null
+                sharedListInfoLoading = false
+            } else {
+                AlertDialog(
+                    onDismissRequest = {
+                        sharedListInfoListId = null
+                        sharedListInfo = null
+                        sharedListInfoError = null
+                        sharedListInfoLoading = false
+                    },
+                    title = {
+                        Text("Shared list")
+                    },
+                    text = {
+                        Column {
+                            Text(
+                                text = infoList.name,
+                                fontWeight = FontWeight.Medium
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            when {
+                                sharedListInfoLoading -> {
+                                    Text("Loading sharing details")
+                                }
+
+                                sharedListInfoError != null -> {
+                                    Text(
+                                        sharedListInfoError
+                                            ?: "Could not load sharing details"
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    TextButton(
+                                        onClick = {
+                                            openSharedListInfo(listId)
+                                        }
+                                    ) {
+                                        Text("Retry")
+                                    }
+                                }
+
+                                sharedListInfo != null -> {
+                                    val info = sharedListInfo!!
+                                    val owner =
+                                        info.members.firstOrNull {
+                                            it.role == "owner"
+                                        }
+                                    val members =
+                                        info.members.filter {
+                                            it.role != "owner"
+                                        }
+
+                                    Text(
+                                        text = "Owner",
+                                        fontWeight = FontWeight.Medium
+                                    )
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Text(
+                                        owner?.displayName
+                                            ?: "Unknown owner"
+                                    )
+
+                                    Spacer(modifier = Modifier.height(16.dp))
+
+                                    Text(
+                                        text = "Members",
+                                        fontWeight = FontWeight.Medium
+                                    )
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    if (members.isEmpty()) {
+                                        Text("No other members")
+                                    } else {
+                                        members.forEach { member ->
+                                            Text(member.displayName)
+                                        }
+                                    }
+
+                                    if (
+                                        info.pendingInvitations.isNotEmpty()
+                                    ) {
+                                        Spacer(
+                                            modifier =
+                                                Modifier.height(16.dp)
+                                        )
+
+                                        Text(
+                                            text = "Pending invitations",
+                                            fontWeight = FontWeight.Medium
+                                        )
+
+                                        Spacer(
+                                            modifier =
+                                                Modifier.height(4.dp)
+                                        )
+
+                                        info.pendingInvitations.forEach {
+                                            invitation ->
+                                            Text(invitation.invitedEmail)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                sharedListInfoListId = null
+                                sharedListInfo = null
+                                sharedListInfoError = null
+                                sharedListInfoLoading = false
+                            }
+                        ) {
+                            Text("Close")
+                        }
+                    }
+                )
+            }
+        }
+
+
         sharingListId?.let { listId ->
             val sharingList =
                 lists.firstOrNull {
@@ -2023,7 +2201,15 @@ private fun SimpleListApp(
                         )
                     } else {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier =
+                                if (currentList.onlineState != "LOCAL") {
+                                    Modifier.clickable {
+                                        openSharedListInfo(currentList.id)
+                                    }
+                                } else {
+                                    Modifier
+                                }
                         ) {
                             Text(
                                 text = currentList.name,
