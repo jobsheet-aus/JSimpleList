@@ -213,6 +213,19 @@ private val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+private val MIGRATION_5_6 = object : Migration(5, 6) {
+    override suspend fun migrate(
+        connection: androidx.sqlite.SQLiteConnection
+    ) {
+        connection.execSQL(
+            "ALTER TABLE items ADD COLUMN createdByUserId TEXT"
+        )
+        connection.execSQL(
+            "ALTER TABLE items ADD COLUMN updatedByUserId TEXT"
+        )
+    }
+}
+
 @Composable
 private fun SimpleListApp(
     authRefreshSignal: Int
@@ -236,7 +249,8 @@ private fun SimpleListApp(
                 MIGRATION_1_2,
                 MIGRATION_2_3,
                 MIGRATION_3_4,
-                MIGRATION_4_5
+                MIGRATION_4_5,
+                MIGRATION_5_6
             )
             .build()
     }
@@ -2199,6 +2213,8 @@ private fun SimpleListApp(
                         ListScreen(
                             listId = list.id,
                             kind = kind,
+                            onlineState = list.onlineState,
+                            currentUserId = authRepository.currentUserId(),
                             items = items,
                             hasCompletedItems = hasCompletedItems,
                             onUncheckAll = uncheckAllItems,
@@ -2394,6 +2410,8 @@ private fun listKindLabel(kind: ListKind): String =
 private fun ListScreen(
     listId: String,
     kind: ListKind,
+    onlineState: String,
+    currentUserId: String?,
     items: MutableList<ItemEntity>,
     hasCompletedItems: Boolean,
     onUncheckAll: () -> Unit,
@@ -2468,6 +2486,13 @@ private fun ListScreen(
             }
 
         val now = System.currentTimeMillis()
+        val attributionUserId =
+            if (onlineState != "LOCAL") {
+                currentUserId
+            } else {
+                null
+            }
+
         val item = ItemEntity(
             id = UUID.randomUUID().toString(),
             listId = listId,
@@ -2476,7 +2501,9 @@ private fun ListScreen(
             completed = false,
             position = (items.minOfOrNull { it.position } ?: 10) - 10,
             createdAt = now,
-            updatedAt = now
+            updatedAt = now,
+            createdByUserId = attributionUserId,
+            updatedByUserId = attributionUserId
         )
 
         items.add(item)

@@ -125,7 +125,13 @@ data class OnlineItemSnapshot(
     val updatedAt: String,
 
     @SerialName("deleted_at")
-    val deletedAt: String? = null
+    val deletedAt: String? = null,
+
+    @SerialName("created_by_user_id")
+    val createdByUserId: String? = null,
+
+    @SerialName("updated_by_user_id")
+    val updatedByUserId: String? = null
 )
 
 class ListSyncRepository(
@@ -408,7 +414,9 @@ class ListSyncRepository(
                     deletedAt =
                         item.deletedAt?.let {
                             Instant.parse(it).toEpochMilli()
-                        }
+                        },
+                    createdByUserId = item.createdByUserId,
+                    updatedByUserId = item.updatedByUserId
                 )
             }
 

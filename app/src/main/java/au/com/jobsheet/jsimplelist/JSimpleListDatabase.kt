@@ -9,7 +9,7 @@ import androidx.room3.RoomDatabase
         ItemEntity::class,
         ListAccountEntity::class
     ],
-    version = 5
+    version = 6
 )
 abstract class JSimpleListDatabase : RoomDatabase() {
     abstract fun dao(): JSimpleListDao

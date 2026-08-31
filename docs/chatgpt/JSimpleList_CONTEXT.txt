@@ -66,7 +66,7 @@ JSimpleList 1.1 was submitted to Google Play Production. The context at submissi
 
 2.0 LOCAL DATA MODEL
 --------------------
-Room schema version 5 contains `lists`, `items` and `list_accounts`.
+Room schema version 6 contains `lists`, `items` and `list_accounts`.
 
 ListEntity:
 - id: UUID string
@@ -87,6 +87,8 @@ ItemEntity:
 - createdAt
 - updatedAt
 - deletedAt: nullable epoch millis tombstone for online-safe deletion
+- createdByUserId: nullable authenticated creator UUID for shared-item attribution
+- updatedByUserId: nullable authenticated UUID of the most recent editor
 
 ListAccountEntity / `list_accounts`:
 - composite primary key `(listId, accountId)`
@@ -113,6 +115,7 @@ Legacy upgrade:
 - Genuine upgrade import creates ordinary To-do and Shopping ListEntity rows and preserves descriptions, quantities, completion and order.
 - Room v4 added `lists.updatedAt`; migration initialises it from `createdAt`.
 - Room v5 adds `list_accounts`; migration 4->5 creates the relationship table and indexes without guessing account ownership for pre-existing online cache rows.
+- Room v6 adds nullable `createdByUserId` and `updatedByUserId` item attribution fields; migration 5->6 preserves all existing item data and leaves historic attribution unknown/null.
 - Existing local data migrates safely through Room schema upgrades; item tombstones default to null.
 - Legacy JSON is left untouched during import.
 - `LegacySimpleListItem` exists only for import compatibility; new writes must not use the old JSON format.
@@ -157,6 +160,7 @@ Item ordering:
 - New items are inserted at the top by assigning a position below the current minimum.
 - The active LazyColumn scrolls to the newly added item so it stays visible under the soft keyboard.
 - Display ordering respects persisted `position`, then `createdAt`, while incomplete items are presented before completed items.
+- Room v6 adds nullable `createdByUserId` and `updatedByUserId` item attribution fields; migration 5->6 preserves all existing item data and leaves historic attribution unknown/null.
 - Toggling completion changes completion state, not item position.
 - Explicit persisted position remains the basis for future manual item reordering.
 - Manual item reordering should work for all list kinds.
@@ -231,7 +235,9 @@ Committed milestones include:
 
 Supabase:
 - Custom schema `jsimplelist` exposed for the Data API.
-- SQL migrations 001-025 live under `migrations/`; migrations 024 and 025 were applied to the hosted project on 30 Aug 2026.
+- SQL migrations 001-027 live under `migrations/`; migrations 026 and 027 were applied to the hosted project on 31 Aug 2026.
+- Migration 026 fixes accepted-member list position assignment.
+- Migration 027 adds nullable `created_by_user_id` / `updated_by_user_id` item attribution, database-enforced attribution from `auth.uid()`, and exposes attribution in list sync snapshots.
 - Migration 024 adds authenticated online-account data cleanup used by the `delete-account` Edge Function.
 - Migration 025 adds a partial unique index preventing duplicate simultaneous active invitations for the same list/email pair.
 - Existing schema includes profiles/users, lists, list_members, list_invitations, items, tombstones, list metadata timestamps, discovery and private realtime authorisation.
@@ -313,18 +319,92 @@ SHARING / INVITATION DIRECTION
 - Detailed authority, URL, failure-state and implementation-boundary design is authoritative in `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`; do not duplicate it here.
 - Browser same-account use requires no invitation: sign into `jslist.jobsheet.com.au` with the same account and online lists appear.
 
+
 NEXT ANDROID / SHARING WORK
 ---------------------------
-Immediate next phase after this closeout:
-1. Start a fresh session for `JSimpleList first-class invitation onboarding architecture`.
-2. Read `JSimpleList_RULES.txt`, this context document and `JSimpleList_INVITATION_FLOW.txt` before implementation.
-3. Inspect current `jslist.jobsheet.com.au` web hosting/routes.
-4. Inspect AndroidManifest.xml and existing intent/deep-link handling.
-5. Inspect Supabase redirect/auth callback configuration and current email-template capabilities only as needed.
-6. Settle the exact public handoff URLs, token/auth-state lifecycle, installed/not-installed/browser behaviour, Android App Link contract, website handoff contract and security/failure-state contract before coding.
-7. Then implement the invitation subsystem in the deliberate boundaries defined in `JSimpleList_INVITATION_FLOW.txt`.
-8. After invitation onboarding, continue owner member controls, Android synced rename, account/list-set realtime and durable failed-write reconciliation.
-9. Before public 2.0 release, complete external account-deletion resource/page, Google-signed 1.1->2.0 upgrade test, Google Play Data Safety, and README/store/privacy reconciliation.
+
+Current invitation/onboarding state:
+- First-class invitation onboarding is now working end to end in real testing.
+- A brand-new local list can be shared directly: Send invitation first makes the list online and only then sends the invitation.
+- Invitation email uses the scanner-safe `https://jslist.jobsheet.com.au/invite` handoff.
+- Supabase Auth redirects through `https://jslist.jobsheet.com.au/auth/invite`.
+- Android verified App Links are working for the debug build; `/auth/invite` opens JSimpleList directly.
+- `assetlinks.json` contains separate release and debug package statements.
+- Before public 2.0 release, add the actual Google Play App Signing SHA-256 certificate fingerprint to the release Digital Asset Links statement.
+- Real recipient testing with Kate successfully reached accepted shared-list membership.
+- Migration 026 fixed accepted-member position assignment.
+- Migration 027 adds item creator/editor attribution fields and is applied to hosted Supabase.
+- Room schema v6 adds nullable item creator/editor attribution fields and has been built, installed and migration-tested on the development phone.
+
+Immediate sharing/UI work:
+1. Close the Share list dialog after a successful invitation.
+   - Clear the invitation email.
+   - Close only on success.
+   - Leave the dialog open on failure so the user can retry.
+
+2. Shared-list member viewer from the list title.
+   - Tapping an online/shared list title should show:
+     - owner
+     - active members
+     - pending invitations
+   - This dialog should become the natural shared-list management surface.
+
+3. Owner/member management.
+   - Owner may cancel a pending invitation.
+   - Owner may remove an active member.
+   - Owner may unshare the list.
+   - Member may leave the shared list.
+   - Owner unshare should revoke active memberships/invitations and return the owner's copy to local-only.
+   - Preserve sufficient removed/deleted/tombstone state so offline clients can learn that access ended.
+   - Decide final server-copy cleanup timing separately; do not silently destroy offline state.
+
+4. Persistent sharing notifications.
+   - First event type: invitation accepted / member joined.
+   - Notify the inviter/owner, e.g. `Kate joined Shopping list`.
+   - Persist notifications so they are not lost while the app is closed.
+   - Realtime may supplement this while the app is open but must not be the only delivery mechanism.
+   - Future event types may include member left, member removed, invitation cancelled and list unshared.
+
+5. Item creator/editor attribution.
+   - Supabase items have nullable `created_by_user_id` and `updated_by_user_id`.
+   - `created_by_user_id` is immutable once set.
+   - `updated_by_user_id` changes whenever the item is edited, ticked/unticked, moved or tombstoned.
+   - PostgreSQL sets/enforces attribution from `auth.uid()`; clients must not be authoritative for attribution.
+   - Existing historic server items remain unattributed rather than guessed.
+   - Room v6 adds nullable `createdByUserId` and `updatedByUserId`.
+   - New online items should also record the current user ID locally immediately so the creator label does not need to wait for a remote refresh.
+   - Item timestamps already exist as createdAt/updatedAt/deletedAt locally and created_at/updated_at/deleted_at remotely.
+
+6. Item creator label.
+   - Show on online/shared lists only.
+   - Small, light-grey, low-emphasis text.
+   - Right aligned in the item row.
+   - Prefer the creator's chosen display name.
+   - If no alias/display name was chosen, use the generated fallback such as `harrisk612@`.
+   - Do not expose full email addresses merely to provide item attribution.
+   - `updated_by_user_id` is stored for future use but does not need to be displayed initially.
+
+7. Automatic fallback display name.
+   - Display-name/alias entry becomes optional.
+   - On first authenticated use, if no profile exists, create one automatically from the email local-part plus `@`.
+   - Example: `harrisk612@example.com` -> `harrisk612@`.
+   - The user may later replace the generated name with an alias such as `Kate` or `Josh`.
+   - Duplicate generated names are acceptable initially; users can resolve rare collisions by choosing aliases.
+
+Later sync/sharing work:
+- Account/list-set realtime so new or removed memberships appear without manual discovery.
+- Durable retry/reconciliation for failed online writes.
+- Continue synced list ordering/manual ordering work.
+- Refine browser membership/list-set refresh behaviour.
+- Complete owner member controls through the shared-list information dialog.
+
+Before public 2.0 release:
+- Update About/version/build information that still reflects released 1.1.
+- Add the Google Play App Signing SHA-256 fingerprint to `assetlinks.json`.
+- Perform a real Google Play-signed 1.1 -> 2.0 upgrade test and verify local data preservation.
+- Complete the external account-deletion resource/page required by Google Play.
+- Update Google Play Data Safety for account/email/profile/shared-list processing.
+- Reconcile README, store listing, privacy and product wording with network-enabled 2.0 behaviour.
 
 BROWSER CLIENT
 --------------

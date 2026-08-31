@@ -29,5 +29,7 @@ data class ItemEntity(
     val position: Int,
     val createdAt: Long,
     val updatedAt: Long,
-    val deletedAt: Long? = null
+    val deletedAt: Long? = null,
+    val createdByUserId: String? = null,
+    val updatedByUserId: String? = null
 )
