@@ -270,10 +270,17 @@ private fun SimpleListApp(
     var activeListRestored by remember { mutableStateOf(false) }
     var signedInEmail by remember { mutableStateOf<String?>(null) }
     val invitationRepository = remember { InvitationRepository() }
+    val notificationRepository = remember { NotificationRepository() }
     val pendingInvitations = remember {
         mutableStateListOf<PendingInvitation>()
     }
+    val unseenNotifications = remember {
+        mutableStateListOf<AppNotification>()
+    }
     var acceptingInvitationId by remember {
+        mutableStateOf<String?>(null)
+    }
+    var markingNotificationSeenId by remember {
         mutableStateOf<String?>(null)
     }
 
@@ -321,6 +328,19 @@ private fun SimpleListApp(
                 Log.e(
                     "JSimpleListInvitation",
                     "Invitation discovery failed at startup",
+                    exception
+                )
+            }
+
+            try {
+                unseenNotifications.clear()
+                unseenNotifications.addAll(
+                    notificationRepository.loadUnseenNotifications()
+                )
+            } catch (exception: Exception) {
+                Log.e(
+                    "JSimpleListNotification",
+                    "Notification discovery failed at startup",
                     exception
                 )
             }
@@ -877,7 +897,9 @@ private fun SimpleListApp(
 
                                     signedInEmail = null
                                     pendingInvitations.clear()
+                                    unseenNotifications.clear()
                                     acceptingInvitationId = null
+                                    markingNotificationSeenId = null
 
                                     val loadedLists =
                                         dao.loadVisibleLists(null)
@@ -955,6 +977,11 @@ private fun SimpleListApp(
                             pendingInvitations.clear()
                             pendingInvitations.addAll(
                                 invitationRepository.loadPendingInvitations()
+                            )
+
+                            unseenNotifications.clear()
+                            unseenNotifications.addAll(
+                                notificationRepository.loadUnseenNotifications()
                             )
 
                             val loadedLists =
@@ -1109,6 +1136,98 @@ private fun SimpleListApp(
             )
         }
 
+        if (
+            !showListSharing &&
+            pendingInvitations.isEmpty() &&
+            unseenNotifications.isNotEmpty()
+        ) {
+            val notification = unseenNotifications.first()
+
+            AlertDialog(
+                onDismissRequest = {
+                    if (markingNotificationSeenId == null) {
+                        markingNotificationSeenId = notification.id
+
+                        coroutineScope.launch {
+                            try {
+                                notificationRepository.markSeen(
+                                    notification.id
+                                )
+                                unseenNotifications.remove(notification)
+                            } catch (exception: Exception) {
+                                Log.e(
+                                    "JSimpleListNotification",
+                                    "Could not mark notification seen",
+                                    exception
+                                )
+                            } finally {
+                                markingNotificationSeenId = null
+                            }
+                        }
+                    }
+                },
+                title = {
+                    Text("Sharing update")
+                },
+                text = {
+                    Text(
+                        when (notification.eventType) {
+                            "invitation_accepted" ->
+                                "${notification.actorDisplayName} joined " +
+                                    notification.listName
+
+                            else ->
+                                "Your shared list has been updated"
+                        }
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            markingNotificationSeenId = notification.id
+
+                            coroutineScope.launch {
+                                try {
+                                    notificationRepository.markSeen(
+                                        notification.id
+                                    )
+                                    unseenNotifications.remove(notification)
+                                } catch (exception: Exception) {
+                                    Log.e(
+                                        "JSimpleListNotification",
+                                        "Could not mark notification seen",
+                                        exception
+                                    )
+
+                                    Toast.makeText(
+                                        context,
+                                        "Could not dismiss notification",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } finally {
+                                    markingNotificationSeenId = null
+                                }
+                            }
+                        },
+                        enabled =
+                            markingNotificationSeenId == null
+                    ) {
+                        Text(
+                            if (
+                                markingNotificationSeenId ==
+                                notification.id
+                            ) {
+                                "Closing"
+                            } else {
+                                "OK"
+                            }
+                        )
+                    }
+                }
+            )
+        }
+
+
         if (showDeleteAccount) {
             AlertDialog(
                 onDismissRequest = {
@@ -1177,7 +1296,9 @@ private fun SimpleListApp(
 
                                     signedInEmail = null
                                     pendingInvitations.clear()
+                                    unseenNotifications.clear()
                                     acceptingInvitationId = null
+                                    markingNotificationSeenId = null
 
                                     val loadedLists =
                                         dao.loadVisibleLists(null)
@@ -1592,6 +1713,7 @@ private fun SimpleListApp(
                                                 ).show()
 
                                                 invitationEmail = ""
+                                                sharingListId = null
                                             } catch (error: Exception) {
                                                 Log.e(
                                                     "JSimpleList",
@@ -1673,6 +1795,7 @@ private fun SimpleListApp(
                                                 ).show()
 
                                                 invitationEmail = ""
+                                                sharingListId = null
                                             } catch (error: Exception) {
                                                 Log.e(
                                                     "JSimpleList",
