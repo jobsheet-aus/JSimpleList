@@ -287,6 +287,16 @@ private fun SimpleListApp(
 
         if (accountId != null) {
             try {
+                profileRepository.loadOrCreateMyProfile()
+            } catch (exception: Exception) {
+                Log.e(
+                    "JSimpleListProfile",
+                    "Automatic profile creation failed",
+                    exception
+                )
+            }
+
+            try {
                 listSyncRepository.discoverOnlineLists(
                     dao = dao
                 )

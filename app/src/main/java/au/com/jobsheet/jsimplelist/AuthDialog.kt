@@ -93,7 +93,7 @@ fun AuthDialog(
             message = null
 
             try {
-                profile = profileRepository.loadMyProfile()
+                profile = profileRepository.loadOrCreateMyProfile()
                 displayName = profile?.displayName ?: ""
                 profileLoaded = true
             } catch (error: Exception) {

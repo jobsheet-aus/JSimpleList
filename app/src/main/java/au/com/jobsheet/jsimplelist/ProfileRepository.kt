@@ -42,6 +42,34 @@ class ProfileRepository(
             .decodeSingleOrNull<Profile>()
     }
 
+    suspend fun loadOrCreateMyProfile(): Profile? {
+        val session =
+            client.auth.currentSessionOrNull()
+                ?: return null
+
+        val existingProfile = loadMyProfile()
+
+        if (existingProfile != null) {
+            return existingProfile
+        }
+
+        val email =
+            session.user?.email
+                ?: error("Authenticated email required")
+
+        val localPart =
+            email.substringBefore("@").trim()
+
+        val fallbackBase =
+            localPart
+                .ifEmpty { "user" }
+                .take(49)
+
+        return saveMyDisplayName(
+            "$fallbackBase@"
+        )
+    }
+
     suspend fun saveMyDisplayName(displayName: String): Profile {
         val userId =
             client.auth.currentSessionOrNull()?.user?.id

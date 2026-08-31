@@ -385,10 +385,13 @@ Immediate sharing/UI work:
    - `updated_by_user_id` is stored for future use but does not need to be displayed initially.
 
 7. Automatic fallback display name.
-   - Display-name/alias entry becomes optional.
-   - On first authenticated use, if no profile exists, create one automatically from the email local-part plus `@`.
+   - Implemented.
+   - On authenticated startup, if no profile exists, create one automatically from the email local-part plus `@`.
    - Example: `harrisk612@example.com` -> `harrisk612@`.
-   - The user may later replace the generated name with an alias such as `Kate` or `Josh`.
+   - AuthDialog also uses the same load-or-create profile path.
+   - Existing profiles are preserved unchanged.
+   - The user may later replace the generated name with an alias.
+   - Generated fallback names are capped to the existing 50-character display-name limit.
    - Duplicate generated names are acceptable initially; users can resolve rare collisions by choosing aliases.
 
 Later sync/sharing work:
