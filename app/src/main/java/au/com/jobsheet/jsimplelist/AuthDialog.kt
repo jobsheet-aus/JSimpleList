@@ -175,7 +175,7 @@ fun AuthDialog(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        Text("Signed in as :")
+                        Text("Signed in as")
 
                         Spacer(modifier = Modifier.height(8.dp))
 

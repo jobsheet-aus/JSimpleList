@@ -70,6 +70,27 @@ class ProfileRepository(
         )
     }
 
+    suspend fun loadProfiles(userIds: Set<String>): Map<String, String> {
+        if (userIds.isEmpty()) {
+            return emptyMap()
+        }
+
+        return client
+            .from("profiles")
+            .select {
+                filter {
+                    isIn(
+                        "user_id",
+                        userIds.toList()
+                    )
+                }
+            }
+            .decodeList<Profile>()
+            .associate { profile ->
+                profile.userId to profile.displayName
+            }
+    }
+
     suspend fun saveMyDisplayName(displayName: String): Profile {
         val userId =
             client.auth.currentSessionOrNull()?.user?.id

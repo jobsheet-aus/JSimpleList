@@ -146,7 +146,7 @@ Current account/menu/sharing UX:
 - `Sign in` opens the existing sharing/auth dialog.
 - `Sign out` uses a confirmation dialog: `Shared lists will be unavailable on this device until you sign in again. Local lists will remain available.`
 - Sign-out reloads `loadVisibleLists(null)`, so shared lists disappear while genuine device-local lists remain.
-- Sharing is non-destructive profile/account information. It shows `List sharing is enabled`, the signed-in email and a large tappable display name for editing.
+- Sharing is non-destructive profile/account information. It shows `List sharing is enabled`, `Signed in as` followed by the signed-in email, and a large tappable display name for editing. The older `Signed in as :` punctuation was removed.
 - The older `Disable sharing` action has been removed. Account deletion is a separate explicit hamburger action.
 - The prominent current-list action is now `Share list`; the former prominent `+ List` action has moved into the hamburger as `New list`.
 - `Share list` distinguishes two intentions without exposing the term self-share:
@@ -366,23 +366,25 @@ Immediate sharing/UI work:
    - Future event types may include member left, member removed, invitation cancelled and list unshared.
 
 5. Item creator/editor attribution.
+   - Implemented.
    - Supabase items have nullable `created_by_user_id` and `updated_by_user_id`.
    - `created_by_user_id` is immutable once set.
-   - `updated_by_user_id` changes whenever the item is edited, ticked/unticked, moved or tombstoned.
-   - PostgreSQL sets/enforces attribution from `auth.uid()`; clients must not be authoritative for attribution.
+   - PostgreSQL sets/enforces authoritative attribution from `auth.uid()`; clients do not supply authoritative attribution.
+   - Room v6 stores nullable `createdByUserId` and `updatedByUserId`.
+   - New online items record the current user locally immediately as creator/editor while the server remains authoritative.
+   - Local online-item edit, tick/untick and delete/tombstone paths update `updatedByUserId` immediately.
    - Existing historic server items remain unattributed rather than guessed.
-   - Room v6 adds nullable `createdByUserId` and `updatedByUserId`.
-   - New online items should also record the current user ID locally immediately so the creator label does not need to wait for a remote refresh.
    - Item timestamps already exist as createdAt/updatedAt/deletedAt locally and created_at/updated_at/deleted_at remotely.
 
 6. Item creator label.
-   - Show on online/shared lists only.
-   - Small, light-grey, low-emphasis text.
-   - Right aligned in the item row.
-   - Prefer the creator's chosen display name.
-   - If no alias/display name was chosen, use the generated fallback such as `harrisk612@`.
+   - Implemented for online/shared lists only; local-only lists show no attribution label.
+   - Creator UUIDs are resolved to profile display names in one profile query for the current list.
+   - Profile lookup failure is non-fatal; the item remains usable and simply shows no creator label.
+   - Prefer the creator's chosen display name; automatically generated fallback names such as `harrisk612@` are used when no alias has been chosen.
    - Do not expose full email addresses merely to provide item attribution.
-   - `updated_by_user_id` is stored for future use but does not need to be displayed initially.
+   - The creator label is rendered at 10sp, right-aligned on the same horizontal row as the item description so it does not increase row height or disturb vertical centring.
+   - Final visual treatment uses `onSurfaceVariant` at 0.55 alpha so the attribution remains secondary to the item text and Delete control.
+   - `updated_by_user_id` is stored for future use but is not displayed initially.
 
 7. Automatic fallback display name.
    - Implemented.

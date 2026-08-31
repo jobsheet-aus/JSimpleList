@@ -87,6 +87,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -2225,6 +2226,7 @@ private fun SimpleListApp(
                             kind = kind,
                             onlineState = list.onlineState,
                             currentUserId = authRepository.currentUserId(),
+                            profileRepository = profileRepository,
                             items = items,
                             hasCompletedItems = hasCompletedItems,
                             onUncheckAll = uncheckAllItems,
@@ -2341,7 +2343,9 @@ private fun SimpleListApp(
                                         val deletedItem =
                                             item.copy(
                                                 updatedAt = now,
-                                                deletedAt = now
+                                                deletedAt = now,
+                                                updatedByUserId =
+                                                    authRepository.currentUserId()
                                             )
 
                                         dao.updateItem(deletedItem)
@@ -2422,6 +2426,7 @@ private fun ListScreen(
     kind: ListKind,
     onlineState: String,
     currentUserId: String?,
+    profileRepository: ProfileRepository,
     items: MutableList<ItemEntity>,
     hasCompletedItems: Boolean,
     onUncheckAll: () -> Unit,
@@ -2433,6 +2438,36 @@ private fun ListScreen(
     onItemUpdated: (ItemEntity) -> Unit,
     onItemDeleted: (ItemEntity) -> Unit
 ) {
+    var creatorNames by remember {
+        mutableStateOf<Map<String, String>>(emptyMap())
+    }
+
+    val creatorUserIds =
+        if (onlineState != "LOCAL") {
+            items
+                .mapNotNull { it.createdByUserId }
+                .toSet()
+        } else {
+            emptySet()
+        }
+
+    LaunchedEffect(creatorUserIds) {
+        creatorNames =
+            if (creatorUserIds.isEmpty()) {
+                emptyMap()
+            } else {
+                try {
+                    profileRepository.loadProfiles(creatorUserIds)
+                } catch (exception: Exception) {
+                    Log.e(
+                        "JSimpleListProfile",
+                        "Could not load item creator profiles",
+                        exception
+                    )
+                    emptyMap()
+                }
+            }
+    }
     var description by remember(kind) { mutableStateOf("") }
     var quantityText by remember(kind) { mutableStateOf("1") }
     var pendingScrollItemId by remember(listId) {
@@ -2656,6 +2691,14 @@ private fun ListScreen(
                     ListItemRow(
                         item = item,
                         kind = kind,
+                        creatorName =
+                            if (onlineState != "LOCAL") {
+                                item.createdByUserId?.let {
+                                    creatorNames[it]
+                                }
+                            } else {
+                                null
+                            },
                         fontScale = fontScale,
                         onUpdate = { newDescription, newQuantity ->
                             val index = items.indexOfFirst { it.id == item.id }
@@ -2664,7 +2707,13 @@ private fun ListScreen(
                                 val updatedItem = item.copy(
                                     description = newDescription,
                                     quantity = newQuantity,
-                                    updatedAt = System.currentTimeMillis()
+                                    updatedAt = System.currentTimeMillis(),
+                                    updatedByUserId =
+                                        if (onlineState != "LOCAL") {
+                                            currentUserId
+                                        } else {
+                                            null
+                                        }
                                 )
                                 items[index] = updatedItem
                                 onItemUpdated(updatedItem)
@@ -2676,7 +2725,13 @@ private fun ListScreen(
                             if (index >= 0) {
                                 val updatedItem = item.copy(
                                     completed = !item.completed,
-                                    updatedAt = System.currentTimeMillis()
+                                    updatedAt = System.currentTimeMillis(),
+                                    updatedByUserId =
+                                        if (onlineState != "LOCAL") {
+                                            currentUserId
+                                        } else {
+                                            null
+                                        }
                                 )
                                 items[index] = updatedItem
                                 onItemUpdated(updatedItem)
@@ -2885,6 +2940,7 @@ private fun EntryRow(
 private fun ListItemRow(
     item: ItemEntity,
     kind: ListKind,
+    creatorName: String?,
     fontScale: Float,
     onUpdate: (String, Int?) -> Unit,
     onToggle: () -> Unit,
@@ -3098,30 +3154,46 @@ private fun ListItemRow(
                 )
             }
 
-            Text(
-                text = item.description,
-                fontSize = scaledSp(16f, fontScale),
-                textDecoration = if (item.completed) {
-                    TextDecoration.LineThrough
-                } else {
-                    TextDecoration.None
-                },
-                color = if (item.completed) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
+            Row(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(end = 4.dp)
-                    .clickable {
-                        editDescription = TextFieldValue(
-                            text = item.description,
-                            selection = TextRange(item.description.length)
-                        )
-                        editing = true
-                    }
-            )
+                    .padding(end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = item.description,
+                    fontSize = scaledSp(16f, fontScale),
+                    textDecoration = if (item.completed) {
+                        TextDecoration.LineThrough
+                    } else {
+                        TextDecoration.None
+                    },
+                    color = if (item.completed) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            editDescription = TextFieldValue(
+                                text = item.description,
+                                selection = TextRange(item.description.length)
+                            )
+                            editing = true
+                        }
+                )
+
+                if (creatorName != null) {
+                    Text(
+                        text = creatorName,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                        fontSize = 10.sp,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.padding(start = 6.dp)
+                    )
+                }
+            }
 
             TextButton(onClick = onDelete) {
                 Text(
