@@ -7,8 +7,19 @@
       "namespace": "android_app",
       "package_name": "au.com.jobsheet.jsimplelist",
       "sha256_cert_fingerprints": [
-        "5C:32:CF:71:15:9E:73:60:E7:55:E9:BD:A1:0D:1F:CD:4D:D8:03:E8:FD:58:89:37:9B:B7:94:03:EC:B1:2C:A5",
         "FC:11:21:71:28:F3:65:36:6D:4C:3F:98:8A:25:36:D4:02:51:F6:E7:1B:52:75:B6:11:89:6C:74:92:06:AF:59"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "au.com.jobsheet.jsimplelist.debug",
+      "sha256_cert_fingerprints": [
+        "5C:32:CF:71:15:9E:73:60:E7:55:E9:BD:A1:0D:1F:CD:4D:D8:03:E8:FD:58:89:37:9B:B7:94:03:EC:B1:2C:A5"
       ]
     }
   }
