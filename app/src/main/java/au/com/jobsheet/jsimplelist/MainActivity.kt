@@ -1372,6 +1372,11 @@ private fun SimpleListApp(
                                             sendingInvitation = true
 
                                             try {
+                                                makeListAvailableOnline(
+                                                    list = sharingList,
+                                                    listItems = sharingItems
+                                                )
+
                                                 invitationRepository.sendInvitation(
                                                     listId = sharingList.id,
                                                     email = invitationEmail
