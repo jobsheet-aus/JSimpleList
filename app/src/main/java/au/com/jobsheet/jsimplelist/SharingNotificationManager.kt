@@ -40,8 +40,46 @@ class SharingNotificationManager(
         notificationManager.createNotificationChannel(channel)
     }
 
-    fun show(
-        notification: AppNotification
+    fun showInvitation(
+        invitationId: String,
+        listName: String,
+        actorDisplayName: String
+    ) {
+        showMessage(
+            notificationId = invitationId,
+            message =
+                "$actorDisplayName invited you to join $listName"
+        )
+    }
+
+    fun showJoined(
+        notificationId: String,
+        listName: String,
+        actorDisplayName: String
+    ) {
+        showMessage(
+            notificationId = notificationId,
+            message =
+                "$actorDisplayName joined $listName"
+        )
+    }
+
+    fun showDeclined(
+        notificationId: String,
+        listName: String,
+        actorDisplayName: String
+    ) {
+        showMessage(
+            notificationId = notificationId,
+            message =
+                "$actorDisplayName declined your invitation to $listName"
+        )
+    }
+
+
+    private fun showMessage(
+        notificationId: String,
+        message: String
     ) {
         if (
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -63,21 +101,11 @@ class SharingNotificationManager(
         val pendingIntent =
             PendingIntent.getActivity(
                 context,
-                notification.id.hashCode(),
+                notificationId.hashCode(),
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or
                     PendingIntent.FLAG_IMMUTABLE
             )
-
-        val message =
-            when (notification.eventType) {
-                "invitation_accepted" ->
-                    "${notification.actorDisplayName} joined " +
-                        notification.listName
-
-                else ->
-                    "Your shared list has been updated"
-            }
 
         val builder =
             NotificationCompat.Builder(
@@ -99,7 +127,7 @@ class SharingNotificationManager(
         NotificationManagerCompat
             .from(context)
             .notify(
-                notification.id.hashCode(),
+                notificationId.hashCode(),
                 builder.build()
             )
     }

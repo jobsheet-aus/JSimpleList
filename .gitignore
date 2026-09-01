@@ -22,6 +22,7 @@ invite-secrets.env
 *.keystore
 /keys/
 /signing.properties
+secrets/
 
 
 # Local build and IDE files
@@ -31,3 +32,9 @@ invite-secrets.env
 /reset-adb.bat
 /node_modules/
 /supabase/.temp/
+/adb.cmd
+
+
+# Local Python helper artefacts
+__pycache__/
+*.pyc

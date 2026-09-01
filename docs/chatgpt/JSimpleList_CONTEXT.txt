@@ -135,6 +135,8 @@ Legacy upgrade:
 - Permanent 1.1 tabs are removed in 2.0.
 - One current list fills the screen; horizontal swipe moves to adjacent lists with natural ends.
 - Manage lists remains the canonical arbitrary-list navigator/admin surface.
+- Planned fast deletion shortcut: long-press the current list title to open the existing delete confirmation; Manage lists -> Delete remains the discoverable path.
+- Planned creation/share shortcut: after creating a list, offer `Share this list?`; choosing Share should automatically perform any necessary make-online transition and continue directly into invitation flow.
 - Online/shared list identity is marked by the muted chain/link icon; local lists are unmarked.
 - Pull-to-refresh performs discovery/reconciliation; visible `Refresh` text is removed.
 - Back closes Manage lists before Android can leave the app.
@@ -233,37 +235,47 @@ Committed milestones include:
     32c350c Add online list discovery RPC
     6f41c0e Add online list delete and leave RPCs
 
-Supabase:
-- Custom schema `jsimplelist` exposed for the Data API.
-- SQL migrations 001-027 live under `migrations/`; migrations 026 and 027 were applied to the hosted project on 31 Aug 2026.
-- Migration 026 fixes accepted-member list position assignment.
-- Migration 027 adds nullable `created_by_user_id` / `updated_by_user_id` item attribution, database-enforced attribution from `auth.uid()`, and exposes attribution in list sync snapshots.
-- Migration 024 adds authenticated online-account data cleanup used by the `delete-account` Edge Function.
-- Migration 025 adds a partial unique index preventing duplicate simultaneous active invitations for the same list/email pair.
-- Existing schema includes profiles/users, lists, list_members, list_invitations, items, tombstones, list metadata timestamps, discovery and private realtime authorisation.
-- `list_invitations` stores invited email, inviter, role/status fields and is protected by RLS. Invitees may read only their own active invitations; owners may read/manage invitations for their lists.
-- `accept_list_invitation(target_invitation_id uuid)` validates the authenticated email against the invitation before creating/reactivating membership and marking the invitation accepted.
-- Hosted Edge Function `invite-list` is deployed. It authenticates the owner, verifies ownership, creates/reuses the pending invitation row and triggers the normal Supabase passwordless `signInWithOtp()` flow for the invited email.
-- Direct Resend invitation sending was intentionally removed from `invite-list`; authentication email generation/delivery is owned by Supabase Auth through configured Resend SMTP.
-- `InvitationRepository.kt` now contains owner send plus recipient pending-invitation discovery/acceptance methods.
+Supabase current state at 1 Sep 2026:
+- Custom schema `jsimplelist` remains exposed for the Data API.
+- Canonical migrations now use timestamp filenames under `supabase/migrations/`; hosted migration history is current through `20260901091139_purge_superseded_invitation_history.sql`.
+- Earlier migrations 001-028 establish profiles, lists, memberships, invitations, items/tombstones, discovery/sync, account cleanup, attribution and persistent sharing-event notifications.
+- `20260901061114_add_push_devices.sql`, `20260901063811_migrate_push_devices_to_fid.sql` and `20260901065443_add_push_recipient_email.sql` add account/device push registration using Firebase Installation IDs (FID), a persistent per-install client UUID and server-derived recipient email.
+- `20260901074911_grant_push_server_access.sql` grants the server worker the custom-schema/table access it needs.
+- `20260901080539_add_push_outbox.sql` adds durable `push_outbox` delivery jobs. Persistent notification rows are the server-side application event; an AFTER INSERT trigger creates matching push jobs transactionally.
+- `20260901084223_fix_invitation_lifecycle.sql` hardens invitation lifecycle: stale invitations are cancelled when lists are deleted, `get_my_pending_invitations()` returns only active-list invitations with inviter/list metadata, `decline_list_invitation()` is authoritative, accepted/declined events feed the push outbox, and `replace_list_invitation()` makes a new invite supersede all older invitation history for the same list + normalised email unless the person is already an active member.
+- `20260901091139_purge_superseded_invitation_history.sql` performs the one-time historical cleanup: deleted-list invitation lifecycles are removed and only the newest lifecycle is retained for each active list + normalised invited email; obsolete invitation-derived notifications/outbox rows are removed first.
+- `accept_list_invitation(target_invitation_id uuid)` remains the membership authority and validates the authenticated email before creating/reactivating membership.
+- `decline_list_invitation(target_invitation_id uuid)` records a real decline and creates an inviter event; Decline is no longer a local-only dismissal.
+- Owner list deletion now causes outstanding invitations for that list to become cancelled rather than remaining indefinitely actionable.
+- Hosted Edge Functions currently include `delete-account`, `invite-list` and `send-push-outbox`.
+- `send-push-outbox` uses the Firebase service account from hosted secret `FIREBASE_SERVICE_ACCOUNT_B64`, resolves recipient FIDs from `push_devices`, sends FCM HTTP v1 data messages, records attempts/errors and marks `sent_at` only after successful FCM acceptance.
+- FCM direct targeting uses Firebase Installation IDs (`message.fid`), not the deprecated token path.
+- Push registration is account-safe: Android stores the active push user ID and ignores an incoming sharing push when its `recipient_user_id` does not match the active signed-in account.
+- `invite-list` is currently still synchronous and calls normal Supabase `signInWithOtp()` for every invited email before returning success. Real testing shows this can make the invitation UI wait roughly ten seconds. This is now scheduled for redesign; do not treat the current email/latency behaviour as the final product contract.
 - Local Room UUIDs are reused as remote UUIDs for online-backed lists/items.
 - `list_members.position` stores per-user list order; `items.position` stores shared item order.
 - Normal reads hide deleted rows; controlled snapshots expose active/deleted/removed/not_found state.
 - Sensitive membership/list-creation/deletion paths use controlled security-definer RPCs rather than unrestricted direct writes.
-- Supabase URL/publishable key are supplied through BuildConfig/local.properties; publishable key may ship in APK. Never ship secret/service-role or Resend keys.
+- Supabase URL/publishable key are supplied through BuildConfig/local.properties; publishable key may ship in APK. Never ship secret/service-role, Firebase service-account or Resend keys.
+
+Push/Firebase secret state:
+- Production and debug Android apps are registered in Firebase; Google Analytics is not enabled/linked for this work.
+- Firebase service-account JSON is local-only under ignored `secrets/`; the hosted Edge Function uses only the base64 secret `FIREBASE_SERVICE_ACCOUNT_B64`.
+- `.gitignore` includes `secrets/`; never paste or commit the service-account private key.
+- `adb.cmd` is a local ignored wrapper for the Android SDK adb executable and may be used for diagnostics.
 
 Account deletion backend added/tested 30 Aug 2026:
 - `migrations/024_delete_online_account_data.sql` defines authenticated security-definer `jsimplelist.delete_online_account_data()`.
 - Cleanup hard-deletes lists owned by the current account and their items/invitations/memberships; removes the current account from other owners' lists without deleting those lists/items; removes invitations created by the account and outstanding invitations addressed to the account email; removes the profile.
 - Hosted Supabase Edge Function `delete-account` is deployed ACTIVE. It authenticates the caller using the forwarded Authorization header, runs the cleanup RPC as the caller, then uses server-side Supabase secret credentials to admin-delete exactly that Auth user.
-- Supabase CLI 2.116.0 is installed locally as a root npm devDependency; project ref is `xislrkkifqayznsgwzno`; `supabase/.temp/` and root `node_modules/` are ignored. Hosted deploy works with `npx supabase functions deploy <function> --project-ref xislrkkifqayznsgwzno --use-api`; local `supabase status` needs Docker/Podman and is not required for hosted deploy.
+- Supabase CLI is installed locally and linked to project ref `xislrkkifqayznsgwzno`; hosted migrations/functions are managed deliberately through CLI rather than ad-hoc SQL where practical.
 - Android installs `supabase-functions`; `AuthRepository.deleteOnlineAccount()` invokes `delete-account`.
 
 Invitation email/secrets state:
 - Supabase Auth uses Resend SMTP with sender `jsimplelist@jobsheet.com.au`.
-- A replacement Resend key was created on 30 Aug 2026, recorded locally in ignored `invite-secrets.env`, and configured in Supabase Auth SMTP.
-- The same key was also stored as hosted Edge Function secret `RESEND_API_KEY` during development; current `invite-list` no longer consumes that secret, so later cleanup may remove it deliberately.
-- `invite-secrets.env` is explicitly ignored and was verified with `git check-ignore -v invite-secrets.env`. Never commit it.
+- The current invitation function still invokes the normal passwordless sign-in email, whose subject/body are therefore the ordinary sign-in template. This produced the undesirable subject `Your JSimpleList sign-in code` for a product invitation.
+- The accepted redesign is to stop making known existing users wait for/sign in through an invitation email, and to use a purpose-specific onboarding/invitation email for genuinely new users. Detailed current direction is in `JSimpleList_INVITATION_FLOW.txt`.
+- Email copy must tell a new recipient what JSimpleList is, where to obtain it, what list/inviter caused the email, and that any six-digit fallback code is entered in the JSimpleList app.
 
 Important RPC/state contract:
 - `create_online_list(...)` creates the list and owner membership while preserving the client UUID.
@@ -299,120 +311,82 @@ Current behaviour:
 - Last active list ID is persisted/restored safely when still visible.
 
 Important remaining work:
-- Complete the first-class invitation/onboarding handoff described in `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`.
-- Recipient pending-invitation discovery/acceptance foundation builds, but the preferred one-click email -> web -> app authentication experience is not yet implemented.
-- Owner remove-member controls are not yet implemented.
-- Failed online writes retain Room change; durable retry/reconciliation is not yet implemented.
+- Fix notification tap routing: current Android tray notifications carry no list/invitation routing context, so tapping a notification only opens/brings forward MainActivity. Invitation pushes should route to the pending invitation; join/decline pushes should route to the affected list.
+- Redesign invitation delivery for speed and clarity. Known existing users with a registered push device should use the push fast path rather than waiting for a passwordless email; genuinely new users need a purpose-specific onboarding/invitation email.
+- Add delayed email fallback for an existing user's invitation that is still pending after a configurable delay (initial design range roughly 12-24 hours; 24 hours is the conservative default candidate). Do not attempt to infer Android permission state from successful FCM handoff.
+- Add an immediate post-create `Share this list?` prompt. Choosing Share should perform the necessary online transition automatically rather than forcing the user through a separate make-online step.
+- Add a long-press shortcut on the current list title that opens the existing delete confirmation. Keep Manage lists -> Delete as the discoverable path.
+- Continue owner/member controls and broader shared-list management after the invitation delivery/routing path is stable.
+- Failed ordinary online writes retain Room change; durable retry/reconciliation is not yet implemented.
 - Account-level realtime for list-set changes is not yet implemented.
-- Android online-owner Rename is still local-only and must be wired to server rename RPC.
-- Manual list ordering is not yet synced.
+- Android online-owner Rename still needs full server wiring where not already covered by current reconciliation.
+- Manual list ordering is not yet fully synced.
 - Realtime bursts are not debounced/coalesced.
 
 SHARING / INVITATION DIRECTION
 ------------------------------
-- Owner-side Share list UX is implemented: same-account `Make available online` plus `Invite someone` by email.
-- Invitation access is bound to the invited authenticated email/account; possession of a link or invitation UUID alone must never grant list access.
-- Normal Supabase passwordless Auth is the single authentication path for invitation recipients; do not use Supabase Auth's separate Invite-user state as JSimpleList's product invitation authority.
-- The preferred product workflow is now a first-class one-click handoff: invitation email -> branded HTTPS handoff on `jslist.jobsheet.com.au` -> verified Android App Link when installed -> Supabase authentication completion -> pending invitation -> Accept -> existing `discoverOnlineLists()` import as `ONLINE_MEMBER`.
-- Manual six-digit OTP remains the fallback path.
-- The website handoff must also handle app-not-installed and desktop/browser cases without presenting the unfinished browser client as complete.
-- Detailed authority, URL, failure-state and implementation-boundary design is authoritative in `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`; do not duplicate it here.
-- Browser same-account use requires no invitation: sign into `jslist.jobsheet.com.au` with the same account and online lists appear.
-
+- Invitation access remains bound to the invited authenticated email/account; possession of a link, invitation UUID, list UUID or auth artefact alone must never grant membership.
+- First-class email -> website -> verified Android App Link handoff is implemented and proven for the current email path. The browser handoff remains useful for genuinely new users and installation/bootstrap cases.
+- Recipient pending invitations are now loaded through `get_my_pending_invitations()` rather than raw invitation-table reads. The RPC excludes deleted lists and returns inviter display name, list name and list kind.
+- Current invitation dialog wording identifies the inviter and list and explains the list type, then offers explicit `Decline` and `Accept`. Dismissing does not silently remove a server invitation.
+- Accept remains authoritative through `accept_list_invitation()` and reuses `discoverOnlineLists()` for import as `ONLINE_MEMBER`.
+- Decline is authoritative through `decline_list_invitation()` and notifies the inviter through the same durable push machinery as acceptance.
+- Reinviting the same normalised email to the same list now deliberately supersedes prior invitation lifecycle/history. Older invitation-derived notifications/outbox rows are removed before the old invitation rows; a brand-new invitation UUID is created. Already-active members are rejected rather than reinvited.
+- Outstanding invitations are cancelled when their list is deleted. Historical stale/superseded invitation data was purged by migration `20260901091139`.
+- User-visible sharing notifications now have one path only: FCM -> Android notification tray. The former Android in-app persistent `Sharing update` dialog/`NotificationRepository` fallback has been removed to avoid duplicate user-visible notifications.
+- The server `notifications` table and `push_outbox` remain useful internal durable event/delivery machinery; they are not a second Android notification UI.
+- Pending invitation dialogs remain because they are actionable application state, not a notification fallback.
+- If a user declines Android notification permission, JSimpleList accepts that join/decline/invite pushes may not be seen immediately. Pending invitations are still discovered when the app opens.
+- Accepted delivery-policy direction for the next implementation phase:
+  1. Known existing user + registered push device -> immediate push fast path, no immediate invitation email.
+  2. Known existing user with no usable push path -> invitation remains pending; if still pending after a configurable delay, send a reminder email rather than immediately duplicating channels.
+  3. Genuinely new user -> immediate purpose-specific onboarding/invitation email that explains JSimpleList, identifies inviter/list, links to Google Play/website and explains that any six-digit fallback code is entered in the app.
+- The current synchronous `signInWithOtp()` invitation email is therefore transitional and should be replaced; its generic sign-in-code subject is not acceptable as the final invitation subject.
+- Browser same-account use still requires no product invitation: sign into `jslist.jobsheet.com.au` with the same account and online lists appear.
+- Detailed authority/delivery/handoff design is authoritative in `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`.
 
 NEXT ANDROID / SHARING WORK
 ---------------------------
+Current proven state at 1 Sep 2026:
+- FCM invitation push works on real devices.
+- FCM invitation-accepted/join push works on real devices.
+- FCM invitation-declined push works on real devices.
+- Firebase uses FID registration; each tested account currently has one active registered device row.
+- Durable push outbox exists and the `send-push-outbox` Edge Function is deployed.
+- Android validates `recipient_user_id` against the active signed-in push user before displaying sharing pushes.
+- Duplicate user-visible notifications caused by the old JSimpleList `Sharing update` fallback were traced and the entire Android in-app persistent-notification presentation path was removed. The Android build succeeds after removal.
+- Notification tap routing is not yet implemented: `SharingNotificationManager` currently creates a PendingIntent that opens `MainActivity` with no list/invitation extras, so tapping a tray notification does not navigate to the relevant invitation/list.
+- Invitation creation remains slower than desired because deployed `invite-list` synchronously waits for `signInWithOtp()` and then performs push work before returning; observed user wait is about ten seconds.
+- The existing email subject/body are ordinary passwordless-sign-in copy (`Your JSimpleList sign-in code`) and are not suitable as final new-user invitation copy.
 
-Current invitation/onboarding state:
-- First-class invitation onboarding is now working end to end in real testing.
-- A brand-new local list can be shared directly: Send invitation first makes the list online and only then sends the invitation.
-- Invitation email uses the scanner-safe `https://jslist.jobsheet.com.au/invite` handoff.
-- Supabase Auth redirects through `https://jslist.jobsheet.com.au/auth/invite`.
-- Android verified App Links are working for the debug build; `/auth/invite` opens JSimpleList directly.
-- `assetlinks.json` contains separate release and debug package statements.
-- Before public 2.0 release, add the actual Google Play App Signing SHA-256 certificate fingerprint to the release Digital Asset Links statement.
-- Real recipient testing with Kate successfully reached accepted shared-list membership.
-- Migration 026 fixed accepted-member position assignment.
-- Migration 027 adds item creator/editor attribution fields and is applied to hosted Supabase.
-- Room schema v6 adds nullable item creator/editor attribution fields and has been built, installed and migration-tested on the development phone.
+Immediate next implementation order:
+1. Fix Android notification tap routing.
+   - Invitation notification -> open/bring forward JSimpleList and surface that invitation.
+   - Joined/declined notification -> open the affected list when still accessible.
+   - Carry `list_id` and appropriate invitation/notification context in the PendingIntent, while retaining active-account safety.
+2. Split invitation delivery into known-user and new-user paths.
+   - Known existing account + registered FID: create/replace invitation and use push fast path; do not wait for an auth email.
+   - Return invitation success as soon as the authoritative invitation transaction is committed; delivery should not make the UI wait unnecessarily.
+3. Design/implement the genuinely new-user onboarding email separately from ordinary sign-in email.
+   - Purpose-specific subject such as an invitation to join JSimpleList, not `sign-in code`.
+   - State who invited them and which list.
+   - Explain what JSimpleList is and where to get it.
+   - Include Open shared list / Google Play / landing-page guidance.
+   - If a six-digit fallback code is present, explicitly say to enter it `in the JSimpleList app`.
+4. Add a delayed reminder-email job for an existing-user invitation that remains pending after the configured delay; cancel/suppress the reminder once accepted/declined/superseded/deleted.
+5. Add post-create `Share this list?` UX; choosing Share should automatically make the new list online if required and continue directly into invitation UI.
+6. Add long-press current-list title -> existing delete confirmation shortcut; retain Manage lists -> Delete.
+7. Recheck notification-permission UX and real-device behaviour under allowed/denied/settings states.
+8. Run a focused sharing regression: invite, tap-routing, accept, decline, reinvite same list/email, deleted-list stale invite, app restart, wrong/inactive account, notification denied.
+9. Then continue broader owner/member controls, account/list-set realtime and durable failed-write reconciliation.
 
-Immediate sharing/UI work:
-1. Close the Share list dialog after a successful invitation.
-   - Clear the invitation email.
-   - Close only on success.
-   - Leave the dialog open on failure so the user can retry.
-
-2. Shared-list member viewer from the list title.
-   - Implemented and real-phone tested.
-   - Tapping an online/shared list title or its chain icon opens a read-only `Shared list` dialog.
-   - The dialog shows the owner alias, active member aliases, and owner-only pending invitation email addresses.
-   - Local-only list titles remain non-clickable.
-   - Shared member aliases are resolved through profiles; RLS already permits active members to read shared-member profiles.
-   - A dedicated `SharingRepository.kt` loads active memberships, profile display names and owner-visible pending invitations.
-   - Loading/error/retry states are handled without affecting list use.
-   - This dialog is the intended management surface for the next owner/member controls.
-
-3. Owner/member management.
-   - Owner may cancel a pending invitation.
-   - Owner may remove an active member.
-   - Owner may unshare the list.
-   - Member may leave the shared list.
-   - Owner unshare should revoke active memberships/invitations and return the owner's copy to local-only.
-   - Preserve sufficient removed/deleted/tombstone state so offline clients can learn that access ended.
-   - Decide final server-copy cleanup timing separately; do not silently destroy offline state.
-
-4. Persistent sharing notifications.
-   - First event type: invitation accepted / member joined.
-   - Notify the inviter/owner, e.g. `Kate joined Shopping list`.
-   - Persist notifications so they are not lost while the app is closed.
-   - Realtime may supplement this while the app is open but must not be the only delivery mechanism.
-   - Future event types may include member left, member removed, invitation cancelled and list unshared.
-
-5. Item creator/editor attribution.
-   - Implemented.
-   - Supabase items have nullable `created_by_user_id` and `updated_by_user_id`.
-   - `created_by_user_id` is immutable once set.
-   - PostgreSQL sets/enforces authoritative attribution from `auth.uid()`; clients do not supply authoritative attribution.
-   - Room v6 stores nullable `createdByUserId` and `updatedByUserId`.
-   - New online items record the current user locally immediately as creator/editor while the server remains authoritative.
-   - Local online-item edit, tick/untick and delete/tombstone paths update `updatedByUserId` immediately.
-   - Existing historic server items remain unattributed rather than guessed.
-   - Item timestamps already exist as createdAt/updatedAt/deletedAt locally and created_at/updated_at/deleted_at remotely.
-
-6. Item creator label.
-   - Implemented for online/shared lists only; local-only lists show no attribution label.
-   - Creator UUIDs are resolved to profile display names in one profile query for the current list.
-   - Profile lookup failure is non-fatal; the item remains usable and simply shows no creator label.
-   - Prefer the creator's chosen display name; automatically generated fallback names such as `harrisk612@` are used when no alias has been chosen.
-   - Do not expose full email addresses merely to provide item attribution.
-   - The creator label is rendered at 10sp, right-aligned on the same horizontal row as the item description so it does not increase row height or disturb vertical centring.
-   - Final visual treatment uses `onSurfaceVariant` at 0.55 alpha so the attribution remains secondary to the item text and Delete control.
-   - `updated_by_user_id` is stored for future use but is not displayed initially.
-
-7. Automatic fallback display name.
-   - Implemented.
-   - On authenticated startup, if no profile exists, create one automatically from the email local-part plus `@`.
-   - Example: `harrisk612@example.com` -> `harrisk612@`.
-   - AuthDialog also uses the same load-or-create profile path.
-   - Existing profiles are preserved unchanged.
-   - The user may later replace the generated name with an alias.
-   - Generated fallback names are capped to the existing 50-character display-name limit.
-   - Duplicate generated names are acceptable initially; users can resolve rare collisions by choosing aliases.
-
-Later sync/sharing work:
-- Account/list-set realtime so new or removed memberships appear without manual discovery.
-- Durable retry/reconciliation for failed online writes.
-- Continue synced list ordering/manual ordering work.
-- Refine browser membership/list-set refresh behaviour.
-- Complete owner member controls through the shared-list information dialog.
-
-Before public 2.0 release:
+Before public 2.0 release also:
 - Update About/version/build information that still reflects released 1.1.
-- Add the Google Play App Signing SHA-256 fingerprint to `assetlinks.json`.
+- Add the actual Google Play App Signing SHA-256 certificate to production `assetlinks.json`.
 - Perform a real Google Play-signed 1.1 -> 2.0 upgrade test and verify local data preservation.
-- Complete the external account-deletion resource/page required by Google Play.
-- Update Google Play Data Safety for account/email/profile/shared-list processing.
-- Reconcile README, store listing, privacy and product wording with network-enabled 2.0 behaviour.
+- Complete the external account-deletion resource/page.
+- Update Google Play Data Safety.
+- Reconcile README/store/privacy/product wording with network-enabled 2.0 behaviour.
 
 BROWSER CLIENT
 --------------
@@ -580,77 +554,61 @@ CONTRIBUTING.md preserves practical future relicensing flexibility for substanti
 
 README currently describes the released local-only app. Update README/privacy/listing wording before a public network-enabled 2.0 release.
 
-CURRENT GIT CHECKPOINT - 31 AUG 2026
-------------------------------------
-Latest pushed functional checkpoint:
+CURRENT GIT CHECKPOINT - 1 SEP 2026
+-----------------------------------
+Latest known pushed functional checkpoint entering this work:
     6d21c60 Add shared list member viewer
 
-Important pushed checkpoints from this session:
-    13de0d0 Show shared item creator names
-    e445143 Add automatic fallback profiles
-    a58cae7 Add shared item attribution foundation
-    5de10dc Make new lists online before inviting
-    e6d0310 Fix debug app link verification
-    c7aad43 Add Android invitation app links
+The 1 Sep sharing/push/invitation work is currently a substantial working-tree milestone rather than a recorded commit in this document. It includes Android/Firebase integration, Edge Functions, timestamped migrations, invitation lifecycle hardening, decline flow and notification-path simplification. Before final session closure, inspect `git status --short`, `git --no-pager diff --check` and diff/stat, then commit/push a cohesive checkpoint deliberately.
 
-Hosted/backend state:
-- Migration 026 fixes accepted invitation membership position assignment and is applied to hosted Supabase.
-- Migration 027 adds item creator/editor attribution, database-enforced attribution from `auth.uid()`, and attribution in sync snapshots; it is applied to hosted Supabase.
-- First-class invitation handoff infrastructure is deployed and working through `jslist.jobsheet.com.au`.
-- Android debug Digital Asset Links verification is proven.
-- Production Digital Asset Links still requires the actual Google Play App Signing SHA-256 certificate before public 2.0 release.
+Hosted/backend state at this document update:
+- Migrations are applied through `20260901091139_purge_superseded_invitation_history.sql`.
+- `invite-list` is deployed with `replace_list_invitation()` usage but still uses synchronous `signInWithOtp()` email generation; this is intentionally scheduled for redesign.
+- `send-push-outbox` is deployed and real-device accepted/declined delivery is proven.
+- Firebase service-account secret is hosted as `FIREBASE_SERVICE_ACCOUNT_B64`; local secret material remains ignored.
+- First-class email/web/App-Link handoff infrastructure remains deployed and working for cases that still use email.
 
-Ignored/local-only items continue to include `reset-adb.bat`, `invite-secrets.env`, `node_modules/`, `supabase/.temp/`, signing material and `local.properties`. Explicit staging only; do not broad-add.
-
-SESSION CLOSEOUT - 31 AUG 2026
-------------------------------
+SESSION CLOSEOUT - 1 SEP 2026
+-----------------------------
 Major work/decisions represented by this checkpoint:
-- Completed and real-tested the first-class invitation onboarding path: invitation email -> scanner-safe browser handoff -> Supabase Auth -> verified Android App Link -> Android session import -> pending invitation acceptance -> shared list membership/import.
-- Kept manual six-digit OTP as the fallback authentication path.
-- Corrected Digital Asset Links so production and debug application IDs use separate certificate statements; Android debug domain verification and direct `/auth/invite` routing are proven.
-- Fixed fresh local-list invitation behaviour so Send invitation first makes that specific list online, then sends the invitation.
-- Migration 026 corrected the accepted-member position bug found during real recipient testing.
-- Added migration 027 and Room v6 item attribution fields: immutable creator plus most-recent editor IDs.
-- PostgreSQL remains authoritative for online attribution through `auth.uid()`; existing historical items remain unattributed rather than guessed.
-- New online items set creator/editor locally immediately, while edit, tick/untick and online tombstone paths update local editor attribution.
-- Added automatic fallback profiles for authenticated users with no profile, derived from the email local part plus `@`; existing aliases remain unchanged/editable.
-- Added shared-item creator aliases. Online/shared rows resolve creator UUIDs to profile display names; local-only lists show no attribution label.
-- Final creator-label UI is 10sp, right-aligned on the same row as the item description, using `onSurfaceVariant` at 0.55 alpha so it remains secondary and does not alter row height/vertical centring.
-- Profile lookup failure is non-fatal; items remain usable and simply omit creator labels.
-- Added the read-only shared-list member viewer. Tapping an online/shared list title or chain icon shows owner, active members, and owner-only pending invitations.
-- Added dedicated `SharingRepository.kt` for active membership/profile/pending-invitation reads using existing RLS; no new backend RPC was required for the viewer.
-- Shared-list viewer loading/error/retry states are implemented and real-phone testing passed.
-- Small Sharing-dialog wording cleanup: `Signed in as :` is now `Signed in as`.
-- Android debug builds and installs succeeded throughout the final attribution/profile/member-viewer work.
-- Source checkpoint `6d21c60 Add shared list member viewer` is pushed to `origin/main`.
+- Added Firebase Messaging without Analytics and migrated direct addressing to Firebase Installation IDs.
+- Added account-safe device registration in `push_devices` keyed by user/client instance and server-derived email.
+- Added durable `push_outbox` event delivery and deployed `send-push-outbox`.
+- Proved real-device invitation, joined and declined pushes.
+- Added invitation-accepted and invitation-declined Android rendering with active-account validation.
+- Hardened invitation lifecycle: list deletion cancels pending invites, recipient pending discovery excludes deleted lists, Decline is a real server action, and reinviting the same list/email replaces all prior invitation lifecycle/history instead of reusing stale rows.
+- Purged historical deleted/superseded invitation rows and related notifications/outbox entries.
+- Replaced the generic pending invitation prompt with inviter/list/type context and explicit Decline/Accept actions.
+- Split recipient-facing pending-invitation data from owner-facing sent-invitation summaries.
+- Diagnosed duplicate `Kate joined...` behaviour as two separate Android presentation mechanisms; removed the in-app persistent `Sharing update`/`NotificationRepository` path. FCM tray notification is now the sole user-visible notification mechanism; pending invitation dialogs remain actionable app state.
+- Confirmed tray notification taps currently do not route to the relevant list/invitation because `SharingNotificationManager` supplies a plain MainActivity PendingIntent with no routing extras.
+- Confirmed the current invitation UI waits roughly ten seconds because `invite-list` synchronously requests a Supabase passwordless email before returning.
+- Accepted a new delivery strategy: existing known users should use push as the immediate fast path; genuinely new users should receive a purpose-specific onboarding/invitation email; an existing-user invitation still pending after a configurable delay should receive a delayed reminder email rather than immediate duplicate-channel email.
+- The generic passwordless subject `Your JSimpleList sign-in code` is not acceptable as final invitation wording. New-user email must explain where to get JSimpleList and that a six-digit fallback code is entered in the app.
+- Added/retained UX TODOs: offer Share immediately after creating a list, automatically perform the online transition when Share is chosen, and provide long-press list-title -> delete-confirmation shortcut.
+- Working rule added: terminal/CLI diagnostics are preferred; when Supabase SQL Editor output must be pasted back, return one aggregate JSON value/cell rather than an awkward result grid.
+- Working rule added: non-trivial Python patch helpers must be checked with `python -m py_compile <script>` before execution; give one complete finished deterministic helper rather than multi-stage script-construction instructions.
 
 NEXT TASK
 ---------
-Begin the next session as the JSimpleList shared-list management phase.
+Begin the next session as:
+    JSimpleList notification routing and fast invitation delivery
 
 Read first:
 - `docs/chatgpt/JSimpleList_RULES.txt`
 - `docs/chatgpt/JSimpleList_CONTEXT.txt`
-- `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt` when invitation authority/security details are relevant.
+- `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`
 
-Immediate implementation order:
-1. Extend the existing `Shared list` dialog into the management surface.
-2. Owner: cancel a pending invitation.
-3. Owner: remove an active member.
-4. Owner: unshare the list, revoking active members/pending invitations and returning the owner's cached copy to genuine local-only state.
-5. Member: leave a shared list.
-6. Preserve authoritative removed/deleted/tombstone information so offline clients can later learn that access ended; do not silently convert stale shared cache into unrelated local data.
-7. Decide and implement the final server-copy cleanup semantics for owner unshare only after the offline/reconciliation contract is explicit.
-8. Add persistent sharing notifications, beginning with invitation accepted/member joined; realtime may supplement but must not be the sole delivery mechanism.
-9. Small outstanding invitation UX polish: after a successful invitation, clear the email and close the Share list dialog; leave it open on failure.
+Immediate order:
+1. Fix notification PendingIntent routing before more notification UX testing.
+2. Refactor `invite-list` so known existing users with registered push devices do not wait for/sign in through an invitation email.
+3. Make invitation UI success return promptly after authoritative invitation creation; keep delivery best-effort/durable rather than blocking the user.
+4. Implement the purpose-specific new-user onboarding/invitation email and copy.
+5. Add delayed still-pending reminder email logic for known users without an effective immediate push path.
+6. Then implement post-create Share prompt and long-press list-title Delete shortcut.
+7. Re-run end-to-end accept/decline/reinvite/deleted-list/wrong-account/permission regression.
 
-Before public 2.0 release also:
-- Update About/version/build information that still reflects released 1.1.
-- Add the actual Google Play App Signing SHA-256 certificate to production `assetlinks.json`.
-- Perform a real Google Play-signed 1.1 -> 2.0 upgrade test and verify local data preservation.
-- Complete the external account-deletion resource/page.
-- Update Google Play Data Safety.
-- Reconcile README/store/privacy/product wording with network-enabled 2.0 behaviour.
+Do not reintroduce the removed JSimpleList in-app `Sharing update` notification fallback merely to compensate for Android notification permission denial. One user-visible notification path is the deliberate product decision.
 
 SOURCE-EDITING REMINDER FOR NEXT SESSION
 ----------------------------------------

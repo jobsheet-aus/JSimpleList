@@ -70,18 +70,57 @@ class SimpleListStore(context: Context) {
             .apply()
     }
 
-    fun hasOfferedNotificationPermission(): Boolean =
+    fun hasRequestedNotificationPermission(): Boolean =
         preferences.getBoolean(
-            KEY_NOTIFICATION_PERMISSION_OFFERED,
+            KEY_NOTIFICATION_PERMISSION_REQUESTED,
             false
         )
 
-    fun markNotificationPermissionOffered() {
+    fun markNotificationPermissionRequested() {
         preferences.edit()
             .putBoolean(
-                KEY_NOTIFICATION_PERMISSION_OFFERED,
+                KEY_NOTIFICATION_PERMISSION_REQUESTED,
                 true
             )
+            .apply()
+    }
+
+    fun loadActivePushUserId(): String? =
+        preferences.getString(
+            KEY_ACTIVE_PUSH_USER_ID,
+            null
+        )
+
+    fun saveActivePushUserId(userId: String?) {
+        preferences.edit().apply {
+            if (userId == null) {
+                remove(KEY_ACTIVE_PUSH_USER_ID)
+            } else {
+                putString(KEY_ACTIVE_PUSH_USER_ID, userId)
+            }
+        }.apply()
+    }
+
+    fun loadFirebaseInstallationId(): String? =
+        preferences.getString(
+            KEY_FIREBASE_INSTALLATION_ID,
+            null
+        )
+
+    fun saveFirebaseInstallationId(
+        installationId: String
+    ) {
+        preferences.edit()
+            .putString(
+                KEY_FIREBASE_INSTALLATION_ID,
+                installationId
+            )
+            .apply()
+    }
+
+    fun clearFirebaseInstallationId() {
+        preferences.edit()
+            .remove(KEY_FIREBASE_INSTALLATION_ID)
             .apply()
     }
 
@@ -119,7 +158,11 @@ class SimpleListStore(context: Context) {
         private const val KEY_FONT_SCALE = "font_scale"
         private const val KEY_LAST_ACTIVE_LIST_ID = "last_active_list_id"
         private const val KEY_CLIENT_INSTANCE_ID = "client_instance_id"
-        private const val KEY_NOTIFICATION_PERMISSION_OFFERED =
-            "notification_permission_offered"
+        private const val KEY_FIREBASE_INSTALLATION_ID =
+            "firebase_installation_id"
+        private const val KEY_ACTIVE_PUSH_USER_ID =
+            "active_push_user_id"
+        private const val KEY_NOTIFICATION_PERMISSION_REQUESTED =
+            "notification_permission_requested"
     }
 }

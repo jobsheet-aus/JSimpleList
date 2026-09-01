@@ -1,484 +1,247 @@
 JSimpleList first-class invitation/onboarding design
-Updated: 2026-08-30
+Updated: 2026-09-01
 
 PURPOSE
 -------
-This document is the authoritative design reference for JSimpleList invitation and recipient onboarding.
+This document is the authoritative design reference for JSimpleList invitation, recipient onboarding and sharing-event delivery.
 
-The invitation workflow is product-critical. It spans:
-- Android
-- Supabase Auth
-- PostgreSQL/RLS
-- Supabase Edge Functions
-- email templates
-- jslist.jobsheet.com.au
-- Android App Links
-- recipient fallback/error handling
-
-Detailed invitation architecture belongs here rather than being duplicated throughout JSimpleList_CONTEXT.txt.
+The subsystem spans Android, Supabase Auth, PostgreSQL/RLS/RPCs, Edge Functions, Firebase Cloud Messaging, email templates, jslist.jobsheet.com.au, Android App Links and recipient fallback/error handling.
 
 PRODUCT OBJECTIVE
 -----------------
-The preferred recipient experience is:
+For an existing JSimpleList user, the normal experience should be fast:
 
 Owner sends invitation
-→ recipient receives one useful email
-→ recipient taps Open shared list
-→ JSimpleList opens authenticated
-→ pending invitation is shown
-→ recipient taps Accept
-→ shared list appears
+-> invitation is committed authoritatively
+-> recipient receives an Android push when available
+-> tapping the push opens the relevant invitation
+-> recipient chooses Decline or Accept
+-> Accept imports/reconciles the shared list
+-> Decline/Accept notifies the owner through Android push
 
-The user should not normally need to:
-- manually re-enter the invited email address
-- manually request another authentication email
-- understand Supabase terminology
-- copy a six-digit code unless the one-tap path cannot be used
-- understand list UUIDs, invitation IDs or authentication tokens
-
-Manual OTP remains a fallback rather than the preferred invitation path.
+For a genuinely new user, the email must be a real onboarding/invitation message rather than a generic sign-in email. It must explain what JSimpleList is, why the email arrived, where to get the app, what list/inviter is involved and how any six-digit fallback code is used.
 
 CORE AUTHORITY MODEL
 --------------------
-Authentication and invitation semantics are deliberately separate.
+Authentication and invitation semantics remain separate.
 
-Supabase Auth owns:
-- proof that the user controls an email address
-- passwordless authentication tokens/codes
-- authenticated session creation and persistence
+Supabase Auth owns proof of email identity and authenticated session creation.
+JSimpleList owns list sharing, invitation status, membership and list access.
 
-JSimpleList owns:
-- which list has been shared
-- who was invited
-- whether the invitation is pending/accepted/cancelled
-- membership
-- list access
+The authoritative product invitation is the row in `jsimplelist.list_invitations`.
+A URL, token, list UUID, invitation UUID or push payload alone must never grant list access.
 
-The authoritative product invitation is the row in:
-    jsimplelist.list_invitations
-
-A URL, token, list UUID or invitation UUID alone must never grant list access.
-
-Membership is granted only through the controlled acceptance path:
+Membership is granted only through:
     jsimplelist.accept_list_invitation(target_invitation_id uuid)
 
-That RPC verifies:
-- the caller is authenticated
-- the authenticated email exists
-- the invitation is still active
-- the invited email matches the authenticated email
-- the target list is still active
+That RPC validates authentication, authenticated email, active invitation, email match and active list before membership is created/reactivated.
 
-Only then does it create/reactivate membership and mark the invitation accepted.
+Decline is authoritative through:
+    jsimplelist.decline_list_invitation(target_invitation_id uuid)
 
-A forwarded invitation link must therefore not allow another account to gain access.
+A forwarded link/push must therefore never allow the wrong account to gain membership.
 
-ONE AUTHENTICATION PATH
------------------------
-JSimpleList deliberately uses the normal Supabase passwordless email authentication flow for invitation recipients.
+INVITATION LIFECYCLE INVARIANTS
+-------------------------------
+- A fresh invitation to the same `list_id + lower(trim(invited_email))` supersedes every earlier lifecycle for that exact pair.
+- Reinvite removes invitation-derived notifications/outbox rows for the older lifecycles before deleting the old invitation rows, then creates one fresh invitation UUID.
+- A person who is already an active member of the list is rejected rather than reinvited.
+- Deleting a list cancels outstanding pending invitations.
+- Pending-recipient discovery only returns invitations whose list remains active.
+- Historical stale/deleted/superseded invitation data was cleaned by migration `20260901091139_purge_superseded_invitation_history.sql`.
 
-Do not use Supabase Auth's special Invite-user authentication flow as the JSimpleList product invitation mechanism.
+CURRENT RECIPIENT UI
+--------------------
+`get_my_pending_invitations()` returns active pending invitations with list name, list kind and inviter display name.
 
-Reason:
-- JSimpleList already has its own invitation model
-- normal OTP/magic-link authentication is sufficient to prove email ownership
-- one authentication path reduces recipient friction and Android verification complexity
-- the same path works for existing and newly created Auth users
-- the invitation database row, not Supabase Auth invitation state, determines product access
+The Android prompt identifies the inviter/list and explains the list type, then offers `Decline` and `Accept`.
 
-The existing owner-side invite Edge Function:
-    supabase/functions/invite-list/index.ts
+Accepted wording direction:
+    You have been invited by <inviter> to join <list name>. This is a <list type> that you can add items to and mark as done.
 
-currently:
-1. authenticates the owner
-2. verifies list ownership
-3. creates or reuses an active list_invitations row
-4. requests a normal Supabase passwordless sign-in for the invited email
+    Accepting the invitation gives you access to the list.
 
-The direct Resend invitation-email implementation has been removed from this function.
+Decline is not a local dismissal. It calls the server decline RPC and removes the pending action only after successful decline.
+Accept calls the acceptance RPC and then reuses `discoverOnlineLists()`; do not create an invitation-specific list-import path.
 
-EMAIL STRATEGY
---------------
-Supabase Auth remains responsible for authentication-email generation and delivery through the configured Resend SMTP service.
+ONE USER-VISIBLE NOTIFICATION PATH
+----------------------------------
+JSimpleList deliberately uses one user-visible sharing-notification mechanism:
+    FCM -> Android system notification tray
 
-Normal passwordless email should provide:
-- JSimpleList identity/branding
-- a one-time authentication mechanism
-- expiry/use-once information
-- a safe ignore message
-- useful JSimpleList links
+The previous Android `NotificationRepository` / automatic `Sharing update` dialog path was removed because it duplicated the same event after the FCM notification.
 
-The desired invitation email ultimately provides both:
-- primary one-click Open shared list flow
-- six-digit OTP fallback
+The server `notifications` table may remain as durable application-event/source data for the push outbox. It is not a second Android notification UI.
 
-Useful links include:
-- Learn about JSimpleList:
-  https://www.jobsheet.com.au/jslist
-- Get JSimpleList on Google Play:
-  https://play.google.com/store/apps/details?id=au.com.jobsheet.jsimplelist
+Pending invitation dialogs are different: they are actionable application state discovered from the authoritative invitation table/RPC, not a notification fallback.
 
-Do not rely on direct Resend API calls from Android or browser code.
-Do not expose Resend API secrets to clients.
+If the user denies Android notification permission, JSimpleList accepts that immediate invitation/join/decline alerts may not be visible. Do not reintroduce a second automatic in-app notification system solely to compensate.
 
-FIRST-CLASS HANDOFF DESIGN
+PUSH ARCHITECTURE
+-----------------
+Android uses Firebase Installation IDs (FID), not deprecated FCM token APIs.
+
+`jsimplelist.push_devices` associates:
+- authenticated user UUID
+- server-derived authenticated email
+- persistent client instance UUID
+- Firebase Installation ID
+- platform/last-seen metadata
+
+Android stores the active push user ID. Incoming sharing pushes must contain `recipient_user_id`; the Firebase service ignores a push when it does not match the currently active account.
+
+Invitation push payload includes invitation/list/inviter context.
+Accepted/declined push payloads originate from durable `push_outbox` jobs and include notification ID, recipient user ID, list ID/name and actor display name.
+
+`send-push-outbox` is deployed and proven on real devices. It marks `sent_at` only after successful FCM acceptance and records failed attempts/errors for retry. A fully independent scheduler/worker for stranded retry rows remains future work; current Android accept/decline paths nudge the worker best-effort after the authoritative RPC succeeds.
+
+NOTIFICATION TAP ROUTING - NEXT FIX
+-----------------------------------
+Current `SharingNotificationManager` creates a PendingIntent that only opens `MainActivity` with CLEAR_TOP/SINGLE_TOP. It carries no list ID, invitation ID or route/action context.
+
+Observed result: tapping a tray notification dismisses the notification and merely brings JSimpleList forward instead of entering the relevant invitation/list.
+
+Required routing contract:
+- `list_invitation` -> open/bring forward JSimpleList and surface the matching pending invitation when it still exists and belongs to the active account.
+- `invitation_accepted` -> open the affected list when the recipient still owns/has access to it.
+- `invitation_declined` -> open the affected list when it still exists/accessible; otherwise open a safe sharing/list surface.
+- Routing extras are navigation context only and never authority.
+- Wrong/inactive account handling remains safe; do not expose another account's shared-list content simply because a notification was tapped.
+
+DELIVERY STRATEGY - ACCEPTED DIRECTION
+--------------------------------------
+The current deployed `invite-list` still calls normal Supabase `signInWithOtp()` for every invitation and waits for that call before returning. Real testing shows roughly a ten-second sender wait and produces the generic auth subject `Your JSimpleList sign-in code`. This is transitional and must be replaced.
+
+The accepted delivery strategy is:
+
+1. Known existing user + registered push device
+   - create/replace invitation authoritatively
+   - push immediately
+   - do not send an immediate invitation email
+   - return sender success promptly after the invitation transaction; delivery should not keep the UI waiting unnecessarily
+
+2. Known existing user without an effective immediate push path
+   - invitation remains pending and will be discovered when JSimpleList opens
+   - do not immediately duplicate with email merely because push visibility cannot be proven
+   - if still pending after a configurable delay, send a reminder email
+   - initial candidate delay is roughly 12-24 hours; 24 hours is the conservative default candidate
+   - acceptance, decline, superseding reinvite or list deletion must suppress/cancel the reminder
+
+3. Genuinely new user
+   - send an immediate purpose-specific onboarding/invitation email
+   - do not reuse the ordinary sign-in-code subject/body as the final product invitation
+   - use an appropriate Supabase Auth bootstrap/invite primitive/template after inspecting the exact current Supabase API/template contract; the JSimpleList invitation row remains the sole product invitation authority regardless of the Auth email mechanism
+
+The server cannot reliably infer that Android displayed a push merely because FCM accepted it. The delayed fallback should therefore be based on `invitation still pending after time`, not on pretending to know Android notification-permission/display state.
+
+NEW-USER EMAIL REQUIREMENTS
+---------------------------
+The purpose-specific email must include:
+- a subject that communicates a JSimpleList invitation rather than merely a sign-in code
+- inviter display name
+- list name
+- a short explanation of JSimpleList
+- a clear `Open shared list` action where appropriate
+- a clear `Get JSimpleList` / Google Play path for a person who does not yet have the app
+- JSimpleList landing-page information
+- safe ignore wording
+- expiry/use-once guidance where relevant to the Auth primitive
+- if a six-digit fallback code is included: explicitly say `enter this code in the JSimpleList app`
+
+A new recipient must not be expected to already know where JSimpleList comes from or what a six-digit code is for.
+
+WEBSITE / APP-LINK HANDOFF
 --------------------------
-Preferred transport:
+The existing first-class handoff infrastructure is deployed and proven:
+- scanner-safe invitation page on `jslist.jobsheet.com.au`
+- auth callback route under `jslist.jobsheet.com.au/auth/invite`
+- verified Android App Links for debug testing
+- browser handoff can present Open JSimpleList / installation guidance
 
-Invitation email
-→ HTTPS handoff on jslist.jobsheet.com.au
-→ deliberate user action
-→ Android verified App Link when available
-→ JSimpleList Android app
-→ Supabase authentication completion
-→ pending invitation discovery
-→ Accept
-→ shared list import
+This remains useful for genuinely new users and email/bootstrap cases even though known-user invitation delivery should move to push fast path.
 
-The website is deliberately involved rather than sending a raw one-time authentication link directly to the Android app.
+The handoff page must preserve safe behaviour for:
+- app installed
+- app not installed
+- desktop/browser
+- wrong account
+- expired/consumed auth state
+- forwarded link
 
-Reasons:
-- gives JSimpleList one stable branded public URL
-- supports installed and not-installed recipients
-- supports desktop recipients
-- provides a natural future browser-client path
-- reduces risk from email security scanners/prefetchers consuming a one-time authentication action before the user deliberately acts
-- allows fallback guidance without exposing backend concepts
-
-WEBSITE HANDOFF STATES
-----------------------
-The handoff page should support these states deliberately.
-
-App installed:
-- show Open JSimpleList
-- verified Android App Link opens the app
-
-App not installed:
-- explain that the user was invited to JSimpleList
-- offer Get JSimpleList on Google Play
-- preserve enough safe state for the user to continue after installation where practical
-- OTP remains available as fallback
-
-Desktop/browser:
-- explain the invitation
-- offer browser use when that path is production-ready
-- otherwise offer the landing page and Android installation path
-- do not present an unfinished browser client as a complete product
-
-Browser client ready:
-- offer Use JSimpleList in browser
-- browser must use the same Supabase identity, memberships and RLS
-- browser is another client, not a separate invitation authority
-
-ANDROID APP LINK
-----------------
-Preferred public link form should use HTTPS on the controlled JSimpleList domain, for example:
-
-    https://jslist.jobsheet.com.au/...
-
-rather than making a custom URI such as:
-
-    jsimplelist://...
-
-the primary public entry point.
-
-Android verified App Links are preferred because they:
-- use a normal branded HTTPS URL
-- can open JSimpleList directly when installed
-- retain meaningful browser behaviour when not installed
-- are appropriate for a public Play Store product
-
-Implementation will require deliberate inspection/design of:
-- AndroidManifest intent filters
-- domain verification
-- .well-known/assetlinks.json
-- signing certificate fingerprints
-- web route behaviour
-- Android intent handling
-- Supabase auth callback/state handling
-
-Do not implement these piecemeal before the exact URL and state contract is documented.
-
-TOKEN / URL SECURITY
---------------------
-Do not invent a custom authentication token when Supabase provides the required authentication primitive.
-
-The web/app handoff may carry:
-- Supabase authentication state/token material
-- an invitation identifier as non-authoritative context
-- safe UI/navigation context
-
-But none of those values alone grants membership.
-
-Access authority remains:
-authenticated Supabase identity
-+
-pending invitation visible/valid for that identity
-+
-successful accept_list_invitation()
-
-If a link is forwarded:
-- the forwarded recipient must not gain the shared list
-- the original invited email remains authoritative
-- an authenticated wrong account must receive a safe mismatch/error experience
-
-PENDING INVITATION CLIENT FLOW
+AUTH EMAIL / TEMPLATE POSITION
 ------------------------------
-Android currently has recipient-side foundation:
+Ordinary JSimpleList sign-in should remain an ordinary passwordless authentication email.
+Do not distort the normal sign-in template just to make product invitations read correctly.
 
-InvitationRepository.kt:
-- sendInvitation()
-- loadPendingInvitations()
-- acceptInvitation()
+The current invitation path incorrectly reuses that ordinary sign-in flow for every invite, which is why the subject/body are not ideal.
+The next implementation should separate genuine new-user onboarding email from ordinary sign-in email and known-user push delivery.
 
-MainActivity.kt:
-- loads pending invitations after restored-session startup
-- loads pending invitations after fresh sign-in
-- displays a List invitation dialog
-- Accept calls accept_list_invitation()
-- then reuses discoverOnlineLists()
-- accepted membership imports as ONLINE_MEMBER
-- Not now dismisses the prompt locally without cancelling the server invitation
+SERVER EVENT / OUTBOX MODEL
+---------------------------
+Persistent server events currently cover invitation accepted/declined and feed `push_outbox` transactionally.
+Push failure must never roll back invitation accept/decline.
 
-This code builds successfully as of 2026-08-30.
+Invitation creation currently sends its FCM push directly from `invite-list`; this can be revisited when the known-user fast path is refactored so invitation creation can return promptly and delivery can be durable/non-blocking.
 
-The current recipient UI is functional foundation, not the final first-class onboarding experience.
+DECLINE / ACCEPT WORDING
+------------------------
+Invitation push:
+    <inviter> invited you to join <list>
 
-ONLINE MEMBER IMPORT
---------------------
-Existing ListSyncRepository.discoverOnlineLists() remains the canonical post-acceptance import/reconciliation path.
+Accepted push to inviter:
+    <actor> joined <list>
 
-The accepted invitation creates/reactivates list_members.
+Declined push to inviter:
+    <actor> declined your invitation to <list>
 
-get_my_online_lists() then returns the shared list with role:
-    member
-
-Android maps:
-    member -> ONLINE_MEMBER
-
-The list is imported/refreshed through the existing online-list cache/snapshot machinery.
-
-Do not create a separate invitation-specific list import path.
-
-CURRENT OWNER-SIDE FLOW
------------------------
-Current Android Share list behaviour includes:
-- New list moved into hamburger
-- prominent current-list action is Share list
-- local list can be made available online for the current account
-- online list can invite someone by email
-- Send invitation calls InvitationRepository.sendInvitation()
-- invite-list Edge Function creates/reuses a pending invitation and triggers normal Supabase passwordless auth email
-
-The Share list UI currently has two intentions:
-1. use this list on my other devices
-2. invite someone
-
-Do not expose the term self-share to users.
-
-CURRENT HOSTED BACKEND STATE
-----------------------------
-Relevant migrations:
-- 001-024 existing JSimpleList backend
-- 025_unique_active_list_invitation.sql
-
-Migration 025 is applied to the hosted Supabase project.
-
-Its purpose is to prevent duplicate simultaneous active invitations for the same list/email pair.
-
-Relevant existing RPC:
-    accept_list_invitation(target_invitation_id uuid)
-
-Relevant existing discovery RPC:
-    get_my_online_lists()
-
-Relevant deployed Edge Functions:
-    delete-account
-    invite-list
-
-invite-list is currently deployed using normal signInWithOtp() rather than direct Resend API email sending.
-
-EMAIL / RESEND STATE
---------------------
-JSimpleList Auth email delivery uses Supabase Auth with Resend SMTP.
-
-A new Resend key was created on 2026-08-30 and:
-- stored locally in git-ignored D:\SimpleList\invite-secrets.env
-- configured in Supabase Auth SMTP
-- configured as Supabase Edge Function secret RESEND_API_KEY
-
-The current invite-list implementation no longer needs RESEND_API_KEY directly, but the secret may remain configured until deliberate cleanup.
-
-Do not commit invite-secrets.env.
-
-The local ignore rule was verified with:
-    git check-ignore -v invite-secrets.env
-
-A direct Resend invitation email sent during development was accepted by Gmail and eventually appeared in Spam. This was an inbox-placement issue, not an API-authentication failure.
-
-The subsequent Supabase OTP invitation email arrived promptly after the recipient marked the sender as Not spam.
-
-EMAIL TEMPLATE POSITION
------------------------
-Normal Magic link or OTP template:
-- remains the ordinary JSimpleList authentication email
-- currently uses the six-digit {{ .Token }} path
-- includes the JSimpleList landing-page and Play Store links
-
-Invite user template:
-- was updated to contain the intended JSimpleList invitation wording and OTP information
-- is not intended to be the primary JSimpleList product invitation mechanism
-
-JSimpleList currently intends to use only the normal passwordless authentication path for actual invitation onboarding.
-
-Before changing templates again, inspect their current Supabase state and the exact token/link requirements for the first-class handoff.
+Use `join`, not `share`, for the recipient-facing invitation action because the recipient is being granted access to somebody else's list rather than being asked to expose their own list.
 
 FAILURE / EDGE CASE MATRIX
 --------------------------
-The final workflow must deliberately handle at least:
-
-1. App installed, recipient not signed in
-2. App installed, recipient already signed in as invited account
-3. App installed, recipient signed in as different account
-4. App not installed
-5. Recipient opens invitation on desktop
-6. Browser client available
-7. Browser client unavailable/incomplete
-8. Invitation link forwarded
-9. Authentication token expired
-10. Authentication token already consumed
-11. Invitation cancelled
-12. List deleted
-13. Recipient already a member
-14. Recipient previously removed and reinvited
-15. Multiple pending invitations
-16. Recipient chooses Not now
-17. OTP fallback
-18. Email scanner/prefetch behaviour
-19. Network failure during authentication completion
-20. Network failure during invitation acceptance
-21. Android app opens without valid pending invitation
-22. User installs app after originally opening the invitation link
-
-Each case should have a defined safe user-visible result before release.
+The final workflow must handle at least:
+1. Existing user, app installed, push permitted
+2. Existing user, app installed, Android notifications denied
+3. Existing user with stale/no registered push device
+4. New user, app not installed
+5. New user opens email on desktop
+6. Recipient already signed in as invited account
+7. Recipient signed in as a different account
+8. Invitation link/push forwarded
+9. Authentication state expired or already consumed
+10. Invitation declined
+11. Invitation accepted
+12. Invitation superseded by a reinvite
+13. Invitation cancelled because list was deleted
+14. Recipient already an active member
+15. Recipient previously removed and reinvited
+16. Multiple pending invitations to different lists
+17. Network failure during invitation creation
+18. Network failure during push/email delivery
+19. Network failure during acceptance/decline
+20. Delayed reminder becomes due after invitation has already been accepted/declined/superseded/deleted
+21. Notification tapped after invitation/list is no longer valid
+22. Notification tapped while wrong account is active
 
 UX PRINCIPLES
 -------------
-The invitation flow should feel like a product feature rather than infrastructure.
-
-Prefer:
-- one useful email
-- one obvious primary action
-- branded URLs
-- minimal typing
-- explicit but short explanations
-- safe recovery paths
-- no backend terminology
-- no unexplained authentication transitions
-
-Avoid:
-- forcing users to understand OTP versus invitation concepts
-- asking for the same email repeatedly
-- sending multiple emails when one can do the job
-- exposing raw UUIDs/tokens
-- making a user request another OTP after already receiving an invitation
-- depending on an unfinished browser client
-- treating a technically successful backend call as proof that the recipient UX is complete
-
-IMPLEMENTATION BOUNDARIES
--------------------------
-Work through this subsystem deliberately:
-
-1. Architecture and URL/auth-state design
-   - inspect current web hosting/routes
-   - inspect Android manifest/deep-link handling
-   - inspect current Supabase redirect/auth settings
-   - determine exact token-hash/magic-link/OTP fallback contract
-   - specify exact public URLs and authority boundaries before coding
-
-2. Website handoff
-   - implement safe branded handoff page/route
-   - handle installed/not-installed/browser states
-   - avoid consuming one-time auth state through automated scanning
-
-3. Android verified App Link handling
-   - configure manifest
-   - configure assetlinks.json
-   - verify release/debug signing implications
-   - route incoming handoff into controlled auth completion
-
-4. Supabase authentication completion
-   - establish authenticated session safely
-   - preserve the existing ordinary OTP fallback
-   - handle wrong-account and expired-token states clearly
-
-5. Pending invitation acceptance/import
-   - integrate with the existing PendingInvitation foundation
-   - preserve accept_list_invitation() as membership authority
-   - reuse discoverOnlineLists()
-
-6. Fallback/error states
-   - implement the documented edge-case matrix
-   - ensure forwarded/expired/invalid links remain safe
-
-7. End-to-end validation and UX polish
-   - real sender phone
-   - real recipient phone
-   - fresh install
-   - existing install
-   - desktop/browser
-   - wrong account
-   - expired/invalid link
-   - Play Store installation path
-   - normal OTP fallback
-
-CURRENT IMPLEMENTATION CHECKPOINT
----------------------------------
-Verified on 2026-08-30:
-- account deletion backend and Android cleanup corrected/tested
-- Supabase persisted-session restoration corrected
-- Sharing/profile UI tidied
-- New list moved into hamburger
-- Share list promoted to current-list action
-- same-account Make available online works
-- invitation email field/button works
-- migration 025 applied
-- invite-list Edge Function deployed
-- invite-list uses normal Supabase signInWithOtp()
-- recipient pending-invitation discovery/acceptance code added
-- Android debug build succeeds
-- debug build installed successfully
-- first real invitation generated a normal Supabase OTP email successfully
-
-Current limitation:
-The recipient still lacks the intended first-class one-click email→web→app authentication handoff.
-
-The existing manual OTP path remains functional and should be preserved as fallback.
+- Prefer one obvious path, not duplicated notification mechanisms.
+- Existing-user invitation should feel immediate.
+- Do not make a known user wait for an unnecessary auth email.
+- Do not ask for the same email repeatedly.
+- Do not expose raw UUIDs/tokens/backend terms.
+- Do not treat FCM acceptance as proof that Android displayed the notification.
+- A technically successful backend call is not proof that recipient UX is complete.
+- Preserve simple fallback/recovery without making the common path complicated.
 
 IMMEDIATE NEXT SESSION
 ----------------------
-Do not begin implementation immediately.
+Start with notification tap routing, then fast invitation delivery.
 
-Next session is:
-    JSimpleList first-class invitation onboarding architecture
-
-Start by reading:
-- docs/chatgpt/JSimpleList_RULES.txt
-- docs/chatgpt/JSimpleList_CONTEXT.txt
-- docs/chatgpt/JSimpleList_INVITATION_FLOW.txt
-
-Then inspect, in order:
-1. current jslist.jobsheet.com.au web client/hosting/routes
-2. AndroidManifest.xml and any current intent/deep-link handling
-3. Supabase redirect/auth callback configuration relevant to native/web handoff
-4. current auth email template capabilities/state where necessary
-
-Deliverable for that architecture phase:
-- exact public invitation/handoff URLs
-- exact token/auth-state lifecycle
-- installed/not-installed/browser behaviour
-- Android App Link contract
-- website handoff contract
-- security/failure-state contract
-
-Do not widen into implementation until that end-to-end contract is settled.
+Implementation order:
+1. Add route context to FCM notification PendingIntents and handle it in MainActivity safely.
+2. Inspect/refactor current `invite-list` around `replace_list_invitation()` + `signInWithOtp()` + push lookup/send.
+3. Resolve invited email to known account/device server-side and use the push fast path for established users.
+4. Return invitation success promptly after authoritative invitation creation; make delivery non-blocking/durable where practical.
+5. Implement purpose-specific new-user onboarding/invitation email/template/flow.
+6. Implement delayed reminder-email scheduling for still-pending established-user invitations.
+7. Re-test invite/tap/accept/decline/reinvite/list-deleted/wrong-account/notifications-denied cases on real devices.

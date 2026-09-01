@@ -12,9 +12,14 @@ data class SharedListMember(
     val role: String
 )
 
+data class SentInvitationSummary(
+    val id: String,
+    val invitedEmail: String
+)
+
 data class SharedListInfo(
     val members: List<SharedListMember>,
-    val pendingInvitations: List<PendingInvitation>
+    val pendingInvitations: List<SentInvitationSummary>
 )
 
 @Serializable
@@ -29,6 +34,20 @@ private data class SharedListMemberRow(
 
     @SerialName("removed_at")
     val removedAt: String? = null
+)
+
+@Serializable
+private data class SentInvitationRow(
+    val id: String,
+
+    @SerialName("invited_email")
+    val invitedEmail: String,
+
+    @SerialName("accepted_at")
+    val acceptedAt: String? = null,
+
+    @SerialName("cancelled_at")
+    val cancelledAt: String? = null
 )
 
 class SharingRepository(
@@ -96,10 +115,16 @@ class SharingRepository(
                             eq("list_id", listId)
                         }
                     }
-                    .decodeList<PendingInvitation>()
+                    .decodeList<SentInvitationRow>()
                     .filter { invitation ->
                         invitation.acceptedAt == null &&
                             invitation.cancelledAt == null
+                    }
+                    .map { invitation ->
+                        SentInvitationSummary(
+                            id = invitation.id,
+                            invitedEmail = invitation.invitedEmail
+                        )
                     }
             } else {
                 emptyList()

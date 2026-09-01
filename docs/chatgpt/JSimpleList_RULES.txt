@@ -1,5 +1,5 @@
 JSimpleList durable working rules
-Updated: 2026-08-30
+Updated: 2026-09-01
 
 REPOSITORY AND SHELL
 --------------------
@@ -22,6 +22,8 @@ SOURCE-EDITING WORKFLOW
 - Never provide an approximate source block as an exact replacement.
 - New files may be supplied as complete contents when their location and role are unambiguous.
 - For non-trivial or risky edits, prefer a deterministic patch helper or another exact edit method rather than many manual changes.
+- When a Python patch helper is non-trivial, first run `python -m py_compile <script>` and do not execute it if compilation fails.
+- Give one complete finished deterministic patch helper. Do not instruct the user to create a script and then progressively append/modify several later blocks before execution.
 - Patch helpers must use exact anchors, fail clearly and preserve unrelated code.
 - Delete temporary patch helpers only after successful execution and verification.
 - Do not continue editing after an unexpected build/source state until the cause is understood.
@@ -38,6 +40,8 @@ VALIDATION
 - Hosted Supabase changes must be verified separately from Android compilation.
 - Do not assume an Edge Function deploy, SQL migration, email send or Android build proves the other layers.
 - For multi-system flows, validate each boundary deliberately.
+- For Supabase diagnostics intended to be pasted back into chat, prefer terminal/CLI output. If SQL Editor is necessary, structure the diagnostic as one aggregate JSON value/cell rather than a multi-row grid whenever practical.
+- Prefer copy-friendly diagnostics that omit secrets and unnecessarily long identifiers; include only the fields needed to distinguish accounts/devices/events.
 
 GIT / COMMIT DISCIPLINE
 -----------------------
@@ -68,6 +72,7 @@ DATABASE / SUPABASE
 - Apply hosted migrations deliberately and record whether they have actually been applied.
 - Deploy Edge Functions deliberately and verify the deployed function separately.
 - Do not invent security-sensitive mechanisms when Supabase already provides an appropriate authenticated primitive.
+- Canonical database changes use timestamped files in `supabase/migrations` and are applied with the Supabase CLI migration workflow; avoid routine ad-hoc SQL Editor changes when a migration is appropriate.
 
 PRODUCT / UX
 ------------
@@ -80,6 +85,7 @@ PRODUCT / UX
 - Important onboarding/sharing flows should minimise unnecessary typing, repeated authentication and unexplained transitions.
 - A technically functioning workflow is not considered complete if the recipient experience remains confusing or unnecessarily frictious.
 - Security and low-friction UX should be designed together rather than traded casually against each other.
+- Sharing notifications have one user-visible path: FCM/Android system notifications. Do not add a second automatic in-app sharing-update notification mechanism as fallback for users who deny Android notification permission. Pending invitation dialogs are actionable application state and are separate from notification delivery.
 
 PROJECT DOCUMENT MODEL
 ----------------------

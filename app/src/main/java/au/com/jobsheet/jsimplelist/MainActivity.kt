@@ -253,6 +253,8 @@ private fun SimpleListApp(
         store.loadOrCreateClientInstanceId()
     }
     val authRepository = remember { AuthRepository() }
+    val pushDeviceRepository = remember { PushDeviceRepository() }
+    val pushOutboxRepository = remember { PushOutboxRepository() }
     val profileRepository = remember { ProfileRepository() }
     val sharingRepository = remember {
         SharingRepository(profileRepository)
@@ -285,17 +287,14 @@ private fun SimpleListApp(
     var activeListRestored by remember { mutableStateOf(false) }
     var signedInEmail by remember { mutableStateOf<String?>(null) }
     val invitationRepository = remember { InvitationRepository() }
-    val notificationRepository = remember { NotificationRepository() }
     val pendingInvitations = remember {
         mutableStateListOf<PendingInvitation>()
-    }
-    val unseenNotifications = remember {
-        mutableStateListOf<AppNotification>()
     }
     var acceptingInvitationId by remember {
         mutableStateOf<String?>(null)
     }
-    var markingNotificationSeenId by remember {
+
+    var decliningInvitationId by remember {
         mutableStateOf<String?>(null)
     }
     var showNotificationPermissionExplanation by remember {
@@ -315,10 +314,8 @@ private fun SimpleListApp(
             ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED &&
-            !store.hasOfferedNotificationPermission()
+            ) != PackageManager.PERMISSION_GRANTED
         ) {
-            store.markNotificationPermissionOffered()
             showNotificationPermissionExplanation = true
         }
     }
@@ -335,7 +332,25 @@ private fun SimpleListApp(
 
         val accountId = authRepository.currentUserId()
 
+        store.saveActivePushUserId(accountId)
+
         if (accountId != null) {
+            offerNotificationPermission()
+            try {
+                pushDeviceRepository.requestFirebaseRegistration()
+
+                pushDeviceRepository.registerStoredDevice(
+                    store = store,
+                    clientInstanceId = clientInstanceId
+                )
+            } catch (exception: Exception) {
+                Log.w(
+                    "JSimpleListPush",
+                    "Push-device registration failed at startup",
+                    exception
+                )
+            }
+
             try {
                 profileRepository.loadOrCreateMyProfile()
             } catch (exception: Exception) {
@@ -371,22 +386,6 @@ private fun SimpleListApp(
                 )
             }
 
-            try {
-                unseenNotifications.clear()
-                unseenNotifications.addAll(
-                    notificationRepository.loadUnseenNotifications()
-                )
-
-                unseenNotifications.forEach { notification ->
-                    sharingNotificationManager.show(notification)
-                }
-            } catch (exception: Exception) {
-                Log.e(
-                    "JSimpleListNotification",
-                    "Notification discovery failed at startup",
-                    exception
-                )
-            }
         }
 
         val loadedLists =
@@ -910,13 +909,32 @@ private fun SimpleListApp(
 
                             coroutineScope.launch {
                                 try {
+                                    try {
+                                        pushDeviceRepository.unregister(
+                                            clientInstanceId
+                                        )
+                                    } catch (exception: Exception) {
+                                        /*
+                                         * Do not trap the user in a signed-in
+                                         * state because a network unregister
+                                         * failed. A later registration of the
+                                         * same FCM token displaces stale
+                                         * ownership server-side.
+                                         */
+                                        Log.w(
+                                            "JSimpleListPush",
+                                            "Push-device unregister failed",
+                                            exception
+                                        )
+                                    }
+
                                     authRepository.signOut()
+
+                                    store.saveActivePushUserId(null)
 
                                     signedInEmail = null
                                     pendingInvitations.clear()
-                                    unseenNotifications.clear()
                                     acceptingInvitationId = null
-                                    markingNotificationSeenId = null
 
                                     val loadedLists =
                                         dao.loadVisibleLists(null)
@@ -1008,6 +1026,25 @@ private fun SimpleListApp(
                             signedInEmail =
                                 authRepository.currentUserEmail()
 
+                            store.saveActivePushUserId(
+                                authRepository.currentUserId()
+                            )
+
+                            try {
+                                pushDeviceRepository.requestFirebaseRegistration()
+
+                                pushDeviceRepository.registerStoredDevice(
+                                    store = store,
+                                    clientInstanceId = clientInstanceId
+                                )
+                            } catch (exception: Exception) {
+                                Log.w(
+                                    "JSimpleListPush",
+                                    "Push-device registration failed after sign-in",
+                                    exception
+                                )
+                            }
+
                             offerNotificationPermission()
 
                             pendingInvitations.clear()
@@ -1015,14 +1052,7 @@ private fun SimpleListApp(
                                 invitationRepository.loadPendingInvitations()
                             )
 
-                            unseenNotifications.clear()
-                            unseenNotifications.addAll(
-                                notificationRepository.loadUnseenNotifications()
-                            )
 
-                            unseenNotifications.forEach { notification ->
-                                sharingNotificationManager.show(notification)
-                            }
 
                             val loadedLists =
                                 dao.loadVisibleLists(
@@ -1071,19 +1101,47 @@ private fun SimpleListApp(
                 },
                 text = {
                     Text(
-                        "JSimpleList can notify you when someone joins " +
-                            "or when important sharing changes occur"
+                        "JSimpleList uses notifications for list invitations " +
+                            "and important sharing updates. Enable notifications " +
+                            "so you do not miss activity on shared lists"
                     )
                 },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            notificationPermissionLauncher.launch(
-                                Manifest.permission.POST_NOTIFICATIONS
-                            )
+                            if (
+                                store.hasRequestedNotificationPermission()
+                            ) {
+                                val intent =
+                                    Intent(
+                                        Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                                    ).apply {
+                                        putExtra(
+                                            Settings.EXTRA_APP_PACKAGE,
+                                            context.packageName
+                                        )
+                                    }
+
+                                context.startActivity(intent)
+                                showNotificationPermissionExplanation = false
+                            } else {
+                                store.markNotificationPermissionRequested()
+
+                                notificationPermissionLauncher.launch(
+                                    Manifest.permission.POST_NOTIFICATIONS
+                                )
+                            }
                         }
                     ) {
-                        Text("Allow notifications")
+                        Text(
+                            if (
+                                store.hasRequestedNotificationPermission()
+                            ) {
+                                "Open notification settings"
+                            } else {
+                                "Enable notifications"
+                            }
+                        )
                     }
                 },
                 dismissButton = {
@@ -1104,20 +1162,40 @@ private fun SimpleListApp(
         ) {
             val invitation = pendingInvitations.first()
 
+            val listTypeDescription =
+                when (invitation.listKind) {
+                    "SHOPPING" -> "Shopping list"
+                    "TODO" -> "To-do list"
+                    "DISCUSSION" -> "Discussion list"
+                    else -> "list"
+                }
+
+            val invitationBusy =
+                acceptingInvitationId != null ||
+                    decliningInvitationId != null
+
             AlertDialog(
                 onDismissRequest = {
-                    if (acceptingInvitationId == null) {
-                        pendingInvitations.remove(invitation)
-                    }
+                    /*
+                     * Deliberately do nothing.
+                     *
+                     * A pending invitation remains pending until the user
+                     * explicitly accepts or declines it.
+                     */
                 },
                 title = {
                     Text("List invitation")
                 },
                 text = {
                     Text(
-                        "You've been invited to share a JSimpleList. " +
-                            "Accept the invitation to add the shared list " +
-                            "to this device."
+                        "You have been invited by " +
+                            invitation.inviterDisplayName +
+                            " to join " +
+                            invitation.listName +
+                            ". This is a " +
+                            listTypeDescription +
+                            " that you can add items to and mark as done.\n\n" +
+                            "Accepting the invitation gives you access to the list."
                     )
                 },
                 confirmButton = {
@@ -1131,6 +1209,16 @@ private fun SimpleListApp(
                                         invitationRepository.acceptInvitation(
                                             invitation.id
                                         )
+
+                                    try {
+                                        pushOutboxRepository.processPending()
+                                    } catch (exception: Exception) {
+                                        Log.w(
+                                            "JSimpleListPush",
+                                            "Push outbox nudge failed",
+                                            exception
+                                        )
+                                    }
 
                                     val loadedLists =
                                         listSyncRepository.discoverOnlineLists(
@@ -1186,7 +1274,7 @@ private fun SimpleListApp(
                                 }
                             }
                         },
-                        enabled = acceptingInvitationId == null
+                        enabled = !invitationBusy
                     ) {
                         Text(
                             if (
@@ -1203,106 +1291,60 @@ private fun SimpleListApp(
                 dismissButton = {
                     TextButton(
                         onClick = {
-                            pendingInvitations.remove(invitation)
-                        },
-                        enabled = acceptingInvitationId == null
-                    ) {
-                        Text("Not now")
-                    }
-                }
-            )
-        }
-
-        if (
-            !showListSharing &&
-            pendingInvitations.isEmpty() &&
-            unseenNotifications.isNotEmpty()
-        ) {
-            val notification = unseenNotifications.first()
-
-            AlertDialog(
-                onDismissRequest = {
-                    if (markingNotificationSeenId == null) {
-                        markingNotificationSeenId = notification.id
-
-                        coroutineScope.launch {
-                            try {
-                                notificationRepository.markSeen(
-                                    notification.id
-                                )
-                                unseenNotifications.remove(notification)
-                            } catch (exception: Exception) {
-                                Log.e(
-                                    "JSimpleListNotification",
-                                    "Could not mark notification seen",
-                                    exception
-                                )
-                            } finally {
-                                markingNotificationSeenId = null
-                            }
-                        }
-                    }
-                },
-                title = {
-                    Text("Sharing update")
-                },
-                text = {
-                    Text(
-                        when (notification.eventType) {
-                            "invitation_accepted" ->
-                                "${notification.actorDisplayName} joined " +
-                                    notification.listName
-
-                            else ->
-                                "Your shared list has been updated"
-                        }
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            markingNotificationSeenId = notification.id
+                            decliningInvitationId = invitation.id
 
                             coroutineScope.launch {
                                 try {
-                                    notificationRepository.markSeen(
-                                        notification.id
+                                    invitationRepository.declineInvitation(
+                                        invitation.id
                                     )
-                                    unseenNotifications.remove(notification)
+
+                                    pendingInvitations.remove(invitation)
+
+                                    try {
+                                        pushOutboxRepository.processPending()
+                                    } catch (exception: Exception) {
+                                        Log.w(
+                                            "JSimpleListPush",
+                                            "Push outbox nudge failed after decline",
+                                            exception
+                                        )
+                                    }
                                 } catch (exception: Exception) {
                                     Log.e(
-                                        "JSimpleListNotification",
-                                        "Could not mark notification seen",
+                                        "JSimpleListInvitation",
+                                        "Could not decline invitation",
                                         exception
                                     )
 
                                     Toast.makeText(
                                         context,
-                                        "Could not dismiss notification",
-                                        Toast.LENGTH_SHORT
+                                        exception.message
+                                            ?: "Could not decline invitation",
+                                        Toast.LENGTH_LONG
                                     ).show()
                                 } finally {
-                                    markingNotificationSeenId = null
+                                    decliningInvitationId = null
                                 }
                             }
                         },
-                        enabled =
-                            markingNotificationSeenId == null
+                        enabled = !invitationBusy
                     ) {
                         Text(
                             if (
-                                markingNotificationSeenId ==
-                                notification.id
+                                decliningInvitationId ==
+                                invitation.id
                             ) {
-                                "Closing"
+                                "Declining"
                             } else {
-                                "OK"
+                                "Decline"
                             }
                         )
                     }
                 }
             )
         }
+
 
 
         if (showDeleteAccount) {
@@ -1371,11 +1413,11 @@ private fun SimpleListApp(
                                         )
                                     }
 
+                                    store.saveActivePushUserId(null)
+
                                     signedInEmail = null
                                     pendingInvitations.clear()
-                                    unseenNotifications.clear()
                                     acceptingInvitationId = null
-                                    markingNotificationSeenId = null
 
                                     val loadedLists =
                                         dao.loadVisibleLists(null)

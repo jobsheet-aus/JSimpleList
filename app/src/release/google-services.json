@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "664595380920",
+    "project_id": "jsimplelist",
+    "storage_bucket": "jsimplelist.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:664595380920:android:538bee80dbf8fa404d124d",
+        "android_client_info": {
+          "package_name": "au.com.jobsheet.jsimplelist"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCTELkcNe-LD7mieMMmjsnkfNcJLKkokSw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
