@@ -70,6 +70,21 @@ class SimpleListStore(context: Context) {
             .apply()
     }
 
+    fun hasOfferedNotificationPermission(): Boolean =
+        preferences.getBoolean(
+            KEY_NOTIFICATION_PERMISSION_OFFERED,
+            false
+        )
+
+    fun markNotificationPermissionOffered() {
+        preferences.edit()
+            .putBoolean(
+                KEY_NOTIFICATION_PERMISSION_OFFERED,
+                true
+            )
+            .apply()
+    }
+
     fun loadOrCreateClientInstanceId(): String {
         val existing =
             preferences.getString(KEY_CLIENT_INSTANCE_ID, null)
@@ -104,5 +119,7 @@ class SimpleListStore(context: Context) {
         private const val KEY_FONT_SCALE = "font_scale"
         private const val KEY_LAST_ACTIVE_LIST_ID = "last_active_list_id"
         private const val KEY_CLIENT_INSTANCE_ID = "client_instance_id"
+        private const val KEY_NOTIFICATION_PERMISSION_OFFERED =
+            "notification_permission_offered"
     }
 }

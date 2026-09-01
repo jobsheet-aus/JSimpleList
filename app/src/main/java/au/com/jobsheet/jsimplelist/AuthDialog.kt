@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -35,6 +36,8 @@ import kotlinx.coroutines.launch
 fun AuthDialog(
     repository: AuthRepository,
     profileRepository: ProfileRepository,
+    onOpenNotificationSettings: () -> Unit,
+    onDeleteOnlineAccount: () -> Unit,
     onSignedIn: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -270,8 +273,45 @@ fun AuthDialog(
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Text(signedInEmail!!)
+                    }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    HorizontalDivider()
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Notifications",
+                        fontWeight = FontWeight.Medium
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        "Manage invitations and sharing alerts in Android"
+                    )
+
+                    TextButton(
+                        onClick = onOpenNotificationSettings
+                    ) {
+                        Text("Notification settings")
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    HorizontalDivider()
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    TextButton(
+                        onClick = onDeleteOnlineAccount,
+                        enabled = !busy
+                    ) {
+                        Text(
+                            text = "Delete online account",
+                            color = MaterialTheme.colorScheme.error
+                        )
                     }
                 } else {
                     Text("Share selected lists with other people")

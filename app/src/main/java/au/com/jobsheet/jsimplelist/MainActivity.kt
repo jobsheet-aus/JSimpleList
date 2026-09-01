@@ -1,13 +1,19 @@
 package au.com.jobsheet.jsimplelist
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.room3.Room
 import androidx.room3.migration.Migration
 import androidx.sqlite.driver.AndroidSQLiteDriver
@@ -91,6 +97,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import au.com.jobsheet.jsimplelist.ui.theme.SimpleListTheme
 import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.realtime.broadcastFlow
@@ -118,6 +125,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        SharingNotificationManager(
+            applicationContext
+        ).createChannel()
 
         handleAuthIntent(intent)
 
@@ -233,6 +244,9 @@ private fun SimpleListApp(
 ) {
     val context = LocalContext.current
     val applicationContext = context.applicationContext
+    val sharingNotificationManager = remember {
+        SharingNotificationManager(applicationContext)
+    }
     val store = remember { SimpleListStore(applicationContext) }
     val clientInstanceId = remember {
         store.loadOrCreateClientInstanceId()
@@ -282,6 +296,30 @@ private fun SimpleListApp(
     }
     var markingNotificationSeenId by remember {
         mutableStateOf<String?>(null)
+    }
+    var showNotificationPermissionExplanation by remember {
+        mutableStateOf(false)
+    }
+
+    val notificationPermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission()
+        ) {
+            showNotificationPermissionExplanation = false
+        }
+
+    fun offerNotificationPermission() {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED &&
+            !store.hasOfferedNotificationPermission()
+        ) {
+            store.markNotificationPermissionOffered()
+            showNotificationPermissionExplanation = true
+        }
     }
 
     LaunchedEffect(database, authRefreshSignal) {
@@ -337,6 +375,10 @@ private fun SimpleListApp(
                 unseenNotifications.addAll(
                     notificationRepository.loadUnseenNotifications()
                 )
+
+                unseenNotifications.forEach { notification ->
+                    sharingNotificationManager.show(notification)
+                }
             } catch (exception: Exception) {
                 Log.e(
                     "JSimpleListNotification",
@@ -733,8 +775,29 @@ private fun SimpleListApp(
 
             Spacer(modifier = Modifier.weight(1f))
 
+            androidx.compose.material3.IconButton(
+                onClick = {
+                    val defaultName = "To-do list"
+
+                    newListName = TextFieldValue(
+                        text = defaultName,
+                        selection = TextRange(
+                            0,
+                            defaultName.length
+                        )
+                    )
+                    newListKind = ListKind.TODO
+                    showNewListDialog = true
+                }
+            ) {
+                Text(
+                    text = "+",
+                    fontSize = 28.sp
+                )
+            }
+
             Box {
-                TextButton(
+                androidx.compose.material3.IconButton(
                     onClick = { showMenu = true }
                 ) {
                     Text(
@@ -746,33 +809,8 @@ private fun SimpleListApp(
                 DropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
-                    modifier = Modifier.width(230.dp)
+                    modifier = Modifier.width(210.dp)
                 ) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                text = "New list",
-                                fontSize = 16.sp
-                            )
-                        },
-                        onClick = {
-                            showMenu = false
-
-                            val defaultName = "To-do list"
-
-                            newListName = TextFieldValue(
-                                text = defaultName,
-                                selection = TextRange(
-                                    0,
-                                    defaultName.length
-                                )
-                            )
-                            newListKind = ListKind.TODO
-                            showNewListDialog = true
-                        },
-                        modifier = Modifier.height(58.dp)
-                    )
-
                     DropdownMenuItem(
                         text = {
                             Text(
@@ -784,8 +822,10 @@ private fun SimpleListApp(
                             showMenu = false
                             showListSelector = true
                         },
-                        modifier = Modifier.height(58.dp)
+                        modifier = Modifier.height(52.dp)
                     )
+
+                    HorizontalDivider()
 
                     DropdownMenuItem(
                         text = {
@@ -798,23 +838,18 @@ private fun SimpleListApp(
                             showMenu = false
                             showListSharing = true
                         },
-                        modifier = Modifier.height(58.dp)
+                        modifier = Modifier.height(52.dp)
                     )
 
-                    DropdownMenuItem(
-                        text = {
-                            Column {
-                                Text(
-                                    text =
-                                        if (signedInEmail == null) {
-                                            "Sign in"
-                                        } else {
-                                            "Sign out"
-                                        },
-                                    fontSize = 16.sp
-                                )
+                    if (signedInEmail != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(
+                                        text = "Sign out",
+                                        fontSize = 16.sp
+                                    )
 
-                                if (signedInEmail != null) {
                                     Text(
                                         text = signedInEmail!!,
                                         fontSize = 12.sp,
@@ -822,35 +857,16 @@ private fun SimpleListApp(
                                             MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                            }
-                        },
-                        onClick = {
-                            showMenu = false
-
-                            if (signedInEmail == null) {
-                                showListSharing = true
-                            } else {
-                                showSignOutConfirmation = true
-                            }
-                        },
-                        modifier = Modifier.height(58.dp)
-                    )
-
-                    if (signedInEmail != null) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = "Delete account",
-                                    fontSize = 16.sp
-                                )
                             },
                             onClick = {
                                 showMenu = false
-                                showDeleteAccount = true
+                                showSignOutConfirmation = true
                             },
-                            modifier = Modifier.height(58.dp)
+                            modifier = Modifier.height(52.dp)
                         )
                     }
+
+                    HorizontalDivider()
 
                     DropdownMenuItem(
                         text = {
@@ -863,7 +879,7 @@ private fun SimpleListApp(
                             showMenu = false
                             showAbout = true
                         },
-                        modifier = Modifier.height(58.dp)
+                        modifier = Modifier.height(52.dp)
                     )
                 }
             }
@@ -964,6 +980,23 @@ private fun SimpleListApp(
             AuthDialog(
                 repository = authRepository,
                 profileRepository = profileRepository,
+                onOpenNotificationSettings = {
+                    val intent =
+                        Intent(
+                            Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                        ).apply {
+                            putExtra(
+                                Settings.EXTRA_APP_PACKAGE,
+                                context.packageName
+                            )
+                        }
+
+                    context.startActivity(intent)
+                },
+                onDeleteOnlineAccount = {
+                    showListSharing = false
+                    showDeleteAccount = true
+                },
                 onSignedIn = {
                     coroutineScope.launch {
                         try {
@@ -974,6 +1007,8 @@ private fun SimpleListApp(
                             signedInEmail =
                                 authRepository.currentUserEmail()
 
+                            offerNotificationPermission()
+
                             pendingInvitations.clear()
                             pendingInvitations.addAll(
                                 invitationRepository.loadPendingInvitations()
@@ -983,6 +1018,10 @@ private fun SimpleListApp(
                             unseenNotifications.addAll(
                                 notificationRepository.loadUnseenNotifications()
                             )
+
+                            unseenNotifications.forEach { notification ->
+                                sharingNotificationManager.show(notification)
+                            }
 
                             val loadedLists =
                                 dao.loadVisibleLists(
@@ -1017,6 +1056,43 @@ private fun SimpleListApp(
                 },
                 onDismiss = {
                     showListSharing = false
+                }
+            )
+        }
+
+        if (showNotificationPermissionExplanation) {
+            AlertDialog(
+                onDismissRequest = {
+                    showNotificationPermissionExplanation = false
+                },
+                title = {
+                    Text("Sharing notifications")
+                },
+                text = {
+                    Text(
+                        "JSimpleList can notify you when someone joins " +
+                            "or when important sharing changes occur"
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            notificationPermissionLauncher.launch(
+                                Manifest.permission.POST_NOTIFICATIONS
+                            )
+                        }
+                    ) {
+                        Text("Allow notifications")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showNotificationPermissionExplanation = false
+                        }
+                    ) {
+                        Text("Not now")
+                    }
                 }
             )
         }
