@@ -105,6 +105,7 @@ import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -2859,6 +2860,14 @@ private fun ListScreen(
         mutableStateOf<String?>(null)
     }
 
+    val visualCompletedOverrides = remember(listId) {
+        mutableStateMapOf<String, Boolean>()
+    }
+    val visualToggleGenerations = remember(listId) {
+        mutableStateMapOf<String, Int>()
+    }
+    val itemAnimationScope = rememberCoroutineScope()
+
     val descriptionFocusRequester = remember { FocusRequester() }
     val listState = rememberLazyListState()
 
@@ -3006,15 +3015,24 @@ private fun ListScreen(
         }
 
         val displayedItems =
-            remember(items.toList()) {
+            remember(
+                items.toList(),
+                visualCompletedOverrides.toMap()
+            ) {
                 val orderedItems =
                     items.sortedWith(
                         compareBy<ItemEntity> { it.position }
                             .thenBy { it.createdAt }
                     )
 
-                orderedItems.filterNot { it.completed } +
-                    orderedItems.filter { it.completed }
+                orderedItems.filterNot { item ->
+                    visualCompletedOverrides[item.id]
+                        ?: item.completed
+                } +
+                    orderedItems.filter { item ->
+                        visualCompletedOverrides[item.id]
+                            ?: item.completed
+                    }
             }
 
         LaunchedEffect(
@@ -3073,62 +3091,104 @@ private fun ListScreen(
                     items = displayedItems,
                     key = { item -> item.id }
                 ) { item ->
-                    ListItemRow(
-                        item = item,
-                        kind = kind,
-                        creatorName =
-                            if (onlineState != "LOCAL") {
-                                item.createdByUserId?.let {
-                                    creatorNames[it]
+                    Column(
+                        modifier = Modifier.animateItem()
+                    ) {
+                        ListItemRow(
+                            item = item,
+                            kind = kind,
+                            creatorName =
+                                if (onlineState != "LOCAL") {
+                                    item.createdByUserId?.let {
+                                        creatorNames[it]
+                                    }
+                                } else {
+                                    null
+                                },
+                            fontScale = fontScale,
+                            onUpdate = { newDescription, newQuantity ->
+                                val index =
+                                    items.indexOfFirst {
+                                        it.id == item.id
+                                    }
+
+                                if (index >= 0) {
+                                    val updatedItem = item.copy(
+                                        description = newDescription,
+                                        quantity = newQuantity,
+                                        updatedAt = System.currentTimeMillis(),
+                                        updatedByUserId =
+                                            if (onlineState != "LOCAL") {
+                                                currentUserId
+                                            } else {
+                                                null
+                                            }
+                                    )
+
+                                    items[index] = updatedItem
+                                    onItemUpdated(updatedItem)
                                 }
-                            } else {
-                                null
                             },
-                        fontScale = fontScale,
-                        onUpdate = { newDescription, newQuantity ->
-                            val index = items.indexOfFirst { it.id == item.id }
+                            onToggle = {
+                                val index =
+                                    items.indexOfFirst {
+                                        it.id == item.id
+                                    }
 
-                            if (index >= 0) {
-                                val updatedItem = item.copy(
-                                    description = newDescription,
-                                    quantity = newQuantity,
-                                    updatedAt = System.currentTimeMillis(),
-                                    updatedByUserId =
-                                        if (onlineState != "LOCAL") {
-                                            currentUserId
-                                        } else {
-                                            null
+                                if (index >= 0) {
+                                    val oldCompleted =
+                                        visualCompletedOverrides[item.id]
+                                            ?: item.completed
+                                    val updatedItem = item.copy(
+                                        completed = !item.completed,
+                                        updatedAt = System.currentTimeMillis(),
+                                        updatedByUserId =
+                                            if (onlineState != "LOCAL") {
+                                                currentUserId
+                                            } else {
+                                                null
+                                            }
+                                    )
+
+                                    visualCompletedOverrides[item.id] =
+                                        oldCompleted
+
+                                    val generation =
+                                        (visualToggleGenerations[item.id] ?: 0) + 1
+
+                                    visualToggleGenerations[item.id] =
+                                        generation
+
+                                    items[index] = updatedItem
+                                    onItemUpdated(updatedItem)
+
+                                    itemAnimationScope.launch {
+                                        delay(250)
+
+                                        if (
+                                            visualToggleGenerations[item.id] ==
+                                            generation
+                                        ) {
+                                            visualCompletedOverrides.remove(
+                                                item.id
+                                            )
+                                            visualToggleGenerations.remove(
+                                                item.id
+                                            )
                                         }
-                                )
-                                items[index] = updatedItem
-                                onItemUpdated(updatedItem)
+                                    }
+                                }
+                            },
+                            onDelete = {
+                                visualCompletedOverrides.remove(item.id)
+                                visualToggleGenerations.remove(item.id)
+                                items.removeAll { it.id == item.id }
+                                onItemDeleted(item)
                             }
-                        },
-                        onToggle = {
-                            val index = items.indexOfFirst { it.id == item.id }
+                        )
 
-                            if (index >= 0) {
-                                val updatedItem = item.copy(
-                                    completed = !item.completed,
-                                    updatedAt = System.currentTimeMillis(),
-                                    updatedByUserId =
-                                        if (onlineState != "LOCAL") {
-                                            currentUserId
-                                        } else {
-                                            null
-                                        }
-                                )
-                                items[index] = updatedItem
-                                onItemUpdated(updatedItem)
-                            }
-                        },
-                        onDelete = {
-                            items.removeAll { it.id == item.id }
-                            onItemDeleted(item)
-                        }
-                    )
-
-                    HorizontalDivider()
+                        HorizontalDivider()
+                    }
                 }
             }
 
