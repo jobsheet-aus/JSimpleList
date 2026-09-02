@@ -271,7 +271,7 @@ Account deletion backend added/tested 30 Aug 2026:
 - `migrations/024_delete_online_account_data.sql` defines authenticated security-definer `jsimplelist.delete_online_account_data()`.
 - Cleanup hard-deletes lists owned by the current account and their items/invitations/memberships; removes the current account from other owners' lists without deleting those lists/items; removes invitations created by the account and outstanding invitations addressed to the account email; removes the profile.
 - Hosted Supabase Edge Function `delete-account` is deployed ACTIVE. It authenticates the caller using the forwarded Authorization header, runs the cleanup RPC as the caller, then uses server-side Supabase secret credentials to admin-delete exactly that Auth user.
-- Supabase CLI is installed locally and linked to project ref `xislrkkifqayznsgwzno`; hosted migrations/functions are managed deliberately through CLI rather than ad-hoc SQL where practical.
+- Supabase CLI is installed locally and linked to project ref `xislrkkifqayznsgwzno`; invoke it through `npx supabase ...` rather than assuming a globally installed `supabase` executable. Hosted migrations/functions are managed deliberately through CLI rather than ad-hoc SQL where practical.
 - Android installs `supabase-functions`; `AuthRepository.deleteOnlineAccount()` invokes `delete-account`.
 
 Invitation email/secrets state:
@@ -597,6 +597,7 @@ Immediate order:
 1. Architecture-first inspection of the existing `jslist.jobsheet.com.au` invitation/auth handoff, Android App Link intent handling and current Supabase Auth bootstrap primitives.
 2. Define the opaque short-lived single-use handoff record/contract and lifecycle cleanup without weakening `accept_list_invitation()` authority.
 3. Implement the purpose-specific GREEN invitation email and website/App-Link/install continuation.
+   - TODO: after simplifying GREEN onboarding to one-click handoff redemption, review the now-possibly-obsolete verification rate-limit machinery (`verification_code_sent_at`, `verification_attempt_count`, `claim_invitation_handoff_verification_send`, `claim_invitation_handoff_verification_attempt`). Remove it through a new migration if no longer useful, or deliberately repurpose it for handoff-redemption abuse protection.
 4. Implement Android resume/auth/accept/discover/open handling with safe wrong-account/expired/forwarded behaviour.
 5. Prove the complete never-used-JSimpleList -> install -> authenticate -> join-list journey on a real device.
 6. Then implement delayed reminder delivery for `KNOWN_USER`/unresolved established invitations and move immediate push to a durable non-blocking path.

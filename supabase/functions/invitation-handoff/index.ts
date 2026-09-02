@@ -5,8 +5,7 @@ const allowedBrowserOrigin =
 
 type HandoffAction =
     | "inspect"
-    | "send_code"
-    | "verify_code";
+    | "join";
 
 type HandoffDelivery = {
     invitation_id: string;
@@ -160,103 +159,6 @@ function escapeHtml(
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#39;");
-}
-
-async function sendVerificationEmail(
-    resendApiKey: string,
-    recipientEmail: string,
-    inviterDisplayName: string,
-    listName: string,
-    emailOtp: string
-): Promise<void> {
-    const safeInviter =
-        escapeHtml(
-            inviterDisplayName
-        );
-
-    const safeList =
-        escapeHtml(
-            listName
-        );
-
-    const safeOtp =
-        escapeHtml(
-            emailOtp
-        );
-
-    const response =
-        await fetch(
-            "https://api.resend.com/emails",
-            {
-                method:
-                    "POST",
-
-                headers: {
-                    Authorization:
-                        `Bearer ${resendApiKey}`,
-
-                    "Content-Type":
-                        "application/json",
-                },
-
-                body:
-                    JSON.stringify({
-                        from:
-                            "JSimpleList <jsimplelist@jobsheet.com.au>",
-
-                        to: [
-                            recipientEmail,
-                        ],
-
-                        subject:
-                            "Your JSimpleList verification code",
-
-                        html: `
-                            <div style="font-family:Arial,sans-serif;line-height:1.5;color:#1f2937">
-                                <h2 style="margin-bottom:12px">
-                                    Verify your email address
-                                </h2>
-
-                                <p>
-                                    ${safeInviter} invited you to join
-                                    <strong>${safeList}</strong>
-                                    in JSimpleList.
-                                </p>
-
-                                <p>
-                                    Enter this six-digit code in JSimpleList
-                                    to verify that this is your email address:
-                                </p>
-
-                                <p style="font-size:24px;font-weight:700;letter-spacing:4px">
-                                    ${safeOtp}
-                                </p>
-
-                                <p>
-                                    The code is short-lived. If it expires,
-                                    return to your invitation and request
-                                    another code.
-                                </p>
-
-                                <p>
-                                    If you did not request this code,
-                                    you can ignore this email.
-                                </p>
-                            </div>
-                        `,
-                    }),
-            }
-        );
-
-    if (!response.ok) {
-        const details =
-            await response.text();
-
-        throw new Error(
-            "Resend verification email failed: " +
-            `${response.status} ${details}`
-        );
-    }
 }
 
 async function resolveActiveHandoff(
@@ -543,16 +445,10 @@ Deno.serve(
                 "SUPABASE_PUBLISHABLE_KEYS"
             );
 
-        const resendApiKey =
-            Deno.env.get(
-                "RESEND_API_KEY"
-            );
-
         if (
             !supabaseUrl ||
             !serviceRoleKey ||
-            !publishableKeysJson ||
-            !resendApiKey
+            !publishableKeysJson
         ) {
             return jsonResponse(
                 {
@@ -581,8 +477,7 @@ Deno.serve(
 
             if (
                 action !== "inspect" &&
-                action !== "send_code" &&
-                action !== "verify_code"
+                action !== "join"
             ) {
                 return jsonResponse(
                     {
@@ -669,214 +564,57 @@ Deno.serve(
                 );
             }
 
-            if (
-                action === "send_code"
-            ) {
-                /*
-                 * Claim the resend window atomically in PostgreSQL before
-                 * generating or sending another verification code.
-                 */
-                const {
-                    data: sendClaimedAt,
-                    error: sendClaimError,
-                } =
-                    await adminClient
-                        .schema("jsimplelist")
-                        .rpc(
-                            "claim_invitation_handoff_verification_send",
-                            {
-                                target_invitation_id:
-                                    handoff.invitation.id,
-
-                                cooldown_seconds:
-                                    60,
-                            }
-                        );
-
-                if (sendClaimError) {
-                    console.error(
-                        "JSimpleList handoff send claim failed",
-                        sendClaimError
-                    );
-
-                    return jsonResponse(
-                        {
-                            error:
-                                "Verification code could not be prepared",
-                        },
-                        500
-                    );
-                }
-
-                if (
-                    typeof sendClaimedAt !==
-                        "string" ||
-                    sendClaimedAt.trim() ===
-                        ""
-                ) {
-                    return jsonResponse(
-                        {
-                            error:
-                                "Please wait before requesting another verification code",
-                        },
-                        429
-                    );
-                }
-
-                /*
-                 * The handoff proves only which invitation flow is being
-                 * continued. It does not prove control of the mailbox.
-                 *
-                 * Generate a fresh Supabase OTP and send it only to the
-                 * invited email address stored server-side.
-                 */
-                const {
-                    data: generatedLink,
-                    error: generatedLinkError,
-                } =
-                    await adminClient
-                        .auth
-                        .admin
-                        .generateLink({
-                            type:
-                                "magiclink",
-
-                            email:
-                                handoff.delivery
-                                    .recipient_email,
-
-                            options: {
-                                redirectTo:
-                                    "https://jslist.jobsheet.com.au/auth/invite",
-                            },
-                        });
-
-                const emailOtp =
-                    generatedLink
-                        ?.properties
-                        ?.email_otp
-                        ?.trim();
-
-                if (
-                    generatedLinkError ||
-                    !emailOtp
-                ) {
-                    console.error(
-                        "JSimpleList handoff OTP generation failed",
-                        generatedLinkError
-                    );
-
-                    return jsonResponse(
-                        {
-                            error:
-                                "Verification code could not be prepared",
-                        },
-                        500
-                    );
-                }
-
-                await sendVerificationEmail(
-                    resendApiKey,
-                    handoff.delivery
-                        .recipient_email,
-                    handoff.inviterDisplayName,
-                    handoff.list.name,
-                    emailOtp
-                );
-
-                return jsonResponse(
-                    {
-                        ...safeHandoffContext(
-                            handoff
-                        ),
-
-                        codeSent:
-                            true,
-                    }
-                );
-            }
-
-            const code =
-                typeof body.code ===
-                    "string"
-                    ? body.code
-                        .replace(
-                            /\D/g,
-                            ""
-                        )
-                        .slice(
-                            0,
-                            6
-                        )
-                    : "";
-
-            if (
-                code.length !== 6
-            ) {
-                return jsonResponse(
-                    {
-                        error:
-                            "Enter the six-digit verification code",
-                    },
-                    400
-                );
-            }
-
             /*
-             * Claim one verification attempt atomically. This bounds brute
-             * force attempts against a single opaque invitation handoff.
+             * Explicit Join is the scanner-safe redemption boundary.
+             *
+             * Merely opening the emailed handoff performs only `inspect`.
+             * A deliberate Join request uses the opaque handoff to bootstrap
+             * the invited Supabase identity, but membership authority still
+             * remains accept_list_invitation().
              */
             const {
-                data: verificationAttempt,
-                error: verificationAttemptError,
+                data: generatedLink,
+                error: generatedLinkError,
             } =
                 await adminClient
-                    .schema("jsimplelist")
-                    .rpc(
-                        "claim_invitation_handoff_verification_attempt",
-                        {
-                            target_invitation_id:
-                                handoff.invitation.id,
+                    .auth
+                    .admin
+                    .generateLink({
+                        type:
+                            "magiclink",
 
-                            max_attempts:
-                                8,
-                        }
-                    );
+                        email:
+                            handoff.delivery
+                                .recipient_email,
+                    });
 
-            if (verificationAttemptError) {
+            const tokenHash =
+                generatedLink
+                    ?.properties
+                    ?.hashed_token
+                    ?.trim();
+
+            if (
+                generatedLinkError ||
+                !tokenHash
+            ) {
                 console.error(
-                    "JSimpleList handoff verification claim failed",
-                    verificationAttemptError
+                    "JSimpleList handoff Auth bootstrap generation failed",
+                    generatedLinkError
                 );
 
                 return jsonResponse(
                     {
                         error:
-                            "Verification could not be attempted",
+                            "The invitation could not be prepared",
                     },
                     500
                 );
             }
 
-            if (
-                typeof verificationAttempt !==
-                    "number" ||
-                verificationAttempt < 1
-            ) {
-                return jsonResponse(
-                    {
-                        error:
-                            "Too many verification attempts. Request a new invitation",
-                    },
-                    429
-                );
-            }
-
             /*
-             * Verify the invited mailbox through Supabase Auth.
-             *
-             * The public caller never needs to know the full invited email:
-             * it is resolved only from the opaque server-side handoff.
+             * The generated Auth credential never leaves this Edge Function.
+             * It is immediately exchanged for the invited user's session.
              */
             const authClient =
                 createClient(
@@ -903,12 +641,8 @@ Deno.serve(
                 await authClient
                     .auth
                     .verifyOtp({
-                        email:
-                            handoff.delivery
-                                .recipient_email,
-
-                        token:
-                            code,
+                        token_hash:
+                            tokenHash,
 
                         type:
                             "email",
@@ -922,12 +656,17 @@ Deno.serve(
                 verificationError ||
                 !session
             ) {
+                console.error(
+                    "JSimpleList handoff Auth bootstrap verification failed",
+                    verificationError
+                );
+
                 return jsonResponse(
                     {
                         error:
-                            "Verification code is incorrect or expired",
+                            "The invitation could not be verified",
                     },
-                    400
+                    500
                 );
             }
 

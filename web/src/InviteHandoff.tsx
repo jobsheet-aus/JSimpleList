@@ -8,7 +8,7 @@ import { supabase } from './lib/supabase'
 type HandoffState =
   | 'checking'
   | 'active'
-  | 'code-sent'
+  | 'joining'
   | 'accepted'
   | 'invalid'
   | 'error'
@@ -46,72 +46,8 @@ function InviteHandoff() {
   const [context, setContext] =
     useState<HandoffContext | null>(null)
 
-  const [code, setCode] =
-    useState('')
-
-  const [busy, setBusy] =
-    useState(false)
-
   const [message, setMessage] =
     useState('')
-
-  async function invokeHandoff(
-    action: 'inspect' | 'send_code' | 'verify_code',
-    verificationCode?: string,
-  ) {
-    if (!handoff) {
-      throw new Error('This invitation link is incomplete')
-    }
-
-    const { data, error } =
-      await supabase.functions.invoke(
-        'invitation-handoff',
-        {
-          body: {
-            action,
-            handoff,
-            ...(verificationCode
-              ? { code: verificationCode }
-              : {}),
-          },
-        },
-      )
-
-    if (error) {
-      const context =
-        (error as {
-          context?: Response
-        }).context
-
-      if (context) {
-        try {
-          const body =
-            await context.clone().json()
-
-          if (
-            body &&
-            typeof body.error === 'string'
-          ) {
-            throw new Error(body.error)
-          }
-
-          if (body?.state === 'invalid') {
-            throw new Error(
-              'This invitation has expired or is no longer valid',
-            )
-          }
-        } catch (responseError) {
-          if (responseError instanceof Error) {
-            throw responseError
-          }
-        }
-      }
-
-      throw error
-    }
-
-    return data
-  }
 
   useEffect(() => {
     let cancelled = false
@@ -161,55 +97,37 @@ function InviteHandoff() {
     }
   }, [handoff])
 
-  async function sendCode() {
-    setBusy(true)
-    setMessage('')
-
-    try {
-      const data =
-        await invokeHandoff('send_code')
-
-      if (data?.state !== 'active') {
-        setState('invalid')
-        return
-      }
-
-      setContext(data as HandoffContext)
-      setState('code-sent')
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : 'Could not send verification code',
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function verifyCode() {
-    const cleanCode =
-      code.replace(/\D/g, '').slice(0, 6)
-
-    if (cleanCode.length !== 6) {
-      setMessage('Enter the six-digit verification code')
+  async function joinList() {
+    if (!handoff) {
       return
     }
 
-    setBusy(true)
+    setState('joining')
     setMessage('')
 
     try {
-      const data =
-        await invokeHandoff(
-          'verify_code',
-          cleanCode,
-        ) as AcceptedResponse
+      const { data, error } =
+        await supabase.functions.invoke(
+          'invitation-handoff',
+          {
+            body: {
+              action: 'join',
+              handoff,
+            },
+          },
+        )
+
+      if (error) {
+        throw error
+      }
+
+      const accepted =
+        data as AcceptedResponse
 
       if (
-        data?.state !== 'accepted' ||
-        !data.session?.accessToken ||
-        !data.session?.refreshToken
+        accepted?.state !== 'accepted' ||
+        !accepted.session?.accessToken ||
+        !accepted.session?.refreshToken
       ) {
         throw new Error(
           'The invitation could not be accepted',
@@ -221,10 +139,10 @@ function InviteHandoff() {
       } =
         await supabase.auth.setSession({
           access_token:
-            data.session.accessToken,
+            accepted.session.accessToken,
 
           refresh_token:
-            data.session.refreshToken,
+            accepted.session.refreshToken,
         })
 
       if (sessionError) {
@@ -236,10 +154,10 @@ function InviteHandoff() {
       setMessage(
         error instanceof Error
           ? error.message
-          : 'Verification failed',
+          : 'Could not join this list',
       )
-    } finally {
-      setBusy(false)
+
+      setState('active')
     }
   }
 
@@ -258,7 +176,7 @@ function InviteHandoff() {
           </p>
         )}
 
-        {(state === 'active' || state === 'code-sent') && context && (
+        {(state === 'active' || state === 'joining') && context && (
           <>
             <p className="secondary">
               {context.inviterDisplayName} invited you to join
@@ -268,76 +186,19 @@ function InviteHandoff() {
               <strong>{context.listName}</strong>
             </p>
 
-            {state === 'active' && (
-              <>
-                <p className="secondary">
-                  To continue, verify the email address this invitation
-                  was sent to: {context.maskedEmail}
-                </p>
+            <p className="secondary">
+              This invitation was sent to {context.maskedEmail}
+            </p>
 
-                <button
-                  type="button"
-                  onClick={sendCode}
-                  disabled={busy}
-                >
-                  {busy
-                    ? 'Sending code'
-                    : 'Send verification code'}
-                </button>
-              </>
-            )}
-
-            {state === 'code-sent' && (
-              <>
-                <p className="secondary">
-                  We sent a six-digit verification code to
-                  {' '}
-                  {context.maskedEmail}
-                </p>
-
-                <label htmlFor="invite-code">
-                  Verification code
-                </label>
-
-                <input
-                  id="invite-code"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  value={code}
-                  maxLength={6}
-                  onChange={(event) => {
-                    setCode(
-                      event.target.value
-                        .replace(/\D/g, '')
-                        .slice(0, 6),
-                    )
-
-                    setMessage('')
-                  }}
-                  disabled={busy}
-                />
-
-                <button
-                  type="button"
-                  onClick={verifyCode}
-                  disabled={busy}
-                >
-                  {busy
-                    ? 'Verifying'
-                    : 'Verify and join list'}
-                </button>
-
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={sendCode}
-                  disabled={busy}
-                >
-                  Send another code
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              onClick={joinList}
+              disabled={state === 'joining'}
+            >
+              {state === 'joining'
+                ? 'Joining list'
+                : 'Join list'}
+            </button>
           </>
         )}
 

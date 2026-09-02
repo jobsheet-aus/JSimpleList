@@ -72,7 +72,7 @@ DATABASE / SUPABASE
 - Apply hosted migrations deliberately and record whether they have actually been applied.
 - Deploy Edge Functions deliberately and verify the deployed function separately.
 - Do not invent security-sensitive mechanisms when Supabase already provides an appropriate authenticated primitive.
-- Canonical database changes use timestamped files in `supabase/migrations` and are applied with the Supabase CLI migration workflow; avoid routine ad-hoc SQL Editor changes when a migration is appropriate.
+- Canonical database changes use timestamped files in `supabase/migrations` and are applied with the Supabase CLI migration workflow; invoke the project Supabase CLI through `npx supabase ...` rather than assuming a globally installed `supabase` executable. Avoid routine ad-hoc SQL Editor changes when a migration is appropriate.
 
 PRODUCT / UX
 ------------

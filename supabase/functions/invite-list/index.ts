@@ -275,6 +275,146 @@ function fallbackDisplayName(
     return `${base}@`;
 }
 
+function randomOpaqueToken(): string {
+    const bytes =
+        crypto.getRandomValues(
+            new Uint8Array(32)
+        );
+
+    return base64UrlEncodeBytes(bytes);
+}
+
+async function sha256Hex(
+    value: string
+): Promise<string> {
+    const digest =
+        await crypto.subtle.digest(
+            "SHA-256",
+            new TextEncoder().encode(value)
+        );
+
+    return Array.from(
+        new Uint8Array(digest)
+    )
+        .map(
+            (byte) =>
+                byte
+                    .toString(16)
+                    .padStart(2, "0")
+        )
+        .join("");
+}
+
+function escapeHtml(
+    value: string
+): string {
+    return value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+}
+
+async function sendGreenInvitationEmail(
+    resendApiKey: string,
+    recipientEmail: string,
+    inviterDisplayName: string,
+    listName: string,
+    handoffUrl: string
+): Promise<void> {
+    const safeInviter =
+        escapeHtml(inviterDisplayName);
+
+    const safeList =
+        escapeHtml(listName);
+
+    const safeHandoffUrl =
+        escapeHtml(handoffUrl);
+
+    const subject =
+        `${inviterDisplayName} invited you to join ${listName} in JSimpleList`;
+
+    const response =
+        await fetch(
+            "https://api.resend.com/emails",
+            {
+                method: "POST",
+                headers: {
+                    Authorization:
+                        `Bearer ${resendApiKey}`,
+                    "Content-Type":
+                        "application/json",
+                },
+                body: JSON.stringify({
+                    from:
+                        "JSimpleList <jsimplelist@jobsheet.com.au>",
+
+                    to: [
+                        recipientEmail,
+                    ],
+
+                    subject,
+
+                    html: `
+                        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#1f2937">
+                            <h2 style="margin-bottom:12px">You've been invited to JSimpleList</h2>
+
+                            <p>
+                                ${safeInviter} invited you to join
+                                <strong>${safeList}</strong>.
+                            </p>
+
+                            <p>
+                                JSimpleList is a simple app for keeping lists
+                                on your phone and sharing selected lists privately.
+                            </p>
+
+                            <p style="margin:24px 0">
+                                <a
+                                    href="${safeHandoffUrl}"
+                                    style="display:inline-block;padding:12px 18px;background:#1877c9;color:#ffffff;text-decoration:none;border-radius:6px"
+                                >
+                                    Open shared list
+                                </a>
+                            </p>
+
+                            <p>
+                                If JSimpleList is not installed yet, this link
+                                will show you how to get it and continue.
+                            </p>
+
+                            <p>
+                                To protect the shared list, JSimpleList will
+                                verify the invited email address before access
+                                is granted.
+                            </p>
+
+                            <p>
+                                This invitation link expires after 24 hours.
+                            </p>
+
+                            <p>
+                                If you were not expecting this invitation,
+                                you can ignore this email.
+                            </p>
+                        </div>
+                    `,
+                }),
+            }
+        );
+
+    if (!response.ok) {
+        const details =
+            await response.text();
+
+        throw new Error(
+            "Resend invitation email failed: " +
+            `${response.status} ${details}`
+        );
+    }
+}
+
 
 Deno.serve(async (req: Request) => {
     if (req.method !== "POST") {
@@ -300,6 +440,11 @@ Deno.serve(async (req: Request) => {
     const firebaseServiceAccountB64 =
         Deno.env.get(
             "FIREBASE_SERVICE_ACCOUNT_B64"
+        );
+
+    const resendApiKey =
+        Deno.env.get(
+            "RESEND_API_KEY"
         );
 
     if (
@@ -603,8 +748,8 @@ Deno.serve(async (req: Request) => {
          *     receives a delayed reminder only if still pending
          *
          * GREEN:
-         *     temporarily retain the existing Auth email until the dedicated
-         *     one-click onboarding handoff replaces this branch
+         *     purpose-specific onboarding email with opaque handoff;
+         *     invited-email verification begins only after handoff continuation
          */
         if (
             recipientMaturity === "ACTIVE_ANDROID" ||
@@ -663,52 +808,163 @@ Deno.serve(async (req: Request) => {
         if (
             recipientMaturity === "GREEN"
         ) {
-            /*
-             * Transitional green-recipient path.
-             *
-             * Established users never enter this branch. The next invitation
-             * phase replaces this ordinary sign-in email with the dedicated
-             * onboarding handoff and purpose-built JSimpleList invitation.
-             */
-            const authClient =
-                createClient(
-                    supabaseUrl,
-                    publishableKey,
-                    {
-                        auth: {
-                            persistSession: false,
-                            autoRefreshToken: false,
-                        },
-                    }
-                );
-
-            const {
-                error: otpError,
-            } =
-                await authClient.auth
-                    .signInWithOtp({
-                        email,
-                        options: {
-                            shouldCreateUser:
-                                true,
-
-                            emailRedirectTo:
-                                "https://jslist.jobsheet.com.au/auth/invite",
-                        },
-                    });
-
-            if (otpError) {
+            if (!resendApiKey) {
                 console.error(
-                    "JSimpleList invitation OTP request failed",
-                    otpError
+                    "JSimpleList GREEN invitation requires RESEND_API_KEY"
                 );
 
                 return Response.json(
                     {
                         error:
-                            "Invitation was created, but the sign-in code could not be sent",
+                            "Invitation was created, but onboarding email is unavailable",
                     },
                     { status: 500 }
+                );
+            }
+
+            /*
+             * GREEN onboarding uses a JSimpleList-owned opaque continuation
+             * identifier. The public URL contains no Supabase Auth secret.
+             *
+             * The token itself is returned only to the recipient in the
+             * purpose-specific email. The database stores only its SHA-256
+             * hash.
+             */
+            const handoffToken =
+                randomOpaqueToken();
+
+            const handoffTokenHash =
+                await sha256Hex(
+                    handoffToken
+                );
+
+            const handoffExpiresAt =
+                new Date(
+                    Date.now() +
+                    24 * 60 * 60 * 1000
+                ).toISOString();
+
+            const handoffUrl =
+                "https://jslist.jobsheet.com.au/invite?h=" +
+                encodeURIComponent(
+                    handoffToken
+                );
+
+            const {
+                data: inviterProfile,
+            } =
+                await adminClient
+                    .schema("jsimplelist")
+                    .from("profiles")
+                    .select("display_name")
+                    .eq(
+                        "user_id",
+                        user.id
+                    )
+                    .maybeSingle();
+
+            const inviterDisplayName =
+                typeof inviterProfile
+                    ?.display_name ===
+                    "string" &&
+                inviterProfile
+                    .display_name
+                    .trim() !== ""
+                    ? inviterProfile
+                        .display_name
+                        .trim()
+                    : fallbackDisplayName(
+                        user.email
+                    );
+
+            const {
+                error: deliveryInsertError,
+            } =
+                await adminClient
+                    .schema("jsimplelist")
+                    .from("invitation_delivery")
+                    .insert({
+                        invitation_id:
+                            invitationId,
+
+                        recipient_email:
+                            email,
+
+                        recipient_maturity:
+                            "GREEN",
+
+                        immediate_channel:
+                            "ONBOARDING_EMAIL",
+
+                        handoff_token_hash:
+                            handoffTokenHash,
+
+                        handoff_expires_at:
+                            handoffExpiresAt,
+                    });
+
+            if (deliveryInsertError) {
+                console.error(
+                    "JSimpleList GREEN delivery state creation failed",
+                    deliveryInsertError
+                );
+
+                return Response.json(
+                    {
+                        error:
+                            "Invitation was created, but onboarding could not be prepared",
+                    },
+                    { status: 500 }
+                );
+            }
+
+            try {
+                await sendGreenInvitationEmail(
+                    resendApiKey,
+                    email,
+                    inviterDisplayName,
+                    list.name,
+                    handoffUrl
+                );
+            } catch (emailError) {
+                console.error(
+                    "JSimpleList GREEN onboarding email failed",
+                    emailError
+                );
+
+                return Response.json(
+                    {
+                        error:
+                            "Invitation was created, but onboarding email could not be sent",
+                    },
+                    { status: 500 }
+                );
+            }
+
+            const {
+                error: deliveryUpdateError,
+            } =
+                await adminClient
+                    .schema("jsimplelist")
+                    .from("invitation_delivery")
+                    .update({
+                        onboarding_email_sent_at:
+                            new Date()
+                                .toISOString(),
+
+                        updated_at:
+                            new Date()
+                                .toISOString(),
+                    })
+                    .eq(
+                        "invitation_id",
+                        invitationId
+                    );
+
+            if (deliveryUpdateError) {
+                console.error(
+                    "JSimpleList GREEN delivery state update failed",
+                    deliveryUpdateError
                 );
             }
         }
