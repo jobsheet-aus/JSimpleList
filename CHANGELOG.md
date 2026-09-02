@@ -63,6 +63,15 @@ This document records significant user-facing changes to JSimpleList.
 * A Google Play-signed 1.1 → 2.0 upgrade test is required before public release
 
 ## 1.1 — 21 August 2026
+Classic local-only release.
+
+This release is preserved as a historical download for users who want the original local-only JSimpleList experience.
+
+Archived production APK:
+`JSimpleList-1.1-play-signed.apk`
+
+APK SHA-256:
+`12bb47cfe832d57003490634d51bfc70b201e6f7ca9281998d4545af75a3f8b1`
 
 ### Added
 

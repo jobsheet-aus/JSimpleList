@@ -448,6 +448,13 @@ PUBLIC WEBSITE / LEGAL / PLAY STORE
 - Google Play Privacy Policy field is confirmed as `https://jobsheet.com.au/jsimplelist-privacy.html`.
 - Before submitting 2.0, review and update Google Play Data safety because 2.0 introduces optional account/email/display-name data, Supabase-backed online/shared list data, invitations/memberships and network processing that did not exist in released 1.1.
 - Before public 2.0 release, also reconcile README/store-listing wording so released metadata no longer describes JSimpleList as strictly local-only.
+- JSimpleList 1.1 is to remain available as the permanent `Classic local-only release` for historical and local-only use.
+- The archived 1.1 binary must be the genuine Google Play-signed universal APK, not a debug or locally signed rebuild.
+- Local archive path: `D:\SimpleList\releases\JSimpleList-1.1-play-signed.apk`; `/releases/` is intentionally git-ignored.
+- Archived 1.1 APK SHA-256: `12bb47cfe832d57003490634d51bfc70b201e6f7ca9281998d4545af75a3f8b1`.
+- Google Play production signing-certificate SHA-256 for the archived 1.1 APK: `ce9a34612fb932d2ed0200a4e0d072648c91f21ef1224fba9c5d099fda973380`.
+- Historical-release policy: known-good standalone/local-only releases may remain downloadable from the official JSimpleList website; releases with serious security, privacy, data-loss or compatibility defects may be withdrawn.
+- Service-dependent 2.x+ releases should only remain archived while their required backend contract is still intentionally supported; do not promise permanent online compatibility for historical clients.
 
 FUNDING / COST FUTURE-PROOFING
 ------------------------------
