@@ -155,7 +155,7 @@ Current account/menu/sharing UX:
   1. `Use this list on my other devices` / `Make available online` for the current authenticated account.
   2. `Invite someone` by email for another account.
 - For an online list, the Share dialog explains that it is available wherever the signed-in account is used and provides the invitation email field.
-- Owner invitation sending and first-class recipient onboarding are implemented and proven end to end on real devices. Invitation email uses the scanner-safe browser handoff, Supabase Auth completion, verified Android App Link and existing pending-invitation acceptance/import flow; manual six-digit OTP remains the fallback.
+- Established-user invitation delivery is now implemented and proven on real devices: active Android recipients are classified server-side, receive immediate push without an immediate sign-in email, notification taps route to the relevant invitation/list, and accept/decline retain the authoritative invitation RPC flow. Genuinely new/green-recipient onboarding is the next phase and is not yet complete.
 - Detailed invitation/onboarding architecture is authoritative in `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`.
 
 Item ordering:
@@ -235,19 +235,22 @@ Committed milestones include:
     32c350c Add online list discovery RPC
     6f41c0e Add online list delete and leave RPCs
 
-Supabase current state at 1 Sep 2026:
+Supabase current state at 2 Sep 2026:
 - Custom schema `jsimplelist` remains exposed for the Data API.
-- Canonical migrations now use timestamp filenames under `supabase/migrations/`; hosted migration history is current through `20260901091139_purge_superseded_invitation_history.sql`.
+- Canonical migrations now use timestamp filenames under `supabase/migrations/`; hosted migration history is current through `20260901123652_add_invitation_delivery_foundation.sql`.
 - Earlier migrations 001-028 establish profiles, lists, memberships, invitations, items/tombstones, discovery/sync, account cleanup, attribution and persistent sharing-event notifications.
 - `20260901061114_add_push_devices.sql`, `20260901063811_migrate_push_devices_to_fid.sql` and `20260901065443_add_push_recipient_email.sql` add account/device push registration using Firebase Installation IDs (FID), a persistent per-install client UUID and server-derived recipient email.
 - `20260901074911_grant_push_server_access.sql` grants the server worker the custom-schema/table access it needs.
 - `20260901080539_add_push_outbox.sql` adds durable `push_outbox` delivery jobs. Persistent notification rows are the server-side application event; an AFTER INSERT trigger creates matching push jobs transactionally.
 - `20260901084223_fix_invitation_lifecycle.sql` hardens invitation lifecycle: stale invitations are cancelled when lists are deleted, `get_my_pending_invitations()` returns only active-list invitations with inviter/list metadata, `decline_list_invitation()` is authoritative, accepted/declined events feed the push outbox, and `replace_list_invitation()` makes a new invite supersede all older invitation history for the same list + normalised email unless the person is already an active member.
 - `20260901091139_purge_superseded_invitation_history.sql` performs the one-time historical cleanup: deleted-list invitation lifecycles are removed and only the newest lifecycle is retained for each active list + normalised invited email; obsolete invitation-derived notifications/outbox rows are removed first.
+- `20260901123652_add_invitation_delivery_foundation.sql` adds server-only recipient maturity classification (`ACTIVE_ANDROID`, `KNOWN_USER`, `GREEN`) and `invitation_delivery` lifecycle state. Delivery rows are not membership authority and are removed transactionally when an invitation is accepted/cancelled; reinvite hard-delete cascades and list-deletion cancellation also clean them.
 - `accept_list_invitation(target_invitation_id uuid)` remains the membership authority and validates the authenticated email before creating/reactivating membership.
 - `decline_list_invitation(target_invitation_id uuid)` records a real decline and creates an inviter event; Decline is no longer a local-only dismissal.
 - Owner list deletion now causes outstanding invitations for that list to become cancelled rather than remaining indefinitely actionable.
 - Hosted Edge Functions currently include `delete-account`, `invite-list` and `send-push-outbox`.
+- Deployed `invite-list` now classifies recipients after authoritative `replace_list_invitation()`: `ACTIVE_ANDROID` gets immediate push with no immediate auth email; `KNOWN_USER` gets pending delivery state with no immediate email; `GREEN` temporarily retains the ordinary `signInWithOtp()` email until the dedicated onboarding handoff replaces that branch.
+- `invitation_delivery` records the immediate channel, push attempt/success and 24-hour reminder due time for established recipients. Real-device testing proved an `ACTIVE_ANDROID` invitation records `PUSH`/successful push and that acceptance or decline removes the pending delivery row immediately.
 - `send-push-outbox` uses the Firebase service account from hosted secret `FIREBASE_SERVICE_ACCOUNT_B64`, resolves recipient FIDs from `push_devices`, sends FCM HTTP v1 data messages, records attempts/errors and marks `sent_at` only after successful FCM acceptance.
 - FCM direct targeting uses Firebase Installation IDs (`message.fid`), not the deprecated token path.
 - Push registration is account-safe: Android stores the active push user ID and ignores an incoming sharing push when its `recipient_user_id` does not match the active signed-in account.
@@ -360,25 +363,19 @@ Current proven state at 1 Sep 2026:
 - The existing email subject/body are ordinary passwordless-sign-in copy (`Your JSimpleList sign-in code`) and are not suitable as final new-user invitation copy.
 
 Immediate next implementation order:
-1. Fix Android notification tap routing.
-   - Invitation notification -> open/bring forward JSimpleList and surface that invitation.
-   - Joined/declined notification -> open the affected list when still accessible.
-   - Carry `list_id` and appropriate invitation/notification context in the PendingIntent, while retaining active-account safety.
-2. Split invitation delivery into known-user and new-user paths.
-   - Known existing account + registered FID: create/replace invitation and use push fast path; do not wait for an auth email.
-   - Return invitation success as soon as the authoritative invitation transaction is committed; delivery should not make the UI wait unnecessarily.
-3. Design/implement the genuinely new-user onboarding email separately from ordinary sign-in email.
-   - Purpose-specific subject such as an invitation to join JSimpleList, not `sign-in code`.
-   - State who invited them and which list.
-   - Explain what JSimpleList is and where to get it.
-   - Include Open shared list / Google Play / landing-page guidance.
-   - If a six-digit fallback code is present, explicitly say to enter it `in the JSimpleList app`.
-4. Add a delayed reminder-email job for an existing-user invitation that remains pending after the configured delay; cancel/suppress the reminder once accepted/declined/superseded/deleted.
+1. Implement the genuinely new/green-recipient onboarding handoff.
+   - Create a short-lived opaque server-side handoff identifier tied to the authoritative invitation/bootstrap state; never expose a raw auth secret in the Google Play referrer.
+   - Send a purpose-specific JSimpleList invitation email naming inviter/list and providing one obvious Open shared list path.
+   - If the app is installed, use the verified Android App Link; if not installed, route through the website/Google Play while preserving only the opaque continuation identifier.
+   - On first launch/resume, authenticate/verify the invited email, accept through `accept_list_invitation()`, discover/import the list and open it.
+   - Wrong-account, forwarded, expired and already-resolved handoffs must remain safe.
+2. Replace the transitional GREEN `signInWithOtp()` invitation branch once the handoff is proven.
+3. Implement the delayed reminder-email worker/job for still-pending established-user invitations; suppress it automatically when invitation delivery state has been cleaned by accept/decline/reinvite/list deletion.
+4. Move immediate invitation push behind a durable/non-blocking delivery mechanism so sender success need not wait on Firebase work.
 5. Add post-create `Share this list?` UX; choosing Share should automatically make the new list online if required and continue directly into invitation UI.
 6. Add long-press current-list title -> existing delete confirmation shortcut; retain Manage lists -> Delete.
-7. Recheck notification-permission UX and real-device behaviour under allowed/denied/settings states.
-8. Run a focused sharing regression: invite, tap-routing, accept, decline, reinvite same list/email, deleted-list stale invite, app restart, wrong/inactive account, notification denied.
-9. Then continue broader owner/member controls, account/list-set realtime and durable failed-write reconciliation.
+7. Recheck notification-permission UX and run the focused sharing regression: invite, tap-routing, accept, decline, reinvite same list/email, deleted-list stale invite, app restart, wrong/inactive account, notification denied.
+8. Then continue broader owner/member controls, account/list-set realtime and durable failed-write reconciliation.
 
 Before public 2.0 release also:
 - Update About/version/build information that still reflects released 1.1.
@@ -554,45 +551,42 @@ CONTRIBUTING.md preserves practical future relicensing flexibility for substanti
 
 README currently describes the released local-only app. Update README/privacy/listing wording before a public network-enabled 2.0 release.
 
-CURRENT GIT CHECKPOINT - 1 SEP 2026
+CURRENT GIT CHECKPOINT - 2 SEP 2026
 -----------------------------------
-Latest known pushed functional checkpoint entering this work:
-    6d21c60 Add shared list member viewer
+Latest pushed checkpoint:
+    8ddad08 Improve invitation delivery and notification routing
 
-The 1 Sep sharing/push/invitation work is currently a substantial working-tree milestone rather than a recorded commit in this document. It includes Android/Firebase integration, Edge Functions, timestamped migrations, invitation lifecycle hardening, decline flow and notification-path simplification. Before final session closure, inspect `git status --short`, `git --no-pager diff --check` and diff/stat, then commit/push a cohesive checkpoint deliberately.
+At this checkpoint:
+- Android notification tap routing is implemented and real-device tested for invitation accept/decline flows.
+- Hosted migration `20260901123652_add_invitation_delivery_foundation.sql` is applied.
+- Hosted `invite-list` is deployed with recipient maturity classification and established-user push-only delivery.
+- Real testing confirmed `ACTIVE_ANDROID` -> `PUSH`, successful push recording, no immediate stock sign-in email for the established-user lane, and immediate `invitation_delivery` cleanup after both acceptance and decline.
+- Temporary patch helpers used during this work were deleted before the checkpoint.
+- Source commit `8ddad08` is pushed to `origin/main`.
 
-Hosted/backend state at this document update:
-- Migrations are applied through `20260901091139_purge_superseded_invitation_history.sql`.
-- `invite-list` is deployed with `replace_list_invitation()` usage but still uses synchronous `signInWithOtp()` email generation; this is intentionally scheduled for redesign.
-- `send-push-outbox` is deployed and real-device accepted/declined delivery is proven.
-- Firebase service-account secret is hosted as `FIREBASE_SERVICE_ACCOUNT_B64`; local secret material remains ignored.
-- First-class email/web/App-Link handoff infrastructure remains deployed and working for cases that still use email.
-
-SESSION CLOSEOUT - 1 SEP 2026
+SESSION CLOSEOUT - 2 SEP 2026
 -----------------------------
 Major work/decisions represented by this checkpoint:
-- Added Firebase Messaging without Analytics and migrated direct addressing to Firebase Installation IDs.
-- Added account-safe device registration in `push_devices` keyed by user/client instance and server-derived email.
-- Added durable `push_outbox` event delivery and deployed `send-push-outbox`.
-- Proved real-device invitation, joined and declined pushes.
-- Added invitation-accepted and invitation-declined Android rendering with active-account validation.
-- Hardened invitation lifecycle: list deletion cancels pending invites, recipient pending discovery excludes deleted lists, Decline is a real server action, and reinviting the same list/email replaces all prior invitation lifecycle/history instead of reusing stale rows.
-- Purged historical deleted/superseded invitation rows and related notifications/outbox entries.
-- Replaced the generic pending invitation prompt with inviter/list/type context and explicit Decline/Accept actions.
-- Split recipient-facing pending-invitation data from owner-facing sent-invitation summaries.
-- Diagnosed duplicate `Kate joined...` behaviour as two separate Android presentation mechanisms; removed the in-app persistent `Sharing update`/`NotificationRepository` path. FCM tray notification is now the sole user-visible notification mechanism; pending invitation dialogs remain actionable app state.
-- Confirmed tray notification taps currently do not route to the relevant list/invitation because `SharingNotificationManager` supplies a plain MainActivity PendingIntent with no routing extras.
-- Confirmed the current invitation UI waits roughly ten seconds because `invite-list` synchronously requests a Supabase passwordless email before returning.
-- Accepted a new delivery strategy: existing known users should use push as the immediate fast path; genuinely new users should receive a purpose-specific onboarding/invitation email; an existing-user invitation still pending after a configurable delay should receive a delayed reminder email rather than immediate duplicate-channel email.
-- The generic passwordless subject `Your JSimpleList sign-in code` is not acceptable as final invitation wording. New-user email must explain where to get JSimpleList and that a six-digit fallback code is entered in the app.
-- Added/retained UX TODOs: offer Share immediately after creating a list, automatically perform the online transition when Share is chosen, and provide long-press list-title -> delete-confirmation shortcut.
-- Working rule added: terminal/CLI diagnostics are preferred; when Supabase SQL Editor output must be pasted back, return one aggregate JSON value/cell rather than an awkward result grid.
-- Working rule added: non-trivial Python patch helpers must be checked with `python -m py_compile <script>` before execution; give one complete finished deterministic helper rather than multi-stage script-construction instructions.
+- Implemented account-safe notification tap routing. FCM route extras carry event type, intended recipient user ID, list ID and invitation ID where relevant; they remain navigation hints only, never authority.
+- Cold-start and warm-activity notification taps now re-check the active authenticated account before routing.
+- Invitation notification taps reload authoritative pending invitations and target the exact invitation when it still exists.
+- Accepted/declined notification taps navigate to the affected list only when that list is visible/accessible to the active account.
+- Added server-side recipient maturity classification using JSimpleList-owned evidence:
+  - `ACTIVE_ANDROID`: matching registered push device/email.
+  - `KNOWN_USER`: JSimpleList profile exists but no current push device.
+  - `GREEN`: no JSimpleList profile/device evidence; a raw Supabase Auth row alone does not make the person a known JSimpleList user.
+- Added server-only `invitation_delivery` state to separate invitation authority from delivery policy.
+- Delivery state is cleaned immediately when an invitation is accepted or cancelled/declined, and also disappears through existing superseding-reinvite/list-deletion lifecycle behaviour.
+- Refactored deployed `invite-list`: established Android users receive push without an immediate `Your JSimpleList sign-in code` email; known users without push receive no immediate duplicate email; GREEN remains on the transitional auth-email branch until purpose-built onboarding is implemented.
+- Real-device/hosted testing proved the established-user lane end to end: `ACTIVE_ANDROID`, channel `PUSH`, push success recorded, 24-hour fallback reminder due state created, acceptance works, decline works, and the delivery row returns to zero immediately after either terminal action.
+- The immediate invitation push is still synchronous inside `invite-list`; this no longer causes the unnecessary Auth-email wait for established users but should later move behind durable/non-blocking delivery.
+- GREEN onboarding target is now explicit: purpose-specific email -> opaque short-lived handoff -> App Link or install continuation -> invited-email authentication -> authoritative acceptance -> list discovery/import/open. No raw auth secret belongs in a Play referrer.
+- Server-side pending handoff/reminder/delivery state must disappear immediately on accept, decline/cancel, superseding reinvite or list deletion. An already delivered email cannot be removed from the recipient inbox.
 
 NEXT TASK
 ---------
 Begin the next session as:
-    JSimpleList notification routing and fast invitation delivery
+    JSimpleList GREEN recipient onboarding handoff
 
 Read first:
 - `docs/chatgpt/JSimpleList_RULES.txt`
@@ -600,15 +594,14 @@ Read first:
 - `docs/chatgpt/JSimpleList_INVITATION_FLOW.txt`
 
 Immediate order:
-1. Fix notification PendingIntent routing before more notification UX testing.
-2. Refactor `invite-list` so known existing users with registered push devices do not wait for/sign in through an invitation email.
-3. Make invitation UI success return promptly after authoritative invitation creation; keep delivery best-effort/durable rather than blocking the user.
-4. Implement the purpose-specific new-user onboarding/invitation email and copy.
-5. Add delayed still-pending reminder email logic for known users without an effective immediate push path.
-6. Then implement post-create Share prompt and long-press list-title Delete shortcut.
-7. Re-run end-to-end accept/decline/reinvite/deleted-list/wrong-account/permission regression.
+1. Architecture-first inspection of the existing `jslist.jobsheet.com.au` invitation/auth handoff, Android App Link intent handling and current Supabase Auth bootstrap primitives.
+2. Define the opaque short-lived single-use handoff record/contract and lifecycle cleanup without weakening `accept_list_invitation()` authority.
+3. Implement the purpose-specific GREEN invitation email and website/App-Link/install continuation.
+4. Implement Android resume/auth/accept/discover/open handling with safe wrong-account/expired/forwarded behaviour.
+5. Prove the complete never-used-JSimpleList -> install -> authenticate -> join-list journey on a real device.
+6. Then implement delayed reminder delivery for `KNOWN_USER`/unresolved established invitations and move immediate push to a durable non-blocking path.
 
-Do not reintroduce the removed JSimpleList in-app `Sharing update` notification fallback merely to compensate for Android notification permission denial. One user-visible notification path is the deliberate product decision.
+Do not reintroduce the removed JSimpleList in-app `Sharing update` notification fallback. Do not treat possession of a handoff ID, invitation ID, URL or Auth artefact as membership authority.
 
 SOURCE-EDITING REMINDER FOR NEXT SESSION
 ----------------------------------------
