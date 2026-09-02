@@ -1,5 +1,5 @@
 JSimpleList first-class invitation/onboarding design
-Updated: 2026-09-01
+Updated: 2026-09-02
 
 PURPOSE
 -------
@@ -95,44 +95,76 @@ Accepted/declined push payloads originate from durable `push_outbox` jobs and in
 
 `send-push-outbox` is deployed and proven on real devices. It marks `sent_at` only after successful FCM acceptance and records failed attempts/errors for retry. A fully independent scheduler/worker for stranded retry rows remains future work; current Android accept/decline paths nudge the worker best-effort after the authoritative RPC succeeds.
 
-NOTIFICATION TAP ROUTING - NEXT FIX
------------------------------------
-Current `SharingNotificationManager` creates a PendingIntent that only opens `MainActivity` with CLEAR_TOP/SINGLE_TOP. It carries no list ID, invitation ID or route/action context.
-
-Observed result: tapping a tray notification dismisses the notification and merely brings JSimpleList forward instead of entering the relevant invitation/list.
-
-Required routing contract:
-- `list_invitation` -> open/bring forward JSimpleList and surface the matching pending invitation when it still exists and belongs to the active account.
-- `invitation_accepted` -> open the affected list when the recipient still owns/has access to it.
-- `invitation_declined` -> open the affected list when it still exists/accessible; otherwise open a safe sharing/list surface.
-- Routing extras are navigation context only and never authority.
-- Wrong/inactive account handling remains safe; do not expose another account's shared-list content simply because a notification was tapped.
-
-DELIVERY STRATEGY - ACCEPTED DIRECTION
+NOTIFICATION TAP ROUTING - IMPLEMENTED
 --------------------------------------
-The current deployed `invite-list` still calls normal Supabase `signInWithOtp()` for every invitation and waits for that call before returning. Real testing shows roughly a ten-second sender wait and produces the generic auth subject `Your JSimpleList sign-in code`. This is transitional and must be replaced.
+Android notification routing is implemented and real-device tested.
 
-The accepted delivery strategy is:
+`SharingNotificationManager` includes route context in the PendingIntent:
+- event type
+- intended `recipient_user_id`
+- `list_id`
+- `invitation_id` for invitation events
 
-1. Known existing user + registered push device
-   - create/replace invitation authoritatively
-   - push immediately
-   - do not send an immediate invitation email
-   - return sender success promptly after the invitation transaction; delivery should not keep the UI waiting unnecessarily
+`MainActivity` handles both cold-start and `onNewIntent` routes. Before applying a route it re-checks that the current authenticated Supabase user matches the intended recipient carried by the notification.
 
-2. Known existing user without an effective immediate push path
-   - invitation remains pending and will be discovered when JSimpleList opens
-   - do not immediately duplicate with email merely because push visibility cannot be proven
-   - if still pending after a configurable delay, send a reminder email
-   - initial candidate delay is roughly 12-24 hours; 24 hours is the conservative default candidate
-   - acceptance, decline, superseding reinvite or list deletion must suppress/cancel the reminder
+Routing behaviour:
+- `list_invitation` -> reload authoritative pending invitations and surface the exact matching invitation when it still exists.
+- `invitation_accepted` -> open the affected list when that list remains visible/accessible.
+- `invitation_declined` -> open the affected list when it remains visible/accessible.
+- Invalid/stale/wrong-account routes do not grant or expose access.
 
-3. Genuinely new user
-   - send an immediate purpose-specific onboarding/invitation email
-   - do not reuse the ordinary sign-in-code subject/body as the final product invitation
-   - use an appropriate Supabase Auth bootstrap/invite primitive/template after inspecting the exact current Supabase API/template contract; the JSimpleList invitation row remains the sole product invitation authority regardless of the Auth email mechanism
+Routing extras are navigation context only. They never replace the authoritative invitation/member checks.
 
-The server cannot reliably infer that Android displayed a push merely because FCM accepted it. The delayed fallback should therefore be based on `invitation still pending after time`, not on pretending to know Android notification-permission/display state.
+RECIPIENT MATURITY / DELIVERY - IMPLEMENTED FOUNDATION
+-------------------------------------------------------
+Invitation authority and delivery policy are now explicitly separated.
+
+After `replace_list_invitation()` creates the authoritative invitation, deployed `invite-list` calls the server-only classifier:
+    jsimplelist.classify_invitation_recipient(target_email)
+
+Classification uses JSimpleList-owned evidence, not raw Auth existence:
+
+1. `ACTIVE_ANDROID`
+   - at least one matching registered `push_devices.user_email`
+   - strongest evidence the recipient is actively equipped with JSimpleList Android
+   - immediate path: push only; no immediate auth/sign-in email
+
+2. `KNOWN_USER`
+   - no current matching push device
+   - resolved Auth identity has a JSimpleList `profiles` row
+   - invitation remains pending/discoverable
+   - no immediate duplicate email
+   - current delivery foundation schedules a 24-hour reminder due time
+
+3. `GREEN`
+   - no JSimpleList profile and no push-device evidence
+   - raw `auth.users` history by itself does not make the recipient a known JSimpleList user because bootstrap/invite flows can create Auth rows
+   - current transitional implementation still uses ordinary `signInWithOtp()`
+   - this branch must be replaced by the purpose-specific onboarding handoff described below
+
+Migration `20260901123652_add_invitation_delivery_foundation.sql` adds:
+- the server-only maturity classifier
+- `jsimplelist.invitation_delivery`, one row per authoritative invitation where delivery lifecycle state is needed
+- immediate channel, push attempt/success timestamps and reminder timing
+- cleanup on invitation acceptance/cancellation
+
+`invitation_delivery` is delivery state only and never membership authority.
+
+Cleanup invariants:
+- accept -> delivery row deleted in the same invitation-state transition
+- decline/cancel -> delivery row deleted
+- superseding reinvite -> old invitation hard-delete cascades delivery cleanup
+- list deletion -> existing invitation cancellation transition triggers delivery cleanup
+
+Real hosted/device testing proved:
+- established recipient classified `ACTIVE_ANDROID`
+- immediate channel `PUSH`
+- push success recorded
+- 24-hour reminder due state created
+- no immediate stock sign-in email on the established-user lane
+- both Accept and Decline leave zero pending delivery rows for the resolved test invitation
+
+The direct invitation push is still sent synchronously by `invite-list`. Removing the unnecessary Auth-email wait materially improves the established-user path, but push should later move behind durable/non-blocking delivery so sender success is not coupled to Firebase work.
 
 NEW-USER EMAIL REQUIREMENTS
 ---------------------------
@@ -150,15 +182,40 @@ The purpose-specific email must include:
 
 A new recipient must not be expected to already know where JSimpleList comes from or what a six-digit code is for.
 
+GREEN ONBOARDING HANDOFF - TARGET
+---------------------------------
+A genuinely new recipient may know nothing about JSimpleList and may not have the app installed. The target common path is one obvious invitation action that carries that person through installation/authentication and into the shared list with minimal typing.
+
+Required architecture:
+- create a short-lived, single-use, opaque server-side handoff identifier tied to invitation/bootstrap state
+- the opaque handoff may be carried through browser/App-Link/install continuation
+- never put a raw Auth secret/token in a Google Play referrer
+- possession of the handoff identifier itself never grants list membership
+- the recipient must authenticate/verify control of the invited email
+- final membership still occurs only through `accept_list_invitation(target_invitation_id)`
+- after authentication/acceptance, normal discovery/reconciliation imports the list and the app opens it
+- first successful JSimpleList entry establishes normal profile/device evidence so future invitations can classify the person as established
+
+The green journey must handle:
+1. App already installed -> verified Android App Link opens JSimpleList with the handoff.
+2. App not installed -> invitation website explains JSimpleList, routes to Google Play and preserves only the opaque continuation identifier through an appropriate install-continuation mechanism.
+3. Desktop/browser -> safe explanatory/browser handoff rather than assuming an Android app is present.
+4. Wrong account -> do not accept; guide authentication as the invited email without leaking shared content.
+5. Forwarded link -> authentication/email validation still prevents membership by the wrong person.
+6. Expired/consumed/resolved handoff -> show a safe terminal/recovery state.
+7. Invitation accepted/declined/superseded/list deleted -> pending handoff/reminder/delivery server state must be removed immediately.
+
+Display-name creation must not become unnecessary onboarding friction. A reasonable provisional fallback may be used and remain editable later if that is the cleanest path.
+
 WEBSITE / APP-LINK HANDOFF
 --------------------------
-The existing first-class handoff infrastructure is deployed and proven:
+The existing first-class handoff infrastructure is deployed and useful:
 - scanner-safe invitation page on `jslist.jobsheet.com.au`
 - auth callback route under `jslist.jobsheet.com.au/auth/invite`
 - verified Android App Links for debug testing
 - browser handoff can present Open JSimpleList / installation guidance
 
-This remains useful for genuinely new users and email/bootstrap cases even though known-user invitation delivery should move to push fast path.
+The GREEN implementation should inspect and reuse this infrastructure rather than creating a parallel invitation website.
 
 The handoff page must preserve safe behaviour for:
 - app installed
@@ -178,10 +235,14 @@ The next implementation should separate genuine new-user onboarding email from o
 
 SERVER EVENT / OUTBOX MODEL
 ---------------------------
-Persistent server events currently cover invitation accepted/declined and feed `push_outbox` transactionally.
+Persistent server events cover invitation accepted/declined and feed `push_outbox` transactionally.
 Push failure must never roll back invitation accept/decline.
 
-Invitation creation currently sends its FCM push directly from `invite-list`; this can be revisited when the known-user fast path is refactored so invitation creation can return promptly and delivery can be durable/non-blocking.
+Invitation delivery now also has explicit server-only `invitation_delivery` state. This is transient delivery/reminder/handoff lifecycle state attached to an authoritative invitation, not a second invitation authority.
+
+Invitation creation currently sends the ACTIVE_ANDROID FCM push directly from `invite-list`. This is proven but still synchronous. A later refinement should enqueue the immediate invitation push durably so the sender can return after authoritative invitation/delivery-state creation rather than waiting on Firebase.
+
+The delayed-reminder worker/job is not yet implemented. When implemented, it must act only on still-current due delivery state and naturally do nothing after accept/decline/reinvite/list-deletion cleanup.
 
 DECLINE / ACCEPT WORDING
 ------------------------
@@ -235,13 +296,18 @@ UX PRINCIPLES
 
 IMMEDIATE NEXT SESSION
 ----------------------
-Start with notification tap routing, then fast invitation delivery.
+Begin with the GREEN recipient onboarding handoff.
 
 Implementation order:
-1. Add route context to FCM notification PendingIntents and handle it in MainActivity safely.
-2. Inspect/refactor current `invite-list` around `replace_list_invitation()` + `signInWithOtp()` + push lookup/send.
-3. Resolve invited email to known account/device server-side and use the push fast path for established users.
-4. Return invitation success promptly after authoritative invitation creation; make delivery non-blocking/durable where practical.
-5. Implement purpose-specific new-user onboarding/invitation email/template/flow.
-6. Implement delayed reminder-email scheduling for still-pending established-user invitations.
-7. Re-test invite/tap/accept/decline/reinvite/list-deleted/wrong-account/notifications-denied cases on real devices.
+1. Inspect the existing `jslist.jobsheet.com.au` invitation/auth routes, Android App Link intent handling and currently available Supabase Auth bootstrap primitives before choosing the exact mechanism.
+2. Define the opaque short-lived single-use handoff record and its cleanup/expiry semantics. The handoff must reference invitation/bootstrap state without itself granting membership.
+3. Implement the purpose-specific GREEN invitation email: inviter, list, short JSimpleList explanation, one Open shared list action, Get JSimpleList/Play guidance, safe-ignore wording and explicit fallback-code instructions only if a code remains part of the chosen Auth primitive.
+4. Reuse the existing website/App-Link infrastructure for installed-app and browser paths; add an install-continuation mechanism that preserves only the opaque handoff identifier.
+5. Implement Android resume/onboarding so the invited email is authenticated/verified, any required provisional profile is established without needless friction, `accept_list_invitation()` grants membership, normal discovery imports the list and the app opens it.
+6. Prove wrong-account, forwarded, expired, already-resolved and app-not-installed cases.
+7. Prove the complete never-used-JSimpleList -> install -> authenticate -> accept -> imported/open shared list journey on a real device.
+8. Replace/remove the transitional GREEN `signInWithOtp()` invitation branch once the purpose-built path is proven.
+9. Then implement the 24-hour still-pending reminder worker for established recipients and move immediate invitation push behind a durable/non-blocking delivery path.
+10. Re-run the focused sharing regression before moving on to unrelated sharing UX.
+
+Do not weaken the authority boundary: the invitation row + authenticated-email validation in `accept_list_invitation()` remain the only path to membership.
