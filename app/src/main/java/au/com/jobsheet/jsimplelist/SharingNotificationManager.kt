@@ -18,6 +18,27 @@ class SharingNotificationManager(
     companion object {
         const val CHANNEL_ID = "sharing_updates"
         const val CHANNEL_NAME = "Sharing updates"
+
+        const val EXTRA_EVENT_TYPE =
+            "jsimplelist_sharing_event_type"
+
+        const val EXTRA_RECIPIENT_USER_ID =
+            "jsimplelist_sharing_recipient_user_id"
+
+        const val EXTRA_LIST_ID =
+            "jsimplelist_sharing_list_id"
+
+        const val EXTRA_INVITATION_ID =
+            "jsimplelist_sharing_invitation_id"
+
+        const val EVENT_LIST_INVITATION =
+            "list_invitation"
+
+        const val EVENT_INVITATION_ACCEPTED =
+            "invitation_accepted"
+
+        const val EVENT_INVITATION_DECLINED =
+            "invitation_declined"
     }
 
     fun createChannel() {
@@ -42,11 +63,17 @@ class SharingNotificationManager(
 
     fun showInvitation(
         invitationId: String,
+        recipientUserId: String,
+        listId: String,
         listName: String,
         actorDisplayName: String
     ) {
         showMessage(
             notificationId = invitationId,
+            eventType = EVENT_LIST_INVITATION,
+            recipientUserId = recipientUserId,
+            listId = listId,
+            invitationId = invitationId,
             message =
                 "$actorDisplayName invited you to join $listName"
         )
@@ -54,11 +81,16 @@ class SharingNotificationManager(
 
     fun showJoined(
         notificationId: String,
+        recipientUserId: String,
+        listId: String,
         listName: String,
         actorDisplayName: String
     ) {
         showMessage(
             notificationId = notificationId,
+            eventType = EVENT_INVITATION_ACCEPTED,
+            recipientUserId = recipientUserId,
+            listId = listId,
             message =
                 "$actorDisplayName joined $listName"
         )
@@ -66,19 +98,27 @@ class SharingNotificationManager(
 
     fun showDeclined(
         notificationId: String,
+        recipientUserId: String,
+        listId: String,
         listName: String,
         actorDisplayName: String
     ) {
         showMessage(
             notificationId = notificationId,
+            eventType = EVENT_INVITATION_DECLINED,
+            recipientUserId = recipientUserId,
+            listId = listId,
             message =
                 "$actorDisplayName declined your invitation to $listName"
         )
     }
 
-
     private fun showMessage(
         notificationId: String,
+        eventType: String,
+        recipientUserId: String,
+        listId: String,
+        invitationId: String? = null,
         message: String
     ) {
         if (
@@ -96,6 +136,28 @@ class SharingNotificationManager(
                 flags =
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
                         Intent.FLAG_ACTIVITY_SINGLE_TOP
+
+                putExtra(
+                    EXTRA_EVENT_TYPE,
+                    eventType
+                )
+
+                putExtra(
+                    EXTRA_RECIPIENT_USER_ID,
+                    recipientUserId
+                )
+
+                putExtra(
+                    EXTRA_LIST_ID,
+                    listId
+                )
+
+                if (invitationId != null) {
+                    putExtra(
+                        EXTRA_INVITATION_ID,
+                        invitationId
+                    )
+                }
             }
 
         val pendingIntent =

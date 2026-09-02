@@ -120,8 +120,21 @@ private data class RealtimeListChangedPayload(
     val originClientId: String? = null
 )
 
+private data class SharingNotificationRoute(
+    val eventType: String,
+    val recipientUserId: String,
+    val listId: String,
+    val invitationId: String?
+)
+
 class MainActivity : ComponentActivity() {
     private var authRefreshSignal by mutableStateOf(0)
+
+    private var sharingNotificationRoute by
+        mutableStateOf<SharingNotificationRoute?>(null)
+
+    private var sharingNotificationRouteSignal by
+        mutableStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -132,11 +145,16 @@ class MainActivity : ComponentActivity() {
         ).createChannel()
 
         handleAuthIntent(intent)
+        handleSharingNotificationIntent(intent)
 
         setContent {
             SimpleListTheme {
                 SimpleListApp(
-                    authRefreshSignal = authRefreshSignal
+                    authRefreshSignal = authRefreshSignal,
+                    sharingNotificationRoute =
+                        sharingNotificationRoute,
+                    sharingNotificationRouteSignal =
+                        sharingNotificationRouteSignal
                 )
             }
         }
@@ -146,6 +164,83 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleAuthIntent(intent)
+        handleSharingNotificationIntent(intent)
+    }
+
+    private fun handleSharingNotificationIntent(
+        intent: Intent
+    ) {
+        val eventType =
+            intent.getStringExtra(
+                SharingNotificationManager.EXTRA_EVENT_TYPE
+            )
+                ?.trim()
+                .orEmpty()
+
+        if (
+            eventType !=
+                SharingNotificationManager.EVENT_LIST_INVITATION &&
+            eventType !=
+                SharingNotificationManager.EVENT_INVITATION_ACCEPTED &&
+            eventType !=
+                SharingNotificationManager.EVENT_INVITATION_DECLINED
+        ) {
+            return
+        }
+
+        val recipientUserId =
+            intent.getStringExtra(
+                SharingNotificationManager.EXTRA_RECIPIENT_USER_ID
+            )
+                ?.trim()
+                .orEmpty()
+
+        val listId =
+            intent.getStringExtra(
+                SharingNotificationManager.EXTRA_LIST_ID
+            )
+                ?.trim()
+                .orEmpty()
+
+        if (
+            recipientUserId.isEmpty() ||
+            listId.isEmpty()
+        ) {
+            Log.w(
+                "JSimpleListPush",
+                "Ignoring incomplete notification route"
+            )
+            return
+        }
+
+        val invitationId =
+            intent.getStringExtra(
+                SharingNotificationManager.EXTRA_INVITATION_ID
+            )
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+
+        if (
+            eventType ==
+                SharingNotificationManager.EVENT_LIST_INVITATION &&
+            invitationId == null
+        ) {
+            Log.w(
+                "JSimpleListPush",
+                "Ignoring invitation route without invitation ID"
+            )
+            return
+        }
+
+        sharingNotificationRoute =
+            SharingNotificationRoute(
+                eventType = eventType,
+                recipientUserId = recipientUserId,
+                listId = listId,
+                invitationId = invitationId
+            )
+
+        sharingNotificationRouteSignal += 1
     }
 
     private fun handleAuthIntent(intent: Intent) {
@@ -241,7 +336,9 @@ private val MIGRATION_5_6 = object : Migration(5, 6) {
 
 @Composable
 private fun SimpleListApp(
-    authRefreshSignal: Int
+    authRefreshSignal: Int,
+    sharingNotificationRoute: SharingNotificationRoute?,
+    sharingNotificationRouteSignal: Int
 ) {
     val context = LocalContext.current
     val applicationContext = context.applicationContext
@@ -295,6 +392,9 @@ private fun SimpleListApp(
     }
 
     var decliningInvitationId by remember {
+        mutableStateOf<String?>(null)
+    }
+    var targetedInvitationId by remember {
         mutableStateOf<String?>(null)
     }
     var showNotificationPermissionExplanation by remember {
@@ -417,6 +517,94 @@ private fun SimpleListApp(
         }
 
         activeListRestored = true
+    }
+
+    LaunchedEffect(
+        sharingNotificationRouteSignal,
+        activeListRestored
+    ) {
+        if (!activeListRestored) {
+            return@LaunchedEffect
+        }
+
+        val route =
+            sharingNotificationRoute
+                ?: return@LaunchedEffect
+
+        val activeAccountId =
+            authRepository.currentUserId()
+
+        if (
+            activeAccountId == null ||
+            activeAccountId != route.recipientUserId
+        ) {
+            Log.i(
+                "JSimpleListPush",
+                "Ignoring notification route for inactive account"
+            )
+            targetedInvitationId = null
+            return@LaunchedEffect
+        }
+
+        when (route.eventType) {
+            SharingNotificationManager.EVENT_LIST_INVITATION -> {
+                val invitationId =
+                    route.invitationId
+                        ?: return@LaunchedEffect
+
+                try {
+                    val refreshedInvitations =
+                        invitationRepository
+                            .loadPendingInvitations()
+
+                    pendingInvitations.clear()
+                    pendingInvitations.addAll(
+                        refreshedInvitations
+                    )
+
+                    targetedInvitationId =
+                        refreshedInvitations
+                            .firstOrNull {
+                                it.id == invitationId
+                            }
+                            ?.id
+
+                    if (targetedInvitationId == null) {
+                        Log.i(
+                            "JSimpleListPush",
+                            "Tapped invitation is no longer pending"
+                        )
+                    }
+                } catch (exception: Exception) {
+                    Log.e(
+                        "JSimpleListInvitation",
+                        "Could not refresh tapped invitation",
+                        exception
+                    )
+                }
+            }
+
+            SharingNotificationManager.EVENT_INVITATION_ACCEPTED,
+            SharingNotificationManager.EVENT_INVITATION_DECLINED -> {
+                targetedInvitationId = null
+
+                val targetIndex =
+                    lists.indexOfFirst {
+                        it.id == route.listId
+                    }
+
+                if (targetIndex >= 0) {
+                    pagerState.scrollToPage(
+                        targetIndex
+                    )
+                } else {
+                    Log.i(
+                        "JSimpleListPush",
+                        "Tapped notification list is not visible"
+                    )
+                }
+            }
+        }
     }
 
     LaunchedEffect(
@@ -1160,7 +1348,15 @@ private fun SimpleListApp(
             !showListSharing &&
             pendingInvitations.isNotEmpty()
         ) {
-            val invitation = pendingInvitations.first()
+            val invitation =
+                targetedInvitationId
+                    ?.let { targetId ->
+                        pendingInvitations
+                            .firstOrNull {
+                                it.id == targetId
+                            }
+                    }
+                    ?: pendingInvitations.first()
 
             val listTypeDescription =
                 when (invitation.listKind) {
@@ -1240,6 +1436,13 @@ private fun SimpleListApp(
 
                                     pendingInvitations.remove(invitation)
 
+                                    if (
+                                        targetedInvitationId ==
+                                        invitation.id
+                                    ) {
+                                        targetedInvitationId = null
+                                    }
+
                                     val acceptedIndex =
                                         lists.indexOfFirst {
                                             it.id == acceptedListId
@@ -1300,6 +1503,13 @@ private fun SimpleListApp(
                                     )
 
                                     pendingInvitations.remove(invitation)
+
+                                    if (
+                                        targetedInvitationId ==
+                                        invitation.id
+                                    ) {
+                                        targetedInvitationId = null
+                                    }
 
                                     try {
                                         pushOutboxRepository.processPending()

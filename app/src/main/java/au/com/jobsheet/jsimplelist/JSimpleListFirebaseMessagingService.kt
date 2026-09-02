@@ -101,13 +101,22 @@ class JSimpleListFirebaseMessagingService :
 
         when (data["event_type"]) {
             "list_invitation" ->
-                handleInvitationPush(data)
+                handleInvitationPush(
+                    data = data,
+                    recipientUserId = recipientUserId
+                )
 
             "invitation_accepted" ->
-                handleInvitationAcceptedPush(data)
+                handleInvitationAcceptedPush(
+                    data = data,
+                    recipientUserId = recipientUserId
+                )
 
             "invitation_declined" ->
-                handleInvitationDeclinedPush(data)
+                handleInvitationDeclinedPush(
+                    data = data,
+                    recipientUserId = recipientUserId
+                )
 
             else ->
                 Log.i(
@@ -118,10 +127,16 @@ class JSimpleListFirebaseMessagingService :
     }
 
     private fun handleInvitationPush(
-        data: Map<String, String>
+        data: Map<String, String>,
+        recipientUserId: String
     ) {
         val invitationId =
             data["invitation_id"]
+                ?.trim()
+                .orEmpty()
+
+        val listId =
+            data["list_id"]
                 ?.trim()
                 .orEmpty()
 
@@ -137,6 +152,7 @@ class JSimpleListFirebaseMessagingService :
 
         if (
             invitationId.isEmpty() ||
+            listId.isEmpty() ||
             listName.isEmpty() ||
             actorDisplayName.isEmpty()
         ) {
@@ -155,16 +171,24 @@ class JSimpleListFirebaseMessagingService :
         SharingNotificationManager(applicationContext)
             .showInvitation(
                 invitationId = invitationId,
+                recipientUserId = recipientUserId,
+                listId = listId,
                 listName = listName,
                 actorDisplayName = actorDisplayName
             )
     }
 
     private fun handleInvitationAcceptedPush(
-        data: Map<String, String>
+        data: Map<String, String>,
+        recipientUserId: String
     ) {
         val notificationId =
             data["notification_id"]
+                ?.trim()
+                .orEmpty()
+
+        val listId =
+            data["list_id"]
                 ?.trim()
                 .orEmpty()
 
@@ -180,6 +204,7 @@ class JSimpleListFirebaseMessagingService :
 
         if (
             notificationId.isEmpty() ||
+            listId.isEmpty() ||
             listName.isEmpty() ||
             actorDisplayName.isEmpty()
         ) {
@@ -198,16 +223,24 @@ class JSimpleListFirebaseMessagingService :
         SharingNotificationManager(applicationContext)
             .showJoined(
                 notificationId = notificationId,
+                recipientUserId = recipientUserId,
+                listId = listId,
                 listName = listName,
                 actorDisplayName = actorDisplayName
             )
     }
 
     private fun handleInvitationDeclinedPush(
-        data: Map<String, String>
+        data: Map<String, String>,
+        recipientUserId: String
     ) {
         val notificationId =
             data["notification_id"]
+                ?.trim()
+                .orEmpty()
+
+        val listId =
+            data["list_id"]
                 ?.trim()
                 .orEmpty()
 
@@ -223,6 +256,7 @@ class JSimpleListFirebaseMessagingService :
 
         if (
             notificationId.isEmpty() ||
+            listId.isEmpty() ||
             listName.isEmpty() ||
             actorDisplayName.isEmpty()
         ) {
@@ -241,6 +275,8 @@ class JSimpleListFirebaseMessagingService :
         SharingNotificationManager(applicationContext)
             .showDeclined(
                 notificationId = notificationId,
+                recipientUserId = recipientUserId,
+                listId = listId,
                 listName = listName,
                 actorDisplayName = actorDisplayName
             )

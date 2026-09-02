@@ -12,6 +12,17 @@ type PushDevice = {
     firebase_installation_id: string;
 };
 
+type RecipientMaturity =
+    | "ACTIVE_ANDROID"
+    | "KNOWN_USER"
+    | "GREEN";
+
+type RecipientClassification = {
+    recipient_maturity: RecipientMaturity;
+    auth_user_id: string | null;
+    push_device_count: number;
+};
+
 function base64UrlEncodeBytes(bytes: Uint8Array): string {
     let binary = "";
 
@@ -293,7 +304,8 @@ Deno.serve(async (req: Request) => {
 
     if (
         !supabaseUrl ||
-        !publishableKeysJson
+        !publishableKeysJson ||
+        !serviceRoleKey
     ) {
         return Response.json(
             { error: "Server configuration error" },
@@ -505,14 +517,17 @@ Deno.serve(async (req: Request) => {
         }
 
         /*
-         * Authentication remains separate from invitation semantics.
-         * The invitation row is authoritative; Auth only proves control
-         * of the invited email address.
+         * Invitation authority and invitation delivery are deliberately
+         * separate.
+         *
+         * replace_list_invitation() has already committed the authoritative
+         * product invitation. JSimpleList-owned evidence now decides the
+         * least-friction delivery path.
          */
-        const authClient =
+        const adminClient =
             createClient(
                 supabaseUrl,
-                publishableKey,
+                serviceRoleKey,
                 {
                     auth: {
                         persistSession: false,
@@ -522,62 +537,190 @@ Deno.serve(async (req: Request) => {
             );
 
         const {
-            error: otpError,
+            data: classification,
+            error: classificationError,
         } =
-            await authClient.auth
-                .signInWithOtp({
-                    email,
-                    options: {
-                        shouldCreateUser:
-                            true,
+            await adminClient
+                .schema("jsimplelist")
+                .rpc(
+                    "classify_invitation_recipient",
+                    {
+                        target_email: email,
+                    }
+                )
+                .single();
 
-                        emailRedirectTo:
-                            "https://jslist.jobsheet.com.au/auth/invite",
-                    },
-                });
-
-        if (otpError) {
+        if (
+            classificationError ||
+            !classification
+        ) {
             console.error(
-                "JSimpleList invitation OTP request failed",
-                otpError
+                "JSimpleList recipient classification failed",
+                classificationError
             );
 
             return Response.json(
                 {
                     error:
-                        "Invitation was created, but the sign-in code could not be sent",
+                        "Invitation was created, but delivery could not be prepared",
+                },
+                { status: 500 }
+            );
+        }
+
+        const recipientClassification =
+            classification as RecipientClassification;
+
+        const recipientMaturity =
+            recipientClassification
+                .recipient_maturity;
+
+        if (
+            recipientMaturity !== "ACTIVE_ANDROID" &&
+            recipientMaturity !== "KNOWN_USER" &&
+            recipientMaturity !== "GREEN"
+        ) {
+            console.error(
+                "JSimpleList recipient classification returned unsupported maturity",
+                recipientMaturity
+            );
+
+            return Response.json(
+                {
+                    error:
+                        "Invitation was created, but delivery could not be prepared",
                 },
                 { status: 500 }
             );
         }
 
         /*
-         * Push is deliberately best-effort. Invitation creation and the
-         * email OTP remain successful even when Firebase is unavailable.
+         * ACTIVE_ANDROID:
+         *     push immediately, no immediate email
+         *
+         * KNOWN_USER:
+         *     no immediate email; invitation remains discoverable in-app and
+         *     receives a delayed reminder only if still pending
+         *
+         * GREEN:
+         *     temporarily retain the existing Auth email until the dedicated
+         *     one-click onboarding handoff replaces this branch
          */
+        if (
+            recipientMaturity === "ACTIVE_ANDROID" ||
+            recipientMaturity === "KNOWN_USER"
+        ) {
+            const immediateChannel =
+                recipientMaturity === "ACTIVE_ANDROID"
+                    ? "PUSH"
+                    : "NONE";
+
+            const reminderDueAt =
+                new Date(
+                    Date.now() +
+                    24 * 60 * 60 * 1000
+                ).toISOString();
+
+            const {
+                error: deliveryInsertError,
+            } =
+                await adminClient
+                    .schema("jsimplelist")
+                    .from("invitation_delivery")
+                    .insert({
+                        invitation_id:
+                            invitationId,
+
+                        recipient_email:
+                            email,
+
+                        recipient_maturity:
+                            recipientMaturity,
+
+                        immediate_channel:
+                            immediateChannel,
+
+                        reminder_due_at:
+                            reminderDueAt,
+                    });
+
+            if (deliveryInsertError) {
+                console.error(
+                    "JSimpleList invitation delivery state creation failed",
+                    deliveryInsertError
+                );
+
+                return Response.json(
+                    {
+                        error:
+                            "Invitation was created, but delivery could not be prepared",
+                    },
+                    { status: 500 }
+                );
+            }
+        }
+
+        if (
+            recipientMaturity === "GREEN"
+        ) {
+            /*
+             * Transitional green-recipient path.
+             *
+             * Established users never enter this branch. The next invitation
+             * phase replaces this ordinary sign-in email with the dedicated
+             * onboarding handoff and purpose-built JSimpleList invitation.
+             */
+            const authClient =
+                createClient(
+                    supabaseUrl,
+                    publishableKey,
+                    {
+                        auth: {
+                            persistSession: false,
+                            autoRefreshToken: false,
+                        },
+                    }
+                );
+
+            const {
+                error: otpError,
+            } =
+                await authClient.auth
+                    .signInWithOtp({
+                        email,
+                        options: {
+                            shouldCreateUser:
+                                true,
+
+                            emailRedirectTo:
+                                "https://jslist.jobsheet.com.au/auth/invite",
+                        },
+                    });
+
+            if (otpError) {
+                console.error(
+                    "JSimpleList invitation OTP request failed",
+                    otpError
+                );
+
+                return Response.json(
+                    {
+                        error:
+                            "Invitation was created, but the sign-in code could not be sent",
+                    },
+                    { status: 500 }
+                );
+            }
+        }
+
         let pushTargets = 0;
         let pushSent = 0;
 
         if (
-            serviceRoleKey &&
+            recipientMaturity === "ACTIVE_ANDROID" &&
             firebaseServiceAccountB64
         ) {
             try {
-                const adminClient =
-                    createClient(
-                        supabaseUrl,
-                        serviceRoleKey,
-                        {
-                            auth: {
-                                persistSession:
-                                    false,
-
-                                autoRefreshToken:
-                                    false,
-                            },
-                        }
-                    );
-
                 const {
                     data: pushDevices,
                     error: pushLookupError,
@@ -688,15 +831,61 @@ Deno.serve(async (req: Request) => {
                     pushError
                 );
             }
-        } else {
+        } else if (
+            recipientMaturity === "ACTIVE_ANDROID"
+        ) {
             console.warn(
                 "JSimpleList invitation push skipped: server push configuration missing"
             );
         }
 
+        if (
+            recipientMaturity === "ACTIVE_ANDROID"
+        ) {
+            const now =
+                new Date().toISOString();
+
+            const deliveryUpdate: {
+                push_attempted_at: string;
+                push_sent_at?: string;
+                updated_at: string;
+            } = {
+                push_attempted_at:
+                    now,
+
+                updated_at:
+                    now,
+            };
+
+            if (pushSent > 0) {
+                deliveryUpdate.push_sent_at =
+                    now;
+            }
+
+            const {
+                error: deliveryUpdateError,
+            } =
+                await adminClient
+                    .schema("jsimplelist")
+                    .from("invitation_delivery")
+                    .update(deliveryUpdate)
+                    .eq(
+                        "invitation_id",
+                        invitationId
+                    );
+
+            if (deliveryUpdateError) {
+                console.error(
+                    "JSimpleList invitation delivery state update failed",
+                    deliveryUpdateError
+                );
+            }
+        }
+
         console.log(
             "JSimpleList invitation completed",
             {
+                recipientMaturity,
                 pushTargets,
                 pushSent,
             }
@@ -707,6 +896,7 @@ Deno.serve(async (req: Request) => {
                 invitationId,
                 email,
                 listId,
+                recipientMaturity,
                 pushTargets,
                 pushSent,
             },
