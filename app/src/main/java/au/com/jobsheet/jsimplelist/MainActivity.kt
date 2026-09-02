@@ -1722,11 +1722,11 @@ private fun SimpleListApp(
                         Spacer(modifier = Modifier.height(20.dp))
 
                         Text(
-                            text = "Simple To-do and Shopping lists",
+                            text = "Simple To-do, Shopping and Discussion lists",
                             fontWeight = FontWeight.SemiBold
                         )
-                        Text("Lists are stored locally on this device")
-                        Text("Completely free and without ads")
+                        Text("Keep lists on this device or share them privately online")
+                        Text("No ads. No fees.")
 
                         Spacer(modifier = Modifier.height(20.dp))
 
