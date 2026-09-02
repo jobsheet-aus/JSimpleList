@@ -67,7 +67,8 @@ DATABASE / SUPABASE
 - Production/hosted data is not disposable.
 - Inspect existing migrations/RLS/RPC contracts before adding new database machinery.
 - Prefer existing controlled RPCs and RLS authority boundaries over duplicating logic in clients.
-- Client possession of a UUID, URL, token or invitation identifier must not by itself grant shared-list access.
+- Ordinary client possession of a UUID, URL, token or invitation identifier must not directly write/grant shared-list membership.
+- GREEN onboarding deliberately uses one high-entropy, short-lived emailed handoff as an invitation capability: passive load/inspect grants nothing, while explicit Join may redeem the handoff server-side to bootstrap the invited Supabase identity. Forwarding that handoff therefore forwards the invitation capability. Final membership still occurs only through the controlled JSimpleList acceptance RPC.
 - Authentication establishes identity; JSimpleList database rules establish product authority.
 - Apply hosted migrations deliberately and record whether they have actually been applied.
 - Deploy Edge Functions deliberately and verify the deployed function separately.
@@ -83,6 +84,7 @@ PRODUCT / UX
 - Use Email address rather than ambiguous Email.
 - User-facing informational phrases generally omit trailing full stops.
 - Important onboarding/sharing flows should minimise unnecessary typing, repeated authentication and unexplained transitions.
+- Do not require a legitimate GREEN invitation recipient to return to the same mailbox for a redundant second verification step after opening the purpose-specific invitation; the accepted common path is handoff page -> deliberate Join.
 - A technically functioning workflow is not considered complete if the recipient experience remains confusing or unnecessarily frictious.
 - Security and low-friction UX should be designed together rather than traded casually against each other.
 - Sharing notifications have one user-visible path: FCM/Android system notifications. Do not add a second automatic in-app sharing-update notification mechanism as fallback for users who deny Android notification permission. Pending invitation dialogs are actionable application state and are separate from notification delivery.
@@ -92,8 +94,8 @@ PROJECT DOCUMENT MODEL
 - JSimpleList_RULES.txt is the authoritative durable working/session protocol for JSimpleList.
 - JSimpleList_CONTEXT.txt is the concise current project architecture/state/continuation reference.
 - Subsystem-specific design documents may be created when a subsystem is sufficiently important or complex that putting the detail in CONTEXT would make CONTEXT unwieldy.
-- JSimpleList_INVITATION_FLOW.txt is the authoritative design reference for the first-class invitation/onboarding subsystem.
-- Do not duplicate detailed subsystem design throughout CONTEXT; keep a concise summary and cross-reference there.
+- Keep implemented invitation/onboarding authority, deployed state and continuation information in JSimpleList_CONTEXT.txt unless the subsystem again grows enough to justify a separate authoritative design document.
+- Do not duplicate detailed subsystem design across multiple project documents.
 - Do not create transient HANDOVER or CURRENT_TASK documents merely to compensate for an incomplete closeout.
 - Completed work should replace stale descriptions rather than accumulating contradictory historical notes.
 - Durable decisions, authority boundaries and important reasons should be recorded before relying on conversational memory.
