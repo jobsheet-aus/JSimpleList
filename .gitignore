@@ -38,3 +38,4 @@ secrets/
 # Local Python helper artefacts
 __pycache__/
 *.pyc
+/releases/
