@@ -30,7 +30,7 @@ android {
         targetSdk = 36
         versionCode = 3
         versionName = "2.0"
-        buildConfigField("String", "BUILD_DATE", "\"21 August 2026\"")
+        buildConfigField("String", "BUILD_DATE", "\"3 September 2026\"")
 
         val localProperties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")
