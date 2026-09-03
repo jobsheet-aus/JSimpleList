@@ -7,7 +7,8 @@
       "namespace": "android_app",
       "package_name": "au.com.jobsheet.jsimplelist",
       "sha256_cert_fingerprints": [
-        "FC:11:21:71:28:F3:65:36:6D:4C:3F:98:8A:25:36:D4:02:51:F6:E7:1B:52:75:B6:11:89:6C:74:92:06:AF:59"
+        "FC:11:21:71:28:F3:65:36:6D:4C:3F:98:8A:25:36:D4:02:51:F6:E7:1B:52:75:B6:11:89:6C:74:92:06:AF:59",
+        "CE:9A:34:61:2F:B9:32:D2:ED:02:00:A4:E0:D0:72:64:8C:91:F2:1E:F1:22:4F:BA:9C:5D:09:9F:DA:97:33:80"
       ]
     }
   },
