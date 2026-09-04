@@ -1,5 +1,5 @@
 JSimpleList durable working rules
-Updated: 2026-09-01
+Updated: 2026-09-04
 
 REPOSITORY AND SHELL
 --------------------
@@ -100,6 +100,8 @@ PROJECT DOCUMENT MODEL
 - Completed work should replace stale descriptions rather than accumulating contradictory historical notes.
 - Durable decisions, authority boundaries and important reasons should be recorded before relying on conversational memory.
 - Before broad rediscovery of project-specific behaviour, first check whether an existing JSimpleList reference document owns that information.
+- When authoritative project documents need updating, ChatGPT should perform the document edit directly when repository/file tooling permits. Do not hand the user large manual replacement blocks for project-document maintenance.
+- If direct document editing is unavailable or unsafe because the user's local working tree contains unpublished conflicting edits, use one deterministic patch helper or another single-step exact edit method. Manual project-document editing by the user should be limited to trivial changes or cases where the user explicitly chooses to do it.
 
 SESSION HANDLING
 ----------------
