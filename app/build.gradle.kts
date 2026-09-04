@@ -28,9 +28,9 @@ android {
         applicationId = "au.com.jobsheet.jsimplelist"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
+        versionCode = 6
         versionName = "2.0"
-        buildConfigField("String", "BUILD_DATE", "\"3 September 2026\"")
+        buildConfigField("String", "BUILD_DATE", "\"4 September 2026\"")
 
         val localProperties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")

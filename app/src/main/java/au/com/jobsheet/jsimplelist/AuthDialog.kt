@@ -111,7 +111,7 @@ fun AuthDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("Sharing")
+            Text("Online account")
         },
         text = {
             Column {

@@ -1019,7 +1019,12 @@ private fun SimpleListApp(
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = "Sharing",
+                                text =
+                                    if (signedInEmail == null) {
+                                        "Sign in"
+                                    } else {
+                                        "Online account"
+                                    },
                                 fontSize = 16.sp
                             )
                         },
