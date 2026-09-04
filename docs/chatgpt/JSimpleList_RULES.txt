@@ -19,6 +19,7 @@ SOURCE-EDITING WORKFLOW
 - Prefer focused audit ranges/functions/searches over broad source dumps.
 - Use absolute paths with audit when practical.
 - When supplying literal find/replace text, reproduce the inspected source exactly, including indentation, whitespace and line breaks.
+- For VS Code search/replace, always include the exact leading indentation from the inspected source in both the search and replacement blocks; unindented search text is not reliable and may not be found.
 - Never provide an approximate source block as an exact replacement.
 - New files may be supplied as complete contents when their location and role are unambiguous.
 - For non-trivial or risky edits, prefer a deterministic patch helper or another exact edit method rather than many manual changes.
