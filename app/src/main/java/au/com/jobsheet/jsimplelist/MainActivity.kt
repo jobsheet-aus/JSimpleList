@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -3723,6 +3724,14 @@ private fun ListItemRow(
         editing = false
     }
 
+    val editTextSize = (16f * fontScale).coerceAtMost(22f)
+    val editFieldHeight = (
+        56f + ((editTextSize - 16f) * 2f)
+    ).dp
+    val editQuantityWidth = (
+        48f + ((editTextSize - 16f) * 1.2f)
+    ).dp
+
     if (editing) {
         Column(
             modifier = Modifier
@@ -3762,15 +3771,15 @@ private fun ListItemRow(
                         },
                         singleLine = true,
                         textStyle = TextStyle(
-                            fontSize = scaledSp(16f, fontScale)
+                            fontSize = editTextSize.sp
                         ),
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Number,
                             imeAction = ImeAction.Next
                         ),
                         modifier = Modifier
-                            .width(48.dp)
-                            .height(48.dp)
+                            .width(editQuantityWidth)
+                            .heightIn(min = editFieldHeight)
                             .onFocusChanged { focusState ->
                                 editQuantityFocused = focusState.isFocused
                             }
@@ -3782,7 +3791,7 @@ private fun ListItemRow(
                     onValueChange = { editDescription = it },
                     singleLine = true,
                     textStyle = TextStyle(
-                        fontSize = scaledSp(16f, fontScale)
+                        fontSize = editTextSize.sp
                     ),
                     keyboardOptions = KeyboardOptions(
                         imeAction = ImeAction.Done
@@ -3792,7 +3801,7 @@ private fun ListItemRow(
                     ),
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp)
+                        .heightIn(min = editFieldHeight)
                         .focusRequester(editDescriptionFocusRequester)
                 )
             }
