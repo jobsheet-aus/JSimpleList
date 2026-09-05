@@ -17,17 +17,14 @@ CORE PRODUCT PRINCIPLES
 - Signing in must never automatically upload existing local lists.
 - A local list becomes online only through an explicit user action for that specific list.
 - Online/shared lists remain fully cached in Room and usable offline.
-- Preserve local UUIDs as server UUIDs for online-backed lists/items; never create a second identity for the same record.
-- List ownership is absolute. The creator remains owner; ownership is not transferred or inherited.
+- Preserve local UUIDs as server UUIDs for online-backed lists/items.
+- List ownership is absolute; the creator remains owner.
 - One authenticated account at a time per Android device is the deliberate UX model.
 - Back cancels/closes the most local active operation first.
-- Existing-value editing behaviour is field-specific: short replacement-style values such as Qty/default names select all, while item descriptions place the cursor at the end.
 
 STACK
 -----
-Android native app
-Kotlin + Jetpack Compose
-Gradle wrapper
+Android native app: Kotlin + Jetpack Compose
 Minimum SDK: 26
 Target SDK: 36
 Compile SDK: 36.1
@@ -63,60 +60,46 @@ JSimpleList 1.1 remains the intended `Classic local-only release` for historical
 Local archive path:
     D:\SimpleList\releases\JSimpleList-1.1-play-signed.apk
 The `/releases/` directory is intentionally git-ignored.
-Archived 1.1 APK SHA-256:
-    12bb47cfe832d57003490634d51bfc70b201e6f7ca9281998d4545af75a3f8b1
 Google Play production signing-certificate SHA-256:
     ce9a34612fb932d2ed0200a4e0d072648c91f21ef1224fba9c5d099fda973380
-Historical-release policy:
-- known-good standalone/local-only releases may remain downloadable from the official JSimpleList website
-- releases with serious security/privacy/data-loss/compatibility defects may be withdrawn
-- service-dependent 2.x+ historical releases should remain available only while their backend contract is intentionally supported
 
 2.0 LOCAL DATA MODEL
 --------------------
 Room schema version 6 contains `lists`, `items` and `list_accounts`.
 
 ListEntity:
-- id UUID string
-- name user-controlled
+- UUID id
+- user-controlled name
 - kind TODO / SHOPPING / DISCUSSION
-- position persisted list order/cache position
-- createdAt
-- updatedAt for metadata reconciliation
-- onlineState legacy/current-render convenience value LOCAL / ONLINE_OWNER / ONLINE_MEMBER; account-specific authority lives in `list_accounts`
+- persisted position
+- createdAt / updatedAt
+- onlineState convenience value LOCAL / ONLINE_OWNER / ONLINE_MEMBER; account-specific authority lives in `list_accounts`
 
 ItemEntity:
-- id UUID string
-- listId
+- UUID id and listId
 - description
 - quantity nullable; Shopping only
 - completed
 - position
-- createdAt
-- updatedAt
+- createdAt / updatedAt
 - deletedAt nullable tombstone
-- createdByUserId / updatedByUserId nullable attribution fields
+- createdByUserId / updatedByUserId nullable attribution
 
 ListAccountEntity / `list_accounts`:
 - composite primary key `(listId, accountId)`
 - accountId is authenticated Supabase user UUID
-- onlineState is ONLINE_OWNER or ONLINE_MEMBER for that account/list relationship
-- the same cached list may legitimately have relationships for multiple accounts on one device
+- onlineState ONLINE_OWNER or ONLINE_MEMBER for that account/list relationship
+- the same cached list may have relationships for multiple accounts on one device
 - a genuine device-local list has no `list_accounts` row
 
 Visibility contract:
-- signed out: show only genuine local lists
-- signed in as account A: show local lists plus online lists related to account A
-- another account's cached online lists must not leak into the active account's UI
-- `loadVisibleLists(accountId)` projects the active account relationship state into returned lists
+- signed out: genuine local lists only
+- signed in as account A: local lists plus online lists related to account A
+- another account's cached online lists must not leak into the active account UI
 
 Legacy upgrade:
-- Legacy 1.1 SharedPreferences JSON imports only when Room has no lists and genuine legacy keys exist.
-- Fresh 2.0 install starts with zero lists.
-- Genuine upgrade import creates ordinary To-do and Shopping ListEntity rows and preserves descriptions, quantities, completion and order.
-- Existing local data migrates safely through Room schema upgrades; tombstones/attribution default safely.
-- Legacy JSON remains untouched after import.
-- Real Google Play-signed 1.1 -> 2.0 in-place upgrade testing passed on device. Representative To-do/Shopping items, quantities, completed states, ordering and font scale were preserved.
+- 1.1 SharedPreferences JSON imports only when Room has no lists and genuine legacy keys exist.
+- Genuine Google Play-signed 1.1 -> 2.0 in-place upgrade testing passed on device and preserved representative items, quantities, completion, ordering and font scale.
 
 2.0 LIST MODEL / UI
 -------------------
@@ -130,51 +113,32 @@ Legacy upgrade:
 - Pull-to-refresh performs online discovery/reconciliation.
 - Last active list is persisted/restored safely when still visible.
 - Bulk Uncheck all is implemented in the list column-heading row and has conservative Undo.
+- New items insert at the top; incomplete items display before completed items.
+- Existing items edit inline; item-description cursor starts at the end; Shopping Qty selects its existing value on focus.
+- Large-text editing was improved before release; edit text is capped at 22sp and fields can grow vertically.
 
-Item ordering:
-- New items insert at the top using persisted position.
-- Display respects position/createdAt while presenting incomplete before completed.
-- Toggling completion changes completion state, not item position.
-- Persisted position remains the foundation for future manual item reordering.
-
-Editing UX:
-- Existing items edit inline.
-- Item description cursor starts at the end.
-- Shopping Qty selects its existing value on focus.
-- VersionCode 5 includes the large-text editor improvement: edit text is capped at 22sp, edit fields can grow vertically with `heightIn`, and Shopping Qty width grows with larger text.
-- Real-device testing shows the large-text clipping is materially improved.
-- Minor unnecessary left padding on the edit-row checkbox remains and is deliberately deferred to 2.1.
-- Cancel behaviour is shared by visible Cancel and Android Back.
-
-AUTH / PROFILE
---------------
+AUTH / PROFILE / ACCOUNT
+------------------------
 - `AuthRepository.kt` uses Supabase six-digit email OTP authentication.
 - OTP delivery through Supabase Auth -> Resend SMTP -> `jsimplelist@jobsheet.com.au` is proven.
 - Session persists across normal app close/reopen.
 - Re-authenticating the same email returns the same Supabase user UUID.
-- Startup waits for Supabase Auth initialization before reading persisted session.
-- supabase-kt remains pinned to 3.2.1 because later tested releases are incompatible with the current Kotlin toolchain.
 - `ProfileRepository.kt` stores profiles keyed by auth.users.id.
-- Display names are user-chosen, non-unique, trimmed and limited to 1-50 characters.
+- Display names are non-unique, trimmed and limited to 1-50 characters.
 - Sign out is non-destructive and separate from account deletion.
-
-Current Android account/menu state:
-- Existing auth works, but release review on 4 September 2026 identified the discoverability of the sign-in path as inadequate for 2.0.
-- A clear, obvious Sign in / Online account entry point is now a 2.0 release requirement.
-- Do not change the local-first rule: signing in must still leave local lists local unless the user explicitly makes a list online.
-- Signed-out visibility remains local-only; signed-in visibility adds that account's online lists.
+- 2.0 now has a clear hamburger-menu account path: signed out shows `Sign in`; signed in shows `Online account`; the existing account dialog is titled `Online account`.
+- This sign-in-path change does not alter the local-first rule: signing in does not make local lists online.
 - Account deletion remains a separate destructive action.
+- Raw network/auth/server exception text must never be rendered to users. VersionCode 7 replaced all remaining direct `.message` UI paths with fixed safe messages after a Supabase/Ktor exception exposed request/JWT/header detail in an internal Play test build.
 
 ONLINE ACCOUNT / OWNERSHIP
 --------------------------
 - Online identities are persistent Supabase Auth users.
 - Shared/online relationships belong to authenticated users; local lists belong to the device.
 - Account deletion is implemented through privileged hosted backend logic; no service-role/admin secret ships in Android/browser.
-- Android account-deletion cleanup is account-scoped: remove the deleted account's relationships, remove owned online lists, keep genuine local lists and do not convert unrelated online cache rows into local lists.
-- Disposable-account end-to-end testing succeeded.
+- Android account-deletion cleanup is account-scoped.
 - Owned online/shared lists are destroyed when the owner's account is deleted.
 - Non-owner account deletion removes membership but preserves contributed items in another owner's list because those items belong to the list.
-- Dormant empty-account auto-purge remains deliberately deferred.
 
 SUPABASE / SHARING BACKEND
 --------------------------
@@ -192,52 +156,42 @@ Important deployed components:
 - hosted Edge Functions: `delete-account`, `invite-list`, `send-push-outbox`, `invitation-handoff`
 
 GREEN invitation flow:
-- `invite-list` sends a purpose-specific email for GREEN recipients containing one opaque `https://jslist.jobsheet.com.au/invite?h=...` continuation.
+- `invite-list` emails GREEN recipients one opaque `https://jslist.jobsheet.com.au/invite?h=...` continuation.
 - Handoff token is 32 random bytes; only SHA-256 is stored; expiry is 24 hours.
-- Passive browser inspect is scanner-safe and grants nothing.
-- Explicit `Join list` is the redemption boundary.
+- Passive browser inspect grants nothing; explicit `Join list` is the redemption boundary.
 - Server bootstraps/redeems the invited Supabase identity and then calls authoritative `accept_list_invitation()`.
-- Forwarding the opaque invitation link forwards the short-lived invitation capability; this is an accepted UX/security trade-off.
 - Private-browser testing with a never-used email proved the GREEN flow end to end.
 
 Member-join notification fan-out:
 - Implemented in migration `20260902120431_notify_all_members_on_join.sql`.
-- `notifications.source_invitation_id` is no longer globally unique; uniqueness is `(source_invitation_id, recipient_user_id)`.
 - Successful `accept_list_invitation()` creates an `invitation_accepted` notification for every other active list member, excluding the joining member.
-- The owner is included naturally through active membership rather than a special owner-only path.
-- Notification insertion is non-authoritative/non-blocking: failures raise a warning and must not roll back successful membership acceptance.
-- Existing notification trigger feeds the durable push outbox.
-- Migration is applied to hosted Supabase. Wider multi-user real-device fan-out testing is deferred until more 2.0 users/devices are available.
+- Notification insertion is non-authoritative/non-blocking and feeds the durable push outbox.
+- Migration is applied to hosted Supabase.
 
 Push state:
 - FCM invitation, accepted/join and declined pushes work on real Android devices.
 - Notification taps route account-safely to relevant invitation/list.
-- Durable `push_outbox` and `send-push-outbox` are deployed.
 - The removed automatic in-app `Sharing update` notification fallback must not be reintroduced.
-- Immediate ACTIVE_ANDROID invitation push is still synchronous inside `invite-list`; durable/non-blocking delivery remains later work.
-- KNOWN_USER delayed reminder remains later work.
 
 LIST SYNC / REALTIME
 --------------------
 - Local lists remain local and are never uploaded merely because the user signs in.
-- `discoverOnlineLists()` rebuilds current-account `list_accounts` relationships from authoritative `get_my_online_lists()` results.
+- `discoverOnlineLists()` rebuilds current-account relationships from authoritative online-list discovery.
 - Remote lists import/reconcile into Room cache and authoritative snapshots refresh items.
 - Add/edit/tick/untick write Room first then push for online lists.
 - Online item deletion uses local/server tombstones.
 - Owner Delete remains server-first; member Leave remains server-first; local Delete remains Room-only.
 - Per-list private realtime topic: `jsimplelist:list:<list UUID>`.
-- Realtime payloads signal `list_changed`; clients load authoritative state rather than trusting payload rows.
+- Realtime payloads signal `list_changed`; clients reload authoritative state rather than trusting payload rows.
 - Origin client UUID suppresses own-origin refresh loops.
-- Per-list realtime cannot discover unknown list UUIDs; account-level realtime remains future work.
 - Failed ordinary online writes retain the Room change; durable retry/reconciliation remains future work.
 
 ANDROID INVITATION FOLLOW-UP
 ----------------------------
 - Browser GREEN onboarding is proven.
-- Android `/auth/invite` handling was originally built for Supabase Auth deeplinks and does not yet implement the final opaque `h` one-click capability.
+- Android `/auth/invite` handling does not yet implement the final opaque `h` one-click capability.
 - App-not-installed -> Play install -> resume handling is not yet proven.
-- These remain sharing follow-up work, but they are not being allowed to expand the current 2.0 Play-submission scope unless they become a concrete release blocker.
-- Verification-code rate-limit fields/RPCs from the abandoned two-step GREEN design still require later removal or deliberate repurposing.
+- Verification-code rate-limit fields/RPCs from the abandoned two-step GREEN design still require later cleanup or deliberate repurposing.
 
 BROWSER CLIENT
 --------------
@@ -245,46 +199,50 @@ Browser app:
     https://jslist.jobsheet.com.au
 Source:
     web/
-Stack:
-    React + TypeScript + Vite
 Hosting:
-    DigitalOcean App Platform Static Site, SYD1, app `jsimplelist`, component `jsimplelist-web`, branch `main`, autodeploy, output `dist`
+    DigitalOcean App Platform Static Site, SYD1
 
 Current proven browser behaviour:
 - Email OTP sign-in and persistent session.
-- Discovers active online lists through membership/list data.
-- Opens authoritative list snapshots.
+- Discovers active online lists and opens authoritative snapshots.
 - Item add/edit/tick/untick/delete syncs with Android.
 - Bulk Uncheck all implemented.
 - Inline list rename implemented through controlled RPC.
-- List selector distinguishes type and Owner/Shared role.
 - Private per-list realtime works with origin suppression.
-- Same-account browser <-> Android changes are proven.
 - Browser exposes only online-backed lists; local-only Android lists never appear.
 
-Dedicated browser-completion pass after 2.0 Production:
-- Add browser list creation; browser-created lists should be online/shared-to-self from birth.
-- Complete list management, especially create/delete and any remaining navigation/management controls.
-- Add authenticated browser self-service account deletion for users without access to the Android app/device.
-- Review and complete browser sharing/member-management UX before treating it as a mature headline feature.
-- Fix immediate eviction/reload when the currently selected remote list has been deleted.
-- Account-level realtime discovery remains future work.
-- Browser does not remember the last-opened list by design.
-- Browser Undo for bulk Uncheck all remains optional follow-up.
+Browser follow-up still planned:
+- browser list creation
+- complete list management including delete
+- authenticated browser self-service account deletion
+- mature sharing/member-management UX
+- immediate eviction/reload when selected remote list is deleted
+- account-level realtime discovery
 
-2.1 ANDROID FOLLOW-UP
----------------------
-Do not pull this work into the 2.0 Production submission unless a genuine release blocker is discovered.
+2.1 ANDROID / MAINTENANCE FOLLOW-UP
+----------------------------------
+Do not retroactively change the submitted 2.0 build unless Google review identifies a genuine release blocker.
 
-Planned 2.1 work:
-- Add coloured list-type icons for To-do, Shopping and Discussion, with an extendable design for future list types.
-- Add finger drag-and-drop item reordering. Manual order should coexist sensibly with incomplete-before-completed grouping.
-- Add `Delete all items` as a deliberate list-management action with confirmation; keep it distinct from the safer `Uncheck all` reuse action.
-- Detect `http://` and `https://` links in item descriptions and make the URL portion tappable using the normal platform handler; preserve raw text editing and do not add previews/metadata initially.
-- Remove unnecessary left padding from inline edit rows so the edit checkbox aligns with normal rows while preserving useful vertical/right spacing.
-- Continue UI polish identified during 2.0 screenshot/release review.
+Planned work:
+- Detect equivalent existing items when adding and prevent/handle accidental duplicate entries; decide final UX deliberately because intentional duplicates can be legitimate.
+- Allow list renaming by tapping/clicking the visible list title.
+- Review navigation so Android Back from an open list goes to Manage lists before exiting; also evaluate whether Manage lists should become the startup/home surface instead of always restoring the last active list.
+- Fix the observed navigation bug after online-list discovery where the first tap on a newly pulled shared list can open a different list. Current hypothesis is stale pager/index state after the visible list collection changes; inspect exact selector/pager code before changing it.
+- Streamline sharing into a task-driven flow: `Manage lists -> Share this list -> [sign in if required] -> make only that list online -> invite person -> done`, automatically resuming after authentication rather than requiring the user to restart the share action.
+- Add coloured list-type icons for To-do, Shopping and Discussion with an extendable design.
+- Add finger drag-and-drop item reordering while preserving sensible incomplete/completed grouping.
+- Add `Delete all items` with confirmation, distinct from `Uncheck all`.
+- Detect `http://` and `https://` links in item descriptions and make the URL portion tappable without previews initially.
+- Remove unnecessary left padding from inline edit rows.
 - Possible preference: allow unused list types to be hidden from the New list chooser without affecting existing lists.
-- Manual list ordering remains planned functionality.
+- Manual list ordering remains planned.
+
+Release optimisation / Google Play maintenance:
+- Google Play flags the current production/release build for low optimisation/obfuscation and recommends R8/ProGuard, deobfuscation mapping and native debug symbols.
+- Do not enable shrinking casually on the already-tested 2.0 build.
+- In 2.1/maintenance, inspect current release configuration, enable `isMinifyEnabled = true` and `isShrinkResources = true` with only necessary keep rules, build a release AAB, and real-device test auth, Room, Supabase sync/sharing, notifications, account deletion and linked flows.
+- Upload the R8 mapping/deobfuscation file and native debug symbols where the build produces them/Play expects them.
+- Re-check Play Console optimisation status after the tested optimised release.
 
 PUBLIC WEBSITE / LEGAL / PLAY STORE
 -----------------------------------
@@ -301,84 +259,68 @@ Terms:
 Account deletion resource:
     https://jobsheet.com.au/jsimplelist-delete-account.html
 
-Legal/product state:
-- Privacy/Terms cover local-only use, optional accounts, private sharing/sync, service communications, account/data handling and future service/pricing changes.
-- Account-deletion page is live and documents both in-app deletion and a no-app support-request path.
-- A later dedicated browser pass will add authenticated self-service deletion.
-- Website field in Play is `https://jobsheet.com.au/jslist/`.
-- Privacy Policy field in Play is `https://jobsheet.com.au/jsimplelist-privacy.html`.
-
-Google Play Data Safety updated for 2.0:
-- required data types selected: Name, Email address, User IDs, Other user-generated content, Device or other IDs
-- declared collected, not shared with third parties
+Google Play Data Safety for 2.0:
+- Name, Email address, User IDs, Other user-generated content, Device or other IDs
+- collected, not shared with third parties
 - encrypted in transit
-- collection shown as optional because local-only use requires none of it
+- collection optional because local-only use requires none of it
 - account deletion links to the public deletion resource
-- optional separate partial-data-deletion declaration is `No`; do not invent a purge feature merely for a badge
 
 Google Play App Links:
 - production `assetlinks.json` includes the actual Play signing certificate SHA-256 plus local release certificate
-- Play-installed 2.0 reports installed signature `CE:9A:34:61:2F:B9:32:D2:ED:02:00:A4:E0:D0:72:64:8C:91:F2:1E:F1:22:4F:BA:9C:5D:09:9F:DA:97:33:80`
 - Android `pm get-app-links au.com.jobsheet.jsimplelist` reports `jslist.jobsheet.com.au: verified`
 
 Store listing text:
 - App name remains `JSimpleList`.
-- Current chosen short description: `Simple list manager with optional private sharing and browser access`.
-- Full description has been updated for dynamic To-do/Shopping/Discussion lists, local-first use, optional online sync/sharing/browser access and recurring-list reuse with Uncheck all.
-- Do not use `free` in short metadata; Play flags price/promotion wording.
-- Sharing/browser access should be described accurately but should not dominate 2.0 marketing because the sharing UX is still early.
+- Short description: `Simple list manager with optional private sharing and browser access`.
+- Full description covers dynamic To-do/Shopping/Discussion lists, local-first use, optional online sync/sharing/browser access and recurring-list reuse with Uncheck all.
 
-Play artwork:
-- `docs/playstore.app.icon-2.0.png` is the current 2.0 Play icon candidate. It uses a full-bleed blue square and removes the baked-in white outer rounded border/margin; Google Play should apply its own mask.
-- `docs/playstore.feature-2.1.png` is intentionally aspirational artwork for 2.1 and must NOT be used as the 2.0 feature graphic because it depicts a more mature browser/sharing UI than the current product exposes.
-- Generate a more restrained, accurate 2.0 feature graphic in the next session.
-- New 2.0 phone screenshots should primarily showcase mature local-list behaviour: multiple named lists, list types, quantities, completion handling, inline editing, pinch text sizing and reusable recurring lists via Uncheck all.
+2.0 Play assets/submission:
+- Main store listing updated with a 2.0 app icon, feature graphic and phone screenshots.
+- The final screenshot/feature-art set used image-generation/AI editing and was conservatively declared as AI-generated/edited in Play Console.
+- Production release uses versionCode 7 / versionName 2.0.
+- New install size shown by Play is about 11.5 MB; larger than 1.1 because 2.0 includes Room/Supabase/network/realtime/auth functionality.
+- Play warnings at submission: increased download size, no deobfuscation mapping because R8/ProGuard is not enabled, and no native debug symbols for bundled native code. These were warnings, not blockers, and are recorded for 2.1/maintenance.
+- Managed publishing is OFF.
 
-CURRENT RELEASE CHECKPOINT - 4 SEP 2026
+CURRENT RELEASE CHECKPOINT - 5 SEP 2026
 ---------------------------------------
 Current Android metadata/source:
     versionName 2.0
-    versionCode 5
-    BUILD_DATE 3 September 2026
+    versionCode 7
+    BUILD_DATE 4 September 2026
 
-Current pushed source/artwork checkpoint:
-    9c1f054 Refine large-text editing and stage Play artwork
+Current pushed source checkpoint before documentation closeout:
+    563d380 Prevent raw network errors reaching the UI
 
-Other recent checkpoints:
-    631cadf Trust Play signing certificate for App Links
-    62bdec8 Set JSimpleList 2.0 build date
-    2eac316 Record JSimpleList 1.1 archive policy
-    ce2e560 Ignore local release archive
-    aac32b0 Refine launcher icon safe area
-    a6401cf Prepare JSimpleList 2.0 release metadata
-    8efdbe2 Notify all members when someone joins
-    69ad8d7 Close GREEN invitation onboarding milestone
+Other immediate checkpoints:
+    b119082 Add clear online account sign-in path
+    8e5e802 Clarify VS Code search and replace indentation rule
 
 Validated release state:
-- release AAB for versionCode 5 builds successfully
-- genuine Google Play-signed 1.1 -> 2.0 upgrade test passed
-- Play production App Links verified on actual Play-signed 2.0 installation
-- account-deletion page live
-- Data Safety updated
-- store-listing text updated
-- large-text inline editing materially improved
-- 2.0 icon candidate staged in repo
-- 2.1 aspirational feature-art reference staged separately
+- versionCode 7 release AAB builds successfully
+- versionCode 7 was installed through Google Play Internal testing and tested successfully on-device
+- signed-out hamburger shows `Sign in`; signed-in hamburger shows `Online account`
+- OTP sign-in, account screen, online-list discovery/sharing and notification prompt were tested successfully
+- raw Supabase/Ktor exception text is no longer rendered in the UI
+- genuine Play-signed 1.1 -> 2.0 upgrade had already passed
+- Play production App Links are verified
+- store listing, artwork/screenshots and Data Safety were updated
+- Production release `7 (2.0)` and all listing changes were submitted together
+- Google Play Console status at session close: `Changes in review`
+- Managed publishing is OFF, so approved changes should publish automatically unless Google requires another action
 
-Remaining before 2.0 Production:
-1. Add a clear, discoverable Android Sign in / Online account path. This is the only product/UX item deliberately pulled forward from the release review.
-2. Finish accurate Play icon/feature graphic/screenshots; do not depict unimplemented sharing/browser controls.
-3. Check/complete Google Play Android developer verification/app + signing-key registration before 30 September 2026.
-4. Prepare final 2.0 Production release notes.
-5. Promote the tested current build to Production once the above is complete.
+Release submission details:
+- Production release includes versionCode 7 / versionName 2.0 and does not include the old 1.1 bundle.
+- Publishing overview showed seven changes together: Production rollout plus short description, full description, app icon, phone screenshots, feature graphic and Data Safety.
+- Developer verification/app-signing-registration status should still be checked/completed before the 30 September 2026 deadline if not already completed.
 
-RELEASE SCOPE DECISION - 4 SEP 2026
------------------------------------
-- Do not expand 2.0 into the full 2.1 roadmap.
-- Sharing is functional but still early; do not spend the 2.0 submission pass trying to make the product match aspirational marketing artwork.
-- Fix the missing/discoverability sign-in path properly for 2.0, then finish accurate listing assets and release.
-- After 2.0 Production, run a dedicated browser-interface completion session.
-- After the browser completion pass, begin the Android 2.1 feature/polish pass.
+RELEASE SCOPE DECISION
+----------------------
+- 2.0 is submitted and should remain frozen while under review unless Google identifies a genuine blocker.
+- Do not widen 2.0 into the 2.1 roadmap now.
+- User intends to return to JobSheet for a while after this milestone.
+- On return to JSimpleList, first check Play review/publication status and verify the live 2.0 update if approved; then continue 2.1/maintenance work.
 
 FUNDING / COST FUTURE-PROOFING
 ------------------------------
@@ -386,14 +328,13 @@ FUNDING / COST FUTURE-PROOFING
 - Online sync/sharing/browser access may initially be free while costs are negligible.
 - If recurring backend cost becomes meaningful, preferred model is a small annual fee, notionally around US$5/year, rather than a monthly subscription.
 - Voluntary donations/support may exist separately.
-- Do not hard-wire billing into list operations. Keep an entitlement boundary for online service.
-- Leave room for operational safeguards and safe local-first degradation if backend cost/availability becomes a problem.
+- Do not hard-wire billing into list operations; keep an entitlement boundary for online service.
 
 PROJECT WORKING PROTOCOL / DOCUMENTS
 ------------------------------------
 - `docs/chatgpt/JSimpleList_RULES.txt` is the authoritative durable working/source-editing/validation/Git/session protocol.
 - `docs/chatgpt/JSimpleList_CONTEXT.txt` is the concise current architecture/state/continuation reference.
-- ChatGPT should perform project-document maintenance directly when repository/file tooling permits rather than handing large manual replacement jobs to the user.
+- ChatGPT should perform project-document maintenance directly when repository/file tooling permits.
 - Remove/rewrite stale current-state and NEXT TASK material instead of accumulating contradictory history.
 - Session closeout follows `JSimpleList_RULES.txt`.
 
@@ -439,20 +380,14 @@ Existing MIT releases retain their granted MIT rights if future versions use dif
 
 NEXT TASK
 ---------
-Begin the next session as:
-    JSimpleList 2.0 sign-in path and Play submission
+JSimpleList is deliberately paused while the user returns to JobSheet.
 
-Read first:
-- `docs/chatgpt/JSimpleList_RULES.txt`
-- `docs/chatgpt/JSimpleList_CONTEXT.txt`
-
-Immediate order:
-1. Inspect the current Android auth/menu/sharing entry points and add an obvious, low-complexity Sign in / Online account path without changing the local-first rule.
-2. Build/test that change through Google Play Internal testing if necessary.
-3. Finish accurate Play Store icon, generate an accurate 2.0 feature graphic and capture/select 2.0 screenshots. Do not use artwork that depicts unimplemented sharing/browser controls.
-4. Check Google Play developer verification/app-signing registration status.
-5. Prepare final 2.0 Production release notes and complete Production rollout.
-6. After 2.0 release, move to the dedicated browser-interface completion pass, then Android 2.1.
+When returning to JSimpleList:
+1. Read `docs/chatgpt/JSimpleList_RULES.txt` and this file first.
+2. Check Google Play Console review/publication status for Production versionCode 7 / versionName 2.0.
+3. If approved/live, install/update from Production and perform a short smoke test of the public build.
+4. Check/complete Google Play developer verification/app-signing registration before 30 September 2026 if still outstanding.
+5. Begin the 2.1/maintenance pass from the recorded navigation/sharing/duplicate-item/R8 work above rather than rediscovering it from chat history.
 
 Do not reintroduce the removed JSimpleList in-app `Sharing update` notification fallback.
 
