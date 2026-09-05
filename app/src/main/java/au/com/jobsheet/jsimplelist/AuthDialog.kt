@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun AuthDialog(
     repository: AuthRepository,
+    authState: AuthState,
     profileRepository: ProfileRepository,
     onOpenNotificationSettings: () -> Unit,
     onDeleteOnlineAccount: () -> Unit,
@@ -45,11 +46,8 @@ fun AuthDialog(
     val displayNameFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    var signedInEmail by remember {
-        mutableStateOf(repository.currentUserEmail())
-    }
     var email by remember {
-        mutableStateOf(signedInEmail ?: "")
+        mutableStateOf(authState.email ?: "")
     }
     var code by remember {
         mutableStateOf("")
@@ -86,8 +84,8 @@ fun AuthDialog(
         }
     }
 
-    LaunchedEffect(signedInEmail) {
-        if (signedInEmail == null) {
+    LaunchedEffect(authState.userId) {
+        if (!authState.isSignedIn) {
             profile = null
             profileLoaded = false
             displayName = ""
@@ -115,7 +113,7 @@ fun AuthDialog(
         },
         text = {
             Column {
-                if (signedInEmail != null) {
+                if (authState.isSignedIn) {
                     if (!profileLoaded) {
                         Text("Loading sharing details")
                     } else if (profile == null) {
@@ -270,7 +268,7 @@ fun AuthDialog(
 
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        Text(signedInEmail!!)
+                        Text(authState.email ?: email)
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -419,10 +417,6 @@ fun AuthDialog(
                                             email = email,
                                             code = code
                                         )
-
-                                        signedInEmail =
-                                            repository.currentUserEmail()
-                                                ?: email.trim()
 
                                         onSignedIn()
                                         message = null

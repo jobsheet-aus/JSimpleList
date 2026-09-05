@@ -66,6 +66,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -383,7 +384,9 @@ private fun SimpleListApp(
         pageCount = { lists.size }
     )
     var activeListRestored by remember { mutableStateOf(false) }
-    var signedInEmail by remember { mutableStateOf<String?>(null) }
+    val authState by authRepository.authState.collectAsState(
+        initial = AuthState()
+    )
     val invitationRepository = remember { InvitationRepository() }
     val pendingInvitations = remember {
         mutableStateListOf<PendingInvitation>()
@@ -428,8 +431,6 @@ private fun SimpleListApp(
         ).importIfNeeded()
 
         authRepository.awaitSessionInitialization()
-
-        signedInEmail = authRepository.currentUserEmail()
 
         val accountId = authRepository.currentUserId()
 
@@ -1018,7 +1019,7 @@ private fun SimpleListApp(
                         text = {
                             Text(
                                 text =
-                                    if (signedInEmail == null) {
+                                    if (!authState.isSignedIn) {
                                         "Sign in"
                                     } else {
                                         "Online account"
@@ -1033,7 +1034,7 @@ private fun SimpleListApp(
                         modifier = Modifier.height(52.dp)
                     )
 
-                    if (signedInEmail != null) {
+                    if (authState.isSignedIn) {
                         DropdownMenuItem(
                             text = {
                                 Column {
@@ -1043,7 +1044,9 @@ private fun SimpleListApp(
                                     )
 
                                     Text(
-                                        text = signedInEmail!!,
+                                        text =
+                                            authState.email
+                                                ?: "Signed-in account",
                                         fontSize = 12.sp,
                                         color =
                                             MaterialTheme.colorScheme.onSurfaceVariant
@@ -1124,7 +1127,6 @@ private fun SimpleListApp(
 
                                     store.saveActivePushUserId(null)
 
-                                    signedInEmail = null
                                     pendingInvitations.clear()
                                     acceptingInvitationId = null
 
@@ -1189,6 +1191,7 @@ private fun SimpleListApp(
         if (showListSharing) {
             AuthDialog(
                 repository = authRepository,
+                authState = authState,
                 profileRepository = profileRepository,
                 onOpenNotificationSettings = {
                     val intent =
@@ -1213,9 +1216,6 @@ private fun SimpleListApp(
                             listSyncRepository.discoverOnlineLists(
                                 dao = dao
                             )
-
-                            signedInEmail =
-                                authRepository.currentUserEmail()
 
                             store.saveActivePushUserId(
                                 authRepository.currentUserId()
@@ -1625,7 +1625,6 @@ private fun SimpleListApp(
 
                                     store.saveActivePushUserId(null)
 
-                                    signedInEmail = null
                                     pendingInvitations.clear()
                                     acceptingInvitationId = null
 
@@ -1947,7 +1946,7 @@ private fun SimpleListApp(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            if (signedInEmail == null) {
+                            if (!authState.isSignedIn) {
                                 Text(
                                     "Sign in before making this list available " +
                                         "online or sharing it with someone"
@@ -1959,7 +1958,7 @@ private fun SimpleListApp(
 
                                 Text(
                                     "Make this list available online wherever " +
-                                        "$signedInEmail is signed in"
+                                        "${authState.email ?: "this account"} is signed in"
                                 )
 
                                 Spacer(modifier = Modifier.height(12.dp))
@@ -2074,7 +2073,7 @@ private fun SimpleListApp(
                             } else {
                                 Text(
                                     "This list is available wherever " +
-                                        "$signedInEmail is signed in"
+                                        "${authState.email ?: "this account"} is signed in"
                                 )
 
                                 Spacer(modifier = Modifier.height(20.dp))
