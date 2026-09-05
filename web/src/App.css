@@ -88,6 +88,45 @@
   gap: 12px;
 }
 
+.online-lists-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.new-list-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.auth-panel .new-list-form select {
+  min-height: 48px;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #111827;
+  font: inherit;
+}
+
+.auth-panel .new-list-form button {
+  min-height: 48px;
+}
+
+@media (max-width: 520px) {
+  .new-list-form {
+    grid-template-columns: 1fr;
+  }
+
+  .online-lists-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
+
 .online-lists-heading h2 {
   margin: 0;
   font-size: 18px;

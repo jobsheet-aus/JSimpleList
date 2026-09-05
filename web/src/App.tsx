@@ -110,6 +110,10 @@ function App() {
   const [editingListName, setEditingListName] = useState(false)
   const [editListName, setEditListName] = useState('')
   const [listNameSaving, setListNameSaving] = useState(false)
+  const [creatingList, setCreatingList] = useState(false)
+  const [newListName, setNewListName] = useState('')
+  const [newListKind, setNewListKind] = useState('TODO')
+  const [listCreating, setListCreating] = useState(false)
   const cancelListRenameRef = useRef(false)
 
   useEffect(() => {
@@ -215,6 +219,54 @@ function App() {
 
     setOnlineLists(loadedLists)
     setListsLoading(false)
+  }
+
+  async function createOnlineList() {
+    if (!session || listCreating) {
+      return
+    }
+
+    const trimmedName = newListName.trim()
+
+    if (!trimmedName) {
+      return
+    }
+
+    const listId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const nextPosition =
+      onlineLists.length === 0
+        ? 0
+        : Math.max(...onlineLists.map((list) => list.position)) + 1
+
+    setListCreating(true)
+    setMessage('')
+
+    const { error } = await supabase.rpc(
+      'create_online_list',
+      {
+        target_list_id: listId,
+        target_name: trimmedName,
+        target_kind: newListKind,
+        target_position: nextPosition,
+        target_created_at: now,
+        target_updated_at: now,
+      },
+    )
+
+    setListCreating(false)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setCreatingList(false)
+    setNewListName('')
+    setNewListKind('TODO')
+
+    await loadOnlineLists(session.user.id)
+    await openOnlineList(listId)
   }
 
   function startEditingListName() {
@@ -1137,17 +1189,77 @@ function App() {
             <div className="online-lists-heading">
               <h2>Lists</h2>
 
-              <button
-                type="button"
-                className="secondary-button compact-button"
-                disabled={listsLoading}
-                onClick={() => {
-                  void loadOnlineLists(session.user.id)
+              <div className="online-lists-actions">
+                <button
+                  type="button"
+                  className="secondary-button compact-button"
+                  disabled={listsLoading || listCreating}
+                  onClick={() => {
+                    setCreatingList((current) => !current)
+                    setMessage('')
+                  }}
+                >
+                  {creatingList ? 'Cancel' : 'New list'}
+                </button>
+
+                <button
+                  type="button"
+                  className="secondary-button compact-button"
+                  disabled={listsLoading || listCreating}
+                  onClick={() => {
+                    void loadOnlineLists(session.user.id)
+                  }}
+                >
+                  {listsLoading ? 'Refreshing' : 'Refresh'}
+                </button>
+              </div>
+            </div>
+
+            {creatingList && (
+              <form
+                className="new-list-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void createOnlineList()
                 }}
               >
-                {listsLoading ? 'Refreshing' : 'Refresh'}
-              </button>
-            </div>
+                <input
+                  type="text"
+                  aria-label="List name"
+                  placeholder="List name"
+                  maxLength={100}
+                  autoFocus
+                  value={newListName}
+                  disabled={listCreating}
+                  onChange={(event) => {
+                    setNewListName(event.target.value)
+                  }}
+                />
+
+                <select
+                  aria-label="List type"
+                  value={newListKind}
+                  disabled={listCreating}
+                  onChange={(event) => {
+                    setNewListKind(event.target.value)
+                  }}
+                >
+                  <option value="TODO">To-do</option>
+                  <option value="SHOPPING">Shopping</option>
+                  <option value="DISCUSSION">Discussion points</option>
+                </select>
+
+                <button
+                  type="submit"
+                  disabled={
+                    listCreating ||
+                    newListName.trim().length === 0
+                  }
+                >
+                  {listCreating ? 'Creating' : 'Create'}
+                </button>
+              </form>
+            )}
 
             {listsLoading && onlineLists.length === 0 ? (
               <p className="secondary">
