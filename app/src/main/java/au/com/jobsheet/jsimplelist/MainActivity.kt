@@ -797,8 +797,7 @@ private fun SimpleListApp(
                 )
 
                 sharedListInfoError =
-                    exception.message
-                        ?: "Could not load sharing details"
+                    "Could not load sharing details"
             } finally {
                 sharedListInfoLoading = false
             }
@@ -910,8 +909,7 @@ private fun SimpleListApp(
 
             Toast.makeText(
                 context,
-                exception.message
-                    ?: "Could not make list available online",
+                "Could not make list available online",
                 Toast.LENGTH_LONG
             ).show()
 
@@ -1156,8 +1154,7 @@ private fun SimpleListApp(
 
                                     Toast.makeText(
                                         context,
-                                        exception.message
-                                            ?: "Could not sign out",
+                                        "Could not sign out",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 } finally {
@@ -1272,8 +1269,7 @@ private fun SimpleListApp(
 
                             Toast.makeText(
                                 context,
-                                exception.message
-                                    ?: "Could not load online lists",
+                                "Could not load online lists",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
@@ -1474,8 +1470,7 @@ private fun SimpleListApp(
 
                                     Toast.makeText(
                                         context,
-                                        exception.message
-                                            ?: "Could not accept invitation",
+                                        "Could not accept invitation",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 } finally {
@@ -1535,8 +1530,7 @@ private fun SimpleListApp(
 
                                     Toast.makeText(
                                         context,
-                                        exception.message
-                                            ?: "Could not decline invitation",
+                                        "Could not decline invitation",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 } finally {
@@ -1665,8 +1659,7 @@ private fun SimpleListApp(
 
                                     Toast.makeText(
                                         context,
-                                        exception.message
-                                            ?: "Could not delete online account",
+                                        "Could not delete online account",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 } finally {
@@ -2493,8 +2486,7 @@ private fun SimpleListApp(
 
                                     Toast.makeText(
                                         context,
-                                        exception.message
-                                            ?: if (isLeavingList) {
+                                        if (isLeavingList) {
                                                 "Could not leave list"
                                             } else {
                                                 "Could not delete list"
@@ -2939,8 +2931,7 @@ private fun SimpleListApp(
 
                                             Toast.makeText(
                                                 context,
-                                                exception.message
-                                                    ?: "Could not refresh",
+                                                "Could not refresh",
                                                 Toast.LENGTH_LONG
                                             ).show()
                                         } finally {

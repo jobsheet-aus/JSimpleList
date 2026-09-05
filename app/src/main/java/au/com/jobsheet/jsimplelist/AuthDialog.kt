@@ -101,7 +101,7 @@ fun AuthDialog(
                 profileLoaded = true
             } catch (error: Exception) {
                 message =
-                    error.message ?: "Could not load sharing details"
+                    "Could not load online account details"
             } finally {
                 busy = false
             }
@@ -160,8 +160,7 @@ fun AuthDialog(
                                             profile?.displayName ?: displayName
                                     } catch (error: Exception) {
                                         message =
-                                            error.message
-                                                ?: "Could not save display name"
+                                            "Could not save display name"
                                     } finally {
                                         busy = false
                                     }
@@ -223,8 +222,7 @@ fun AuthDialog(
                                             editingDisplayName = false
                                         } catch (error: Exception) {
                                             message =
-                                                error.message
-                                                    ?: "Could not save display name"
+                                                "Could not save display name"
                                         } finally {
                                             busy = false
                                         }
@@ -373,7 +371,7 @@ fun AuthDialog(
                                         message = "Code sent"
                                     } catch (error: Exception) {
                                         message =
-                                            error.message ?: "Could not send code"
+                                            "Could not send code"
                                     } finally {
                                         busy = false
                                     }
@@ -430,7 +428,7 @@ fun AuthDialog(
                                         message = null
                                     } catch (error: Exception) {
                                         message =
-                                            error.message ?: "Could not verify code"
+                                            "Could not verify code"
                                     } finally {
                                         busy = false
                                     }

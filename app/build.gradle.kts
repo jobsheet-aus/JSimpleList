@@ -28,7 +28,7 @@ android {
         applicationId = "au.com.jobsheet.jsimplelist"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
+        versionCode = 7
         versionName = "2.0"
         buildConfigField("String", "BUILD_DATE", "\"4 September 2026\"")
 
