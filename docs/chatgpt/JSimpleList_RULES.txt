@@ -1,5 +1,5 @@
 JSimpleList durable working rules
-Updated: 2026-09-04
+Updated: 2026-09-05
 
 REPOSITORY AND SHELL
 --------------------
@@ -62,6 +62,7 @@ SECRETS / HOSTED SERVICES
 - Local recoverable secret copies must live only in explicitly git-ignored files.
 - Do not rotate a working credential casually; create/replace, test, then revoke the superseded credential.
 - Hosted Supabase Auth email configuration, Edge Function secrets and local project secrets are distinct storage locations and must not be assumed to mirror one another.
+- Never render raw network/auth/server exception text to users. User-facing failures must use fixed or deliberately sanitised messages; Authorization headers, bearer tokens and other credentials must never appear in UI text or ordinary diagnostic output.
 
 DATABASE / SUPABASE
 -------------------
