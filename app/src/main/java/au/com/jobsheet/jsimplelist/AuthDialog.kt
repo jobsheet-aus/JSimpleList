@@ -1,13 +1,20 @@
 package au.com.jobsheet.jsimplelist
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -19,10 +26,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -76,6 +88,15 @@ fun AuthDialog(
     var displayNameEdit by remember {
         mutableStateOf(TextFieldValue(""))
     }
+    var editingAvatar by remember {
+        mutableStateOf(false)
+    }
+    var selectedAvatarIcon by remember {
+        mutableStateOf("person")
+    }
+    var selectedAvatarColour by remember {
+        mutableStateOf("blue")
+    }
 
     LaunchedEffect(editingDisplayName) {
         if (editingDisplayName) {
@@ -96,6 +117,10 @@ fun AuthDialog(
             try {
                 profile = profileRepository.loadOrCreateMyProfile()
                 displayName = profile?.displayName ?: ""
+                selectedAvatarIcon =
+                    profile?.avatarIcon ?: "person"
+                selectedAvatarColour =
+                    profile?.avatarColour ?: "blue"
                 profileLoaded = true
             } catch (error: Exception) {
                 message =
@@ -109,7 +134,7 @@ fun AuthDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("Online account")
+            Text("Account")
         },
         text = {
             Column {
@@ -175,100 +200,94 @@ fun AuthDialog(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        Text("Signed in as")
+                        Text(
+                            text =
+                                "Signed in as " +
+                                    (authState.email ?: email),
+                            color =
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                        if (editingDisplayName) {
-                            Text(
-                                text = "Display name",
-                                fontWeight = FontWeight.Medium
-                            )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(
+                                    AvatarCatalog.drawableFor(
+                                        profile!!.avatarIcon
+                                    )
+                                ),
+                                contentDescription = "Profile avatar",
+                                tint =
+                                    AvatarCatalog.colourFor(
+                                        profile!!.avatarColour
+                                    ),
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clickable {
+                                        val currentName =
+                                            profile!!.displayName
 
-                            Spacer(modifier = Modifier.height(6.dp))
+                                        displayNameEdit =
+                                            TextFieldValue(
+                                                text = currentName,
+                                                selection =
+                                                    TextRange(
+                                                        0,
+                                                        currentName.length
+                                                    )
+                                            )
 
-                            OutlinedTextField(
-                                value = displayNameEdit,
-                                onValueChange = { value ->
-                                    if (value.text.length <= 50) {
-                                        displayNameEdit = value
+                                        selectedAvatarIcon =
+                                            profile!!.avatarIcon
+                                        selectedAvatarColour =
+                                            profile!!.avatarColour
+                                        editingAvatar = true
                                         message = null
                                     }
-                                },
-                                singleLine = true,
-                                enabled = !busy,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(displayNameFocusRequester)
                             )
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
 
-                            Button(
-                                onClick = {
-                                    busy = true
-                                    message = null
-
-                                    coroutineScope.launch {
-                                        try {
-                                            profile =
-                                                profileRepository.saveMyDisplayName(
-                                                    displayNameEdit.text
-                                                )
-                                            displayName =
-                                                profile?.displayName ?: displayName
-                                            editingDisplayName = false
-                                        } catch (error: Exception) {
-                                            message =
-                                                "Could not save display name"
-                                        } finally {
-                                            busy = false
-                                        }
-                                    }
-                                },
-                                enabled =
-                                    !busy &&
-                                        displayNameEdit.text.trim().isNotEmpty()
-                            ) {
-                                Text("Save")
-                            }
-
-                            TextButton(
-                                onClick = {
-                                    editingDisplayName = false
-                                    message = null
-                                },
-                                enabled = !busy
-                            ) {
-                                Text("Cancel")
-                            }
-                        } else {
-                            TextButton(
-                                onClick = {
-                                    val currentName = profile!!.displayName
-
-                                    displayNameEdit = TextFieldValue(
-                                        text = currentName,
-                                        selection = TextRange(
-                                            0,
-                                            currentName.length
-                                        )
-                                    )
-                                    editingDisplayName = true
-                                    message = null
-                                }
+                            Column(
+                                modifier = Modifier.weight(1f)
                             ) {
                                 Text(
                                     text = profile!!.displayName,
-                                    style = MaterialTheme.typography.titleMedium,
+                                    style =
+                                        MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Medium
                                 )
+
+                                TextButton(
+                                    onClick = {
+                                        val currentName =
+                                            profile!!.displayName
+
+                                        displayNameEdit =
+                                            TextFieldValue(
+                                                text = currentName,
+                                                selection =
+                                                    TextRange(
+                                                        0,
+                                                        currentName.length
+                                                    )
+                                            )
+
+                                        selectedAvatarIcon =
+                                            profile!!.avatarIcon
+                                        selectedAvatarColour =
+                                            profile!!.avatarColour
+                                        editingAvatar = true
+                                        message = null
+                                    }
+                                ) {
+                                    Text("Edit profile")
+                                }
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Text(authState.email ?: email)
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -464,4 +483,201 @@ fun AuthDialog(
             }
         }
     )
+
+    if (editingAvatar && profile != null) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!busy) {
+                    editingAvatar = false
+                }
+            },
+            title = {
+                Text("Edit profile")
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Display name",
+                        fontWeight = FontWeight.Medium
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    OutlinedTextField(
+                        value = displayNameEdit,
+                        onValueChange = { value ->
+                            if (value.text.length <= 50) {
+                                displayNameEdit = value
+                                message = null
+                            }
+                        },
+                        singleLine = true,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    Icon(
+                        painter = painterResource(
+                            AvatarCatalog.drawableFor(
+                                selectedAvatarIcon
+                            )
+                        ),
+                        contentDescription = "Avatar preview",
+                        tint =
+                            AvatarCatalog.colourFor(
+                                selectedAvatarColour
+                            ),
+                        modifier = Modifier
+                            .size(64.dp)
+                            .align(Alignment.CenterHorizontally)
+                    )
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    AvatarCatalog.icons
+                        .chunked(4)
+                        .forEach { iconRow ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement =
+                                    Arrangement.SpaceEvenly
+                            ) {
+                                iconRow.forEach { option ->
+                                    Box(
+                                        contentAlignment =
+                                            Alignment.Center,
+                                        modifier = Modifier
+                                            .size(50.dp)
+                                            .clickable {
+                                                selectedAvatarIcon =
+                                                    option.id
+                                            }
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(
+                                                option.drawableRes
+                                            ),
+                                            contentDescription =
+                                                option.label,
+                                            tint =
+                                                AvatarCatalog.colourFor(
+                                                    selectedAvatarColour
+                                                ),
+                                            modifier =
+                                                Modifier.size(
+                                                    if (
+                                                        option.id ==
+                                                        selectedAvatarIcon
+                                                    ) {
+                                                        38.dp
+                                                    } else {
+                                                        32.dp
+                                                    }
+                                                )
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(
+                                modifier = Modifier.height(4.dp)
+                            )
+                        }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    AvatarCatalog.colours
+                        .chunked(4)
+                        .forEach { colourRow ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement =
+                                    Arrangement.SpaceEvenly
+                            ) {
+                                colourRow.forEach { option ->
+                                    Box(
+                                        contentAlignment =
+                                            Alignment.Center,
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clickable {
+                                                selectedAvatarColour =
+                                                    option.id
+                                            }
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(
+                                                    if (
+                                                        option.id ==
+                                                        selectedAvatarColour
+                                                    ) {
+                                                        34.dp
+                                                    } else {
+                                                        28.dp
+                                                    }
+                                                )
+                                                .clip(CircleShape)
+                                                .background(option.colour)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(
+                                modifier = Modifier.height(6.dp)
+                            )
+                        }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        busy = true
+                        message = null
+
+                        coroutineScope.launch {
+                            try {
+                                profile =
+                                    profileRepository.saveMyProfileIdentity(
+                                        displayName =
+                                            displayNameEdit.text,
+                                        avatarIcon =
+                                            selectedAvatarIcon,
+                                        avatarColour =
+                                            selectedAvatarColour
+                                    )
+
+                                displayName =
+                                    profile?.displayName
+                                        ?: displayName
+
+                                editingAvatar = false
+                            } catch (error: Exception) {
+                                message = "Could not save avatar"
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    },
+                    enabled = !busy
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        editingAvatar = false
+                    },
+                    enabled = !busy
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
 }

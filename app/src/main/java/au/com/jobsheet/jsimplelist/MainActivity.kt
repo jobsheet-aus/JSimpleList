@@ -74,6 +74,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -87,6 +88,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -738,14 +740,16 @@ private fun SimpleListApp(
     val coroutineScope = rememberCoroutineScope()
     var fontScale by remember { mutableFloatStateOf(store.loadFontScale()) }
     var showMenu by remember { mutableStateOf(false) }
+    var openListMenuId by remember { mutableStateOf<String?>(null) }
     var showListSharing by remember { mutableStateOf(false) }
     var showSignOutConfirmation by remember { mutableStateOf(false) }
     var signingOut by remember { mutableStateOf(false) }
     var showDeleteAccount by remember { mutableStateOf(false) }
     var deletingOnlineAccount by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
-    var showListSelector by remember { mutableStateOf(false) }
+    var showListSelector by remember { mutableStateOf(true) }
     var refreshingListId by remember { mutableStateOf<String?>(null) }
+    var refreshingListSet by remember { mutableStateOf(false) }
     var showNewListDialog by remember { mutableStateOf(false) }
     var newListName by remember {
         mutableStateOf(
@@ -757,6 +761,56 @@ private fun SimpleListApp(
     }
     var newListKind by remember { mutableStateOf(ListKind.TODO) }
     var renameListId by remember { mutableStateOf<String?>(null) }
+    suspend fun refreshVisibleListSet(
+        preservedListId: String?
+    ) {
+        val accountId =
+            authRepository.currentUserId()
+                ?: return
+
+        listSyncRepository.discoverOnlineLists(
+            dao = dao
+        )
+
+        val loadedLists =
+            dao.loadVisibleLists(accountId)
+
+        val loadedItems =
+            loadedLists.associate { loadedList ->
+                loadedList.id to dao.loadItems(loadedList.id)
+            }
+
+        val preservedIndex =
+            preservedListId?.let { targetId ->
+                loadedLists.indexOfFirst {
+                    it.id == targetId
+                }.takeIf { it >= 0 }
+            }
+
+        Snapshot.withMutableSnapshot {
+            lists.clear()
+            lists.addAll(loadedLists)
+
+            itemsByList.clear()
+
+            loadedLists.forEach { loadedList ->
+                itemsByList[loadedList.id] =
+                    mutableStateListOf<ItemEntity>().apply {
+                        addAll(
+                            loadedItems[loadedList.id]
+                                ?: emptyList()
+                        )
+                    }
+            }
+        }
+
+        if (lists.isNotEmpty()) {
+            pagerState.requestScrollToPage(
+                preservedIndex ?: 0
+            )
+        }
+    }
+
     var renameListName by remember {
         mutableStateOf(TextFieldValue(""))
     }
@@ -920,8 +974,8 @@ private fun SimpleListApp(
         }
     }
 
-    BackHandler(enabled = showListSelector) {
-        showListSelector = false
+    BackHandler(enabled = !showListSelector) {
+        showListSelector = true
     }
 
     LaunchedEffect(fontScale) {
@@ -1002,7 +1056,7 @@ private fun SimpleListApp(
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = "Manage lists",
+                                text = "My lists",
                                 fontSize = 16.sp
                             )
                         },
@@ -1022,7 +1076,7 @@ private fun SimpleListApp(
                                     if (!authState.isSignedIn) {
                                         "Sign in"
                                     } else {
-                                        "Online account"
+                                        "Account"
                                     },
                                 fontSize = 16.sp
                             )
@@ -2639,19 +2693,55 @@ private fun SimpleListApp(
             ) {
 
 
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
-                    if (showListSelector) {
-                        Text(
-                            text = "Manage lists",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier =
+                if (showListSelector) {
+                    Text(
+                        text = "My lists",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Icon(
+                        painter = painterResource(
+                            when (currentKind) {
+                                ListKind.TODO ->
+                                    R.drawable.ic_list_todo
+
+                                ListKind.SHOPPING ->
+                                    R.drawable.ic_list_shopping
+
+                                ListKind.DISCUSSION ->
+                                    R.drawable.ic_list_discussion
+                            }
+                        ),
+                        contentDescription =
+                            when (currentKind) {
+                                ListKind.TODO -> "To-do list"
+                                ListKind.SHOPPING -> "Shopping list"
+                                ListKind.DISCUSSION -> "Discussion list"
+                            },
+                        tint =
+                            when (currentKind) {
+                                ListKind.TODO ->
+                                    Color(0xFF7E57C2)
+
+                                ListKind.SHOPPING ->
+                                    Color(0xFF43A047)
+
+                                ListKind.DISCUSSION ->
+                                    Color(0xFFFB8C00)
+                            },
+                        modifier = Modifier
+                            .width(32.dp)
+                            .height(32.dp)
+                    )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(
                                 if (currentList.onlineState != "LOCAL") {
                                     Modifier.clickable {
                                         openSharedListInfo(currentList.id)
@@ -2659,6 +2749,10 @@ private fun SimpleListApp(
                                 } else {
                                     Modifier
                                 }
+                            )
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
                                 text = currentList.name,
@@ -2682,9 +2776,7 @@ private fun SimpleListApp(
                                 )
                             }
                         }
-                    }
 
-                    if (!showListSelector) {
                         Text(
                             text =
                                 "${listKindLabel(currentKind)} · " +
@@ -2698,16 +2790,6 @@ private fun SimpleListApp(
                             color =
                                 MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    }
-                }
-
-                if (showListSelector) {
-                    TextButton(
-                        onClick = {
-                            showListSelector = false
-                        }
-                    ) {
-                        Text("Close")
                     }
                 }
 
@@ -2725,14 +2807,55 @@ private fun SimpleListApp(
             HorizontalDivider()
 
             if (showListSelector) {
-                LazyColumn(
+                PullToRefreshBox(
+                    isRefreshing = refreshingListSet,
+                    onRefresh = {
+                        if (!refreshingListSet) {
+                            coroutineScope.launch {
+                                refreshingListSet = true
+
+                                val preservedListId =
+                                    if (lists.isNotEmpty()) {
+                                        val currentIndex =
+                                            pagerState.currentPage.coerceIn(
+                                                0,
+                                                lists.lastIndex
+                                            )
+
+                                        lists[currentIndex].id
+                                    } else {
+                                        null
+                                    }
+
+                                try {
+                                    refreshVisibleListSet(
+                                        preservedListId = preservedListId
+                                    )
+                                } catch (exception: Exception) {
+                                    Log.e(
+                                        "JSimpleListSync",
+                                        "Manage lists refresh failed",
+                                        exception
+                                    )
+
+                                    Toast.makeText(
+                                        context,
+                                        "Could not refresh",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } finally {
+                                    refreshingListSet = false
+                                }
+                            }
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .clickable {
-                            showListSelector = false
-                        }
                 ) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
                     items(
                         items = lists,
                         key = { list -> list.id }
@@ -2754,6 +2877,50 @@ private fun SimpleListApp(
                                 ),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Icon(
+                                painter = painterResource(
+                                    when (kind) {
+                                        ListKind.TODO ->
+                                            R.drawable.ic_list_todo
+
+                                        ListKind.SHOPPING ->
+                                            R.drawable.ic_list_shopping
+
+                                        ListKind.DISCUSSION ->
+                                            R.drawable.ic_list_discussion
+                                    }
+                                ),
+                                contentDescription =
+                                    when (kind) {
+                                        ListKind.TODO -> "To-do list"
+                                        ListKind.SHOPPING -> "Shopping list"
+                                        ListKind.DISCUSSION -> "Discussion list"
+                                    },
+                                tint =
+                                    when (kind) {
+                                        ListKind.TODO ->
+                                            Color(0xFF7E57C2)
+
+                                        ListKind.SHOPPING ->
+                                            Color(0xFF43A047)
+
+                                        ListKind.DISCUSSION ->
+                                            Color(0xFFFB8C00)
+                                    },
+                                modifier = Modifier
+                                    .width(28.dp)
+                                    .height(28.dp)
+                                    .clickable {
+                                        showListSelector = false
+
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(index)
+                                        }
+                                    }
+                            )
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
@@ -2809,42 +2976,76 @@ private fun SimpleListApp(
                                 )
                             }
 
-                            TextButton(
-                                onClick = {
-                                    renameListName =
-                                        TextFieldValue(
-                                            text = list.name,
-                                            selection = TextRange(
-                                                0,
-                                                list.name.length
-                                            )
-                                        )
-                                    renameListId = list.id
-                                }
-                            ) {
-                                Text("Rename")
-                            }
-
-                            TextButton(
-                                onClick = {
-                                    deleteListId = list.id
-                                }
-                            ) {
-                                Text(
-                                    if (
-                                        list.onlineState ==
-                                        "ONLINE_MEMBER"
-                                    ) {
-                                        "Leave list"
-                                    } else {
-                                        "Delete"
+                            Box {
+                                androidx.compose.material3.IconButton(
+                                    onClick = {
+                                        openListMenuId = list.id
                                     }
-                                )
+                                ) {
+                                    Text(
+                                        text = "⋮",
+                                        fontSize = 24.sp
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded =
+                                        openListMenuId == list.id,
+                                    onDismissRequest = {
+                                        openListMenuId = null
+                                    },
+                                    modifier = Modifier.width(160.dp)
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "Rename",
+                                                fontSize = 16.sp
+                                            )
+                                        },
+                                        onClick = {
+                                            openListMenuId = null
+                                            renameListName =
+                                                TextFieldValue(
+                                                    text = list.name,
+                                                    selection = TextRange(
+                                                        0,
+                                                        list.name.length
+                                                    )
+                                                )
+                                            renameListId = list.id
+                                        },
+                                        modifier = Modifier.height(52.dp)
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text =
+                                                    if (
+                                                        list.onlineState ==
+                                                        "ONLINE_MEMBER"
+                                                    ) {
+                                                        "Leave"
+                                                    } else {
+                                                        "Delete"
+                                                    },
+                                                fontSize = 16.sp
+                                            )
+                                        },
+                                        onClick = {
+                                            openListMenuId = null
+                                            deleteListId = list.id
+                                        },
+                                        modifier = Modifier.height(52.dp)
+                                    )
+                                }
                             }
                         }
 
                         HorizontalDivider()
                     }
+                }
                 }
             } else {
                 HorizontalPager(
@@ -2877,47 +3078,9 @@ private fun SimpleListApp(
                                                 authRepository
                                                     .currentUserId() != null
                                             ) {
-                                                listSyncRepository
-                                                    .discoverOnlineLists(
-                                                        dao = dao
-                                                    )
-
-                                                val loadedLists =
-                                                    dao.loadLists()
-
-                                                lists.clear()
-                                                itemsByList.clear()
-
-                                                loadedLists.forEach {
-                                                    loadedList ->
-                                                    lists.add(loadedList)
-                                                    itemsByList[
-                                                        loadedList.id
-                                                    ] =
-                                                        mutableStateListOf<
-                                                            ItemEntity
-                                                        >().apply {
-                                                            addAll(
-                                                                dao.loadItems(
-                                                                    loadedList.id
-                                                                )
-                                                            )
-                                                        }
-                                                }
-
-                                                val refreshedIndex =
-                                                    lists.indexOfFirst {
-                                                        it.id == list.id
-                                                    }
-
-                                                if (
-                                                    refreshedIndex >= 0 &&
-                                                    lists.isNotEmpty()
-                                                ) {
-                                                    pagerState.scrollToPage(
-                                                        refreshedIndex
-                                                    )
-                                                }
+                                                refreshVisibleListSet(
+                                                    preservedListId = list.id
+                                                )
                                             }
                                         } catch (
                                             exception: Exception
@@ -3072,8 +3235,8 @@ private fun ListScreen(
     onItemUpdated: (ItemEntity) -> Unit,
     onItemDeleted: (ItemEntity) -> Unit
 ) {
-    var creatorNames by remember {
-        mutableStateOf<Map<String, String>>(emptyMap())
+    var creatorProfiles by remember {
+        mutableStateOf<Map<String, Profile>>(emptyMap())
     }
 
     val creatorUserIds =
@@ -3086,7 +3249,7 @@ private fun ListScreen(
         }
 
     LaunchedEffect(creatorUserIds) {
-        creatorNames =
+        creatorProfiles =
             if (creatorUserIds.isEmpty()) {
                 emptyMap()
             } else {
@@ -3348,7 +3511,7 @@ private fun ListScreen(
                             creatorName =
                                 if (onlineState != "LOCAL") {
                                     item.createdByUserId?.let {
-                                        creatorNames[it]
+                                        creatorProfiles[it]?.displayName
                                     }
                                 } else {
                                     null

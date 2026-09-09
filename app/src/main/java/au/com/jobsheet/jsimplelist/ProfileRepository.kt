@@ -12,16 +12,28 @@ data class Profile(
     val userId: String,
 
     @SerialName("display_name")
-    val displayName: String
+    val displayName: String,
+
+    @SerialName("avatar_icon")
+    val avatarIcon: String = "person",
+
+    @SerialName("avatar_colour")
+    val avatarColour: String = "blue"
 )
 
 @Serializable
-private data class ProfileInsert(
+private data class ProfileUpsert(
     @SerialName("user_id")
     val userId: String,
 
     @SerialName("display_name")
-    val displayName: String
+    val displayName: String,
+
+    @SerialName("avatar_icon")
+    val avatarIcon: String,
+
+    @SerialName("avatar_colour")
+    val avatarColour: String
 )
 
 class ProfileRepository(
@@ -70,7 +82,7 @@ class ProfileRepository(
         )
     }
 
-    suspend fun loadProfiles(userIds: Set<String>): Map<String, String> {
+    suspend fun loadProfiles(userIds: Set<String>): Map<String, Profile> {
         if (userIds.isEmpty()) {
             return emptyMap()
         }
@@ -86,8 +98,8 @@ class ProfileRepository(
                 }
             }
             .decodeList<Profile>()
-            .associate { profile ->
-                profile.userId to profile.displayName
+            .associateBy { profile ->
+                profile.userId
             }
     }
 
@@ -106,17 +118,122 @@ class ProfileRepository(
             "Display name cannot be longer than 50 characters"
         }
 
+        val existingProfile = loadMyProfile()
+
+        return saveMyProfile(
+            userId = userId,
+            displayName = trimmedName,
+            avatarIcon =
+                existingProfile?.avatarIcon
+                    ?: "person",
+            avatarColour =
+                existingProfile?.avatarColour
+                    ?: "blue"
+        )
+    }
+
+    suspend fun saveMyAvatar(
+        avatarIcon: String,
+        avatarColour: String
+    ): Profile {
+        val existingProfile =
+            loadMyProfile()
+                ?: loadOrCreateMyProfile()
+                ?: error("Could not load profile")
+
+        return saveMyProfileIdentity(
+            displayName = existingProfile.displayName,
+            avatarIcon = avatarIcon,
+            avatarColour = avatarColour
+        )
+    }
+
+    suspend fun saveMyProfileIdentity(
+        displayName: String,
+        avatarIcon: String,
+        avatarColour: String
+    ): Profile {
+        val userId =
+            client.auth.currentSessionOrNull()?.user?.id
+                ?: error("Not signed in")
+
+        val trimmedName = displayName.trim()
+
+        require(trimmedName.isNotEmpty()) {
+            "Display name cannot be empty"
+        }
+
+        require(trimmedName.length <= 50) {
+            "Display name cannot be longer than 50 characters"
+        }
+
+        require(avatarIcon in ALLOWED_AVATAR_ICONS) {
+            "Unknown avatar icon"
+        }
+
+        require(avatarColour in ALLOWED_AVATAR_COLOURS) {
+            "Unknown avatar colour"
+        }
+
+        return saveMyProfile(
+            userId = userId,
+            displayName = trimmedName,
+            avatarIcon = avatarIcon,
+            avatarColour = avatarColour
+        )
+    }
+
+    private suspend fun saveMyProfile(
+        userId: String,
+        displayName: String,
+        avatarIcon: String,
+        avatarColour: String
+    ): Profile {
         return client
             .from("profiles")
             .upsert(
-                ProfileInsert(
+                ProfileUpsert(
                     userId = userId,
-                    displayName = trimmedName
+                    displayName = displayName,
+                    avatarIcon = avatarIcon,
+                    avatarColour = avatarColour
                 )
             ) {
                 onConflict = "user_id"
                 select()
             }
             .decodeSingle()
+    }
+
+    companion object {
+        val ALLOWED_AVATAR_ICONS = setOf(
+            "person",
+            "flower",
+            "cat",
+            "horse",
+            "lightning",
+            "coffee",
+            "helmet",
+            "paw",
+            "book",
+            "alien",
+            "f1car",
+            "music",
+            "home",
+            "heart",
+            "star",
+            "starfish"
+        )
+
+        val ALLOWED_AVATAR_COLOURS = setOf(
+            "blue",
+            "purple",
+            "pink",
+            "orange",
+            "green",
+            "grey",
+            "red",
+            "brown"
+        )
     }
 }

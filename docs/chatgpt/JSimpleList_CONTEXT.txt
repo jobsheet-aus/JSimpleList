@@ -21,6 +21,9 @@ CORE PRODUCT PRINCIPLES
 - List ownership is absolute; the creator remains owner.
 - One authenticated account at a time per Android device is the deliberate UX model.
 - Back cancels/closes the most local active operation first.
+- User-facing informational phrases generally omit trailing full stops.
+- Prefer simple product language over backend terminology.
+- Security and low-friction UX should be designed together rather than traded casually against each other.
 
 STACK
 -----
@@ -101,21 +104,54 @@ Legacy upgrade:
 - 1.1 SharedPreferences JSON imports only when Room has no lists and genuine legacy keys exist.
 - Genuine Google Play-signed 1.1 -> 2.0 in-place upgrade testing passed on device and preserved representative items, quantities, completion, ordering and font scale.
 
-2.0 LIST MODEL / UI
--------------------
+2.0 / 2.1 LIST MODEL AND UI
+---------------------------
 - Every list has a user-controlled name independent of kind; names need not be unique because UUID is identity.
 - New-list flow: Type -> Name -> Create.
 - Defaults: `To-do list`, `Shopping list`, `Discussion points`.
 - Zero lists is valid.
 - One current list fills the screen; horizontal swipe moves between lists.
-- Manage lists is the canonical arbitrary-list navigation/admin surface.
 - Online/shared lists show the muted chain/link icon; local lists are unmarked.
 - Pull-to-refresh performs online discovery/reconciliation.
-- Last active list is persisted/restored safely when still visible.
 - Bulk Uncheck all is implemented in the list column-heading row and has conservative Undo.
 - New items insert at the top; incomplete items display before completed items.
 - Existing items edit inline; item-description cursor starts at the end; Shopping Qty selects its existing value on focus.
-- Large-text editing was improved before release; edit text is capped at 22sp and fields can grow vertically.
+- Large-text editing is capped at 22sp and fields can grow vertically.
+- `My lists` is now the Android startup/home surface.
+- Android Back from an open list returns to `My lists` before Android can exit the app.
+- `My lists` replaced the former temporary Manage-lists overlay model and has no Close button.
+- Tapping a list row opens that list deliberately.
+- Per-list Rename/Delete/Leave actions use a compact overflow menu.
+- Pull-down refresh from `My lists` refreshes authoritative visible-list state.
+- Refresh preserves the selected list UUID rather than relying on stale numeric pager index.
+- Refresh uses snapshot-safe state replacement and pager `requestScrollToPage`, fixing the wrong-list flash/open bug after remote list discovery or rename.
+- Debug builds deliberately show app label `JSLDebug`; release remains `JSimpleList`.
+
+LIST-TYPE VISUAL LANGUAGE
+-------------------------
+Semantic list-type icons are implemented and used in both `My lists` and the open-list header.
+
+Colour family:
+- To-do: purple `#7E57C2`
+- Shopping: green `#43A047`
+- Discussion: orange `#FB8C00`
+- blue remains reserved for brand/global actions
+
+Current vector resources:
+- `ic_list_todo.xml`
+- `ic_list_shopping.xml`
+- `ic_list_discussion.xml`
+
+Approved visual concepts:
+- To-do: one rounded outer list/card rectangle, one header divider and a large tick below
+- Shopping: open trolley with hollow wheels
+- Discussion: rounded speech bubble with three centred dots
+
+Open-list header:
+- semantic icon is intentionally prominent
+- current preferred icon size is 32dp; do not shrink without a deliberate visual review
+- header structure is icon + title/online marker + secondary type/item-count metadata
+- semantic icon occupies the full two-line heading height rather than aligning only to the first text baseline
 
 AUTH / PROFILE / ACCOUNT
 ------------------------
@@ -123,13 +159,122 @@ AUTH / PROFILE / ACCOUNT
 - OTP delivery through Supabase Auth -> Resend SMTP -> `jsimplelist@jobsheet.com.au` is proven.
 - Session persists across normal app close/reopen.
 - Re-authenticating the same email returns the same Supabase user UUID.
-- `ProfileRepository.kt` stores profiles keyed by auth.users.id.
-- Display names are non-unique, trimmed and limited to 1-50 characters.
 - Sign out is non-destructive and separate from account deletion.
-- 2.0 now has a clear hamburger-menu account path: signed out shows `Sign in`; signed in shows `Online account`; the existing account dialog is titled `Online account`.
-- This sign-in-path change does not alter the local-first rule: signing in does not make local lists online.
-- Account deletion remains a separate destructive action.
-- Raw network/auth/server exception text must never be rendered to users. VersionCode 7 replaced all remaining direct `.message` UI paths with fixed safe messages after a Supabase/Ktor exception exposed request/JWT/header detail in an internal Play test build.
+- Raw network/auth/server exception text must never be rendered to users.
+- User-facing failures use fixed/sanitised messages rather than raw exception `.message`.
+- A clean Play Store install exposed duplicated UI auth-state handling: Supabase restored the session but MainActivity could still show a stale signed-out state.
+- The auth-state hotfix introduced authoritative `AuthState` from Supabase session state and removed the duplicated cached signed-in state from MainActivity/AuthDialog.
+- Commit: `0a88f09 Fix authoritative auth state for sharing`.
+
+Current profile model:
+- `jsimplelist.profiles` remains keyed by stable `auth.users.id`.
+- display names are non-unique, trimmed and limited to 1-50 characters.
+- profiles now also carry `avatar_icon` and `avatar_colour`.
+- Android `Profile` includes userId, displayName, avatarIcon and avatarColour.
+- `ProfileRepository.saveMyProfileIdentity(...)` saves alias + avatar icon + avatar colour together.
+- display-name-only saves preserve existing avatar fields.
+- `SharingRepository.SharedListMember` now carries avatar icon/colour metadata for member rendering later.
+
+AVATAR / PERSONAL IDENTITY FOUNDATION
+-------------------------------------
+Avatar architecture is code-defined and storage-light:
+- users choose their own icon and colour
+- database stores stable icon/colour IDs only
+- no profile image uploads or blob storage
+- Android and web should share the same catalogue IDs
+- users assign only their own visual identity
+- reusable Friends/People sharing contacts are a separate future feature, not part of avatar identity
+
+Current icon catalogue IDs:
+- person
+- flower
+- cat
+- horse
+- lightning
+- coffee
+- helmet
+- paw
+- book
+- alien
+- f1car
+- music
+- home
+- heart
+- star
+- starfish
+
+Current colour catalogue IDs:
+- blue
+- purple
+- pink
+- orange
+- green
+- grey
+- red
+- brown
+
+Android palette:
+- blue `#4285F4`
+- purple `#7E57C2`
+- pink `#EC407A`
+- orange `#FB8C00`
+- green `#43A047`
+- grey `#5F6368`
+- red `#E53935`
+- brown `#795548`
+
+Current Android resources:
+- `AvatarCatalog.kt`
+- `ic_avatar_person.xml`
+- `ic_avatar_flower.xml`
+- `ic_avatar_cat.xml`
+- `ic_avatar_horse.xml`
+- `ic_avatar_lightning.xml`
+- `ic_avatar_coffee.xml`
+- `ic_avatar_helmet.xml`
+- `ic_avatar_paw.xml`
+- `ic_avatar_book.xml`
+- `ic_avatar_alien.xml`
+- `ic_avatar_f1car.xml`
+- `ic_avatar_music.xml`
+- `ic_avatar_home.xml`
+- `ic_avatar_heart.xml`
+- `ic_avatar_star.xml`
+- `ic_avatar_starfish.xml`
+
+Important visual status:
+- the current Android avatar vectors are first-pass approximations
+- they do NOT yet match the approved proof image closely enough
+- do not iterate them blindly from code
+- next redraw pass should visually proof the icons first, then implement vectors to match the approved proof
+- avatar itself is coloured line art with no coloured circular background
+- rich grey replaced the earlier second green/teal choice
+
+PROFILE MIGRATIONS
+------------------
+Canonical migrations now use timestamp-style filenames in `supabase/migrations`.
+
+The current directory contains the earlier ordered migration series plus later CLI-generated timestamp names. The apparent `00100` / `00200` suffixes on the avatar files are part of the full timestamp-style identifiers; they are not migration numbers 100 and 200.
+
+Avatar migrations:
+- `20260909000100_add_profile_avatars.sql`
+- `20260909000200_replace_avatar_teal_with_grey.sql`
+
+`20260909000100_add_profile_avatars.sql`:
+- adds `avatar_icon` and `avatar_colour`
+- defaults to `person` / `blue`
+- constrains icon IDs to the 16-entry catalogue
+- initially constrained colours to blue/purple/pink/orange/green/teal/red/brown
+- was explicitly pushed successfully during the 9 Sep session
+
+`20260909000200_replace_avatar_teal_with_grey.sql`:
+- converts any existing `teal` profile value to `grey`
+- replaces the colour constraint with blue/purple/pink/orange/green/grey/red/brown
+- exists locally
+- a `db push` command was run during the session but returned no visible terminal output
+- subsequent `migration list` and `db push --dry-run` also returned no visible terminal output
+- therefore hosted application of this second migration was not independently reconfirmed at closeout
+- verify hosted migration/database state before relying on `grey` in a production release
 
 ONLINE ACCOUNT / OWNERSHIP
 --------------------------
@@ -142,7 +287,8 @@ ONLINE ACCOUNT / OWNERSHIP
 
 SUPABASE / SHARING BACKEND
 --------------------------
-Canonical migrations live under `supabase/migrations` and are applied through `npx supabase ...`.
+Canonical migrations live under `supabase/migrations` and are applied through the project Supabase CLI migration workflow.
+
 Hosted project ref:
     xislrkkifqayznsgwzno
 
@@ -210,38 +356,41 @@ Current proven browser behaviour:
 - Inline list rename implemented through controlled RPC.
 - Private per-list realtime works with origin suppression.
 - Browser exposes only online-backed lists; local-only Android lists never appear.
+- Browser list creation is implemented through `create_online_list`.
+- Commit: `b378bf5 Add browser list creation`.
 
-Browser follow-up still planned:
-- browser list creation
+Browser follow-up:
+- stale selected-list cleanup after remote deletion/removal
+- account-level realtime discovery for membership/new-list UUID changes
 - complete list management including delete
 - authenticated browser self-service account deletion
 - mature sharing/member-management UX
-- immediate eviction/reload when selected remote list is deleted
-- account-level realtime discovery
+- possible Undo for bulk Uncheck all
+- browser/shared-list activity notification design
+- align browser visual language with the Android 2.1 design after Android settles
 
-2.1 ANDROID / MAINTENANCE FOLLOW-UP
-----------------------------------
-Do not retroactively change the submitted 2.0 build unless Google review identifies a genuine release blocker.
+2.1 ANDROID / MAINTENANCE ROADMAP
+---------------------------------
+Current 2.1 direction is primarily visual/UX improvement, with functionality added alongside it where appropriate.
 
-Planned work:
-- Detect equivalent existing items when adding and prevent/handle accidental duplicate entries; decide final UX deliberately because intentional duplicates can be legitimate.
-- Allow list renaming by tapping/clicking the visible list title.
-- Review navigation so Android Back from an open list goes to Manage lists before exiting; also evaluate whether Manage lists should become the startup/home surface instead of always restoring the last active list.
-- Fix the observed navigation bug after online-list discovery where the first tap on a newly pulled shared list can open a different list. Current hypothesis is stale pager/index state after the visible list collection changes; inspect exact selector/pager code before changing it.
-- Streamline sharing into a task-driven flow: `Manage lists -> Share this list -> [sign in if required] -> make only that list online -> invite person -> done`, automatically resuming after authentication rather than requiring the user to restart the share action.
-- Add coloured list-type icons for To-do, Shopping and Discussion with an extendable design.
+Still planned:
+- Allow list renaming by tapping the visible list title.
+- Detect equivalent existing items when adding and deliberately handle accidental duplicates while preserving legitimate duplicate use cases.
 - Add finger drag-and-drop item reordering while preserving sensible incomplete/completed grouping.
 - Add `Delete all items` with confirmation, distinct from `Uncheck all`.
-- Detect `http://` and `https://` links in item descriptions and make the URL portion tappable without previews initially.
+- Detect `http://` and `https://` links in item descriptions and make URL portions tappable without previews initially.
 - Remove unnecessary left padding from inline edit rows.
 - Possible preference: allow unused list types to be hidden from the New list chooser without affecting existing lists.
+- Add list/item ordering preferences only if they remain genuinely useful after manual ordering work.
 - Manual list ordering remains planned.
+- Streamline sharing into a task-driven flow that resumes automatically after authentication rather than forcing the user to restart the share action.
+- Broader sharing/member controls, leave/remove semantics, authoritative foreground reconciliation and durable failed-write retry remain later sync work.
 
 Release optimisation / Google Play maintenance:
-- Google Play flags the current production/release build for low optimisation/obfuscation and recommends R8/ProGuard, deobfuscation mapping and native debug symbols.
-- Do not enable shrinking casually on the already-tested 2.0 build.
-- In 2.1/maintenance, inspect current release configuration, enable `isMinifyEnabled = true` and `isShrinkResources = true` with only necessary keep rules, build a release AAB, and real-device test auth, Room, Supabase sync/sharing, notifications, account deletion and linked flows.
-- Upload the R8 mapping/deobfuscation file and native debug symbols where the build produces them/Play expects them.
+- Google Play has warned about low optimisation/obfuscation and recommends R8/ProGuard, deobfuscation mapping and native debug symbols.
+- Do not enable shrinking casually on a previously tested release build.
+- In 2.1/maintenance, inspect release configuration, enable `isMinifyEnabled = true` and `isShrinkResources = true` with only necessary keep rules, build a release AAB, and real-device test auth, Room, Supabase sync/sharing, notifications, account deletion and linked flows.
+- Upload mapping/deobfuscation and native debug symbols where Play expects them.
 - Re-check Play Console optimisation status after the tested optimised release.
 
 PUBLIC WEBSITE / LEGAL / PLAY STORE
@@ -267,60 +416,35 @@ Google Play Data Safety for 2.0:
 - account deletion links to the public deletion resource
 
 Google Play App Links:
-- production `assetlinks.json` includes the actual Play signing certificate SHA-256 plus local release certificate
+- production `assetlinks.json` includes the Play signing certificate SHA-256 plus local release certificate
 - Android `pm get-app-links au.com.jobsheet.jsimplelist` reports `jslist.jobsheet.com.au: verified`
 
-Store listing text:
+Store listing:
 - App name remains `JSimpleList`.
 - Short description: `Simple list manager with optional private sharing and browser access`.
 - Full description covers dynamic To-do/Shopping/Discussion lists, local-first use, optional online sync/sharing/browser access and recurring-list reuse with Uncheck all.
+- Play assets/screenshots/Data Safety were updated for 2.0.
 
-2.0 Play assets/submission:
-- Main store listing updated with a 2.0 app icon, feature graphic and phone screenshots.
-- The final screenshot/feature-art set used image-generation/AI editing and was conservatively declared as AI-generated/edited in Play Console.
-- Production release uses versionCode 7 / versionName 2.0.
-- New install size shown by Play is about 11.5 MB; larger than 1.1 because 2.0 includes Room/Supabase/network/realtime/auth functionality.
-- Play warnings at submission: increased download size, no deobfuscation mapping because R8/ProGuard is not enabled, and no native debug symbols for bundled native code. These were warnings, not blockers, and are recorded for 2.1/maintenance.
-- Managed publishing is OFF.
-
-CURRENT RELEASE CHECKPOINT - 5 SEP 2026
+CURRENT RELEASE CHECKPOINT - 9 SEP 2026
 ---------------------------------------
-Current Android metadata/source:
-    versionName 2.0
-    versionCode 7
-    BUILD_DATE 4 September 2026
+Production 2.0:
+- versionCode 7 / versionName 2.0 was submitted to Production.
+- real-device upgrade/auth/sharing testing passed before submission.
+- Managed publishing was OFF.
 
-Current pushed source checkpoint before documentation closeout:
-    563d380 Prevent raw network errors reaching the UI
+2.0.1 authentication hotfix:
+- versionCode 8
+- versionName 2.0.1
+- BUILD_DATE 5 September 2026
+- source checkpoint: `0a88f09 Fix authoritative auth state for sharing`
+- release AAB built successfully
+- Production 8 (2.0.1) was submitted to Google Play
+- Play review/publication status was not re-checked during the 9 Sep closeout
 
-Other immediate checkpoints:
-    b119082 Add clear online account sign-in path
-    8e5e802 Clarify VS Code search and replace indentation rule
+Latest repository checkpoint before the current uncommitted 2.1 Android work:
+    b378bf5 Add browser list creation
 
-Validated release state:
-- versionCode 7 release AAB builds successfully
-- versionCode 7 was installed through Google Play Internal testing and tested successfully on-device
-- signed-out hamburger shows `Sign in`; signed-in hamburger shows `Online account`
-- OTP sign-in, account screen, online-list discovery/sharing and notification prompt were tested successfully
-- raw Supabase/Ktor exception text is no longer rendered in the UI
-- genuine Play-signed 1.1 -> 2.0 upgrade had already passed
-- Play production App Links are verified
-- store listing, artwork/screenshots and Data Safety were updated
-- Production release `7 (2.0)` and all listing changes were submitted together
-- Google Play Console status at session close: `Changes in review`
-- Managed publishing is OFF, so approved changes should publish automatically unless Google requires another action
-
-Release submission details:
-- Production release includes versionCode 7 / versionName 2.0 and does not include the old 1.1 bundle.
-- Publishing overview showed seven changes together: Production rollout plus short description, full description, app icon, phone screenshots, feature graphic and Data Safety.
-- Developer verification/app-signing-registration status should still be checked/completed before the 30 September 2026 deadline if not already completed.
-
-RELEASE SCOPE DECISION
-----------------------
-- 2.0 is submitted and should remain frozen while under review unless Google identifies a genuine blocker.
-- Do not widen 2.0 into the 2.1 roadmap now.
-- User intends to return to JobSheet for a while after this milestone.
-- On return to JSimpleList, first check Play review/publication status and verify the live 2.0 update if approved; then continue 2.1/maintenance work.
+Developer verification/app-signing-registration status should still be checked/completed before 30 September 2026 if still outstanding.
 
 FUNDING / COST FUTURE-PROOFING
 ------------------------------
@@ -335,6 +459,7 @@ PROJECT WORKING PROTOCOL / DOCUMENTS
 - `docs/chatgpt/JSimpleList_RULES.txt` is the authoritative durable working/source-editing/validation/Git/session protocol.
 - `docs/chatgpt/JSimpleList_CONTEXT.txt` is the concise current architecture/state/continuation reference.
 - ChatGPT should perform project-document maintenance directly when repository/file tooling permits.
+- If direct editing is unavailable, use one deterministic exact replacement method rather than handing piecemeal document maintenance to the user.
 - Remove/rewrite stale current-state and NEXT TASK material instead of accumulating contradictory history.
 - Session closeout follows `JSimpleList_RULES.txt`.
 
@@ -380,17 +505,53 @@ Existing MIT releases retain their granted MIT rights if future versions use dif
 
 NEXT TASK
 ---------
-JSimpleList is deliberately paused while the user returns to JobSheet.
+Begin the next session with the Android `Account profile` UX overhaul.
 
-When returning to JSimpleList:
-1. Read `docs/chatgpt/JSimpleList_RULES.txt` and this file first.
-2. Check Google Play Console review/publication status for Production versionCode 7 / versionName 2.0.
-3. If approved/live, install/update from Production and perform a short smoke test of the public build.
-4. Check/complete Google Play developer verification/app-signing registration before 30 September 2026 if still outstanding.
-5. Begin the 2.1/maintenance pass from the recorded navigation/sharing/duplicate-item/R8 work above rather than rediscovering it from chat history.
+Agreed design direction:
+
+1. Rename the account dialog/surface concept to `Account profile`.
+
+2. Identity alignment is the highest-priority requirement:
+   - avatar and alias must share one exact horizontal centreline
+   - implement them in one dedicated Row with vertical centring
+   - nothing else belongs in that identity Row
+   - alias is plain information text, never a control/button
+   - if only one thing is fixed first, fix this alignment
+
+3. Account email is secondary metadata:
+   - remove `Signed in as`
+   - use a compact muted `Email address` presentation
+   - long addresses should remain compact, preferably one line with ellipsis rather than disruptive wrapping
+
+4. Replace the visually dominant `List sharing is enabled` wording:
+   - preferred direction is a compact cloud-status treatment such as `Cloud connected`
+   - use a small cloud/check-style pictorial status if practical
+   - the account-level status represents online-backed capabilities collectively: shared lists, cross-device access and server-backed online lists
+   - do not call it `Cloud backup`, because local-only lists are not necessarily uploaded
+
+5. `Edit profile` is a control and must be clearly separated from identity information:
+   - do not put it adjacent to avatar/alias
+   - preferred direction is right-aligned and lower in the account information block
+   - maintain a generous visual gap from the avatar/alias centreline
+   - control elements must not visually interfere with information elements
+
+6. Overhaul the Edit profile dialog:
+   - default state should be visually clean rather than dominated by a large text field
+   - show alias as ordinary text
+   - use a subtle edit affordance such as a small pencil icon
+   - tapping alias/edit affordance temporarily enters text-edit mode
+   - avatar icon and colour remain visually prominent
+   - alias + avatar icon + avatar colour save atomically
+   - selected-icon indication should be subtle and should not resize/jump the grid
+
+7. After Account profile UX is settled:
+   - redraw all 16 avatar vectors to match the approved visual proof much more closely
+   - add avatar rendering to sharing/member UI where profile data is already available
+   - inspect incoming-invitation data before assuming inviter avatar fields are available
+   - then align the browser client to the Android 2.1 visual language
 
 Do not reintroduce the removed JSimpleList in-app `Sharing update` notification fallback.
 
 SOURCE-EDITING REMINDER FOR NEXT SESSION
 ----------------------------------------
-Read and follow `docs/chatgpt/JSimpleList_RULES.txt`; it is authoritative.
+Read and follow `docs/chatgpt/JSimpleList_RULES.txt` and this file first; they are authoritative.

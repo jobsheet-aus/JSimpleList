@@ -9,6 +9,8 @@ import kotlinx.serialization.Serializable
 data class SharedListMember(
     val userId: String,
     val displayName: String,
+    val avatarIcon: String,
+    val avatarColour: String,
     val role: String
 )
 
@@ -74,7 +76,7 @@ class SharingRepository(
                     member.removedAt == null
                 }
 
-        val displayNames =
+        val profiles =
             profileRepository.loadProfiles(
                 memberRows
                     .map { it.userId }
@@ -84,11 +86,19 @@ class SharingRepository(
         val members =
             memberRows
                 .map { member ->
+                    val profile = profiles[member.userId]
+
                     SharedListMember(
                         userId = member.userId,
                         displayName =
-                            displayNames[member.userId]
+                            profile?.displayName
                                 ?: "Unknown member",
+                        avatarIcon =
+                            profile?.avatarIcon
+                                ?: "person",
+                        avatarColour =
+                            profile?.avatarColour
+                                ?: "blue",
                         role = member.role
                     )
                 }
