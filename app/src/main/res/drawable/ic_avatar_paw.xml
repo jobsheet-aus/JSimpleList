@@ -8,16 +8,41 @@
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="1.8"
+        android:strokeWidth="1.9"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M12,11.5C15,11.5 17.5,14 17.5,16.5C17.5,18.5 15.8,19.5 14.2,18.6C12.8,17.8 11.2,17.8 9.8,18.6C8.2,19.5 6.5,18.5 6.5,16.5C6.5,14 9,11.5 12,11.5Z" />
+        android:pathData="M12,13.25 C14.75,13.25 17.05,15.45 17.05,18 C17.05,19.8 15.35,20.65 13.7,20 C12.55,19.55 11.45,19.55 10.3,20 C8.65,20.65 6.95,19.8 6.95,18 C6.95,15.45 9.25,13.25 12,13.25 Z" />
+
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="1.8"
+        android:strokeWidth="1.7"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M7.2,8.5C7.2,7.3 6.5,6.3 5.6,6.3C4.7,6.3 4,7.3 4,8.5C4,9.7 4.7,10.7 5.6,10.7C6.5,10.7 7.2,9.7 7.2,8.5ZM11,6.5C11,5.2 10.2,4.2 9.2,4.2C8.2,4.2 7.4,5.2 7.4,6.5C7.4,7.8 8.2,8.8 9.2,8.8C10.2,8.8 11,7.8 11,6.5ZM16.6,6.5C16.6,5.2 15.8,4.2 14.8,4.2C13.8,4.2 13,5.2 13,6.5C13,7.8 13.8,8.8 14.8,8.8C15.8,8.8 16.6,7.8 16.6,6.5ZM20,8.5C20,7.3 19.3,6.3 18.4,6.3C17.5,6.3 16.8,7.3 16.8,8.5C16.8,9.7 17.5,10.7 18.4,10.7C19.3,10.7 20,9.7 20,8.5Z" />
+        android:pathData="M5.9,10.45 C5.9,8.65 6.85,7.45 8.05,7.45 C9.25,7.45 10.05,8.7 9.8,10.2 C9.55,11.65 8.55,12.5 7.45,12.2 C6.5,11.95 5.9,11.3 5.9,10.45 Z" />
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M9.5,6.6 C9.5,4.75 10.5,3.6 11.75,3.6 C13,3.6 13.95,4.75 13.85,6.55 C13.75,8.1 12.9,9.05 11.7,9 C10.45,8.95 9.5,8.05 9.5,6.6 Z" />
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M14.2,6.8 C14.2,5.05 15.15,3.95 16.35,3.95 C17.55,3.95 18.45,5.05 18.35,6.7 C18.25,8.2 17.4,9.1 16.25,9.05 C15.1,9 14.2,8.15 14.2,6.8 Z" />
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M17.9,10.6 C17.9,8.9 18.8,7.8 20,7.8 C21.15,7.8 21.95,9 21.7,10.45 C21.45,11.85 20.5,12.65 19.45,12.35 C18.5,12.1 17.9,11.45 17.9,10.6 Z" />
 
 </vector>

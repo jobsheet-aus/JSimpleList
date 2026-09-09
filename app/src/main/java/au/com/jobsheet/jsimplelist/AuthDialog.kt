@@ -1,7 +1,10 @@
 package au.com.jobsheet.jsimplelist
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
@@ -134,13 +138,13 @@ fun AuthDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("Account")
+            Text("Account profile")
         },
         text = {
             Column {
                 if (authState.isSignedIn) {
                     if (!profileLoaded) {
-                        Text("Loading sharing details")
+                        Text("Loading account profile")
                     } else if (profile == null) {
                         Text("What should we call you?")
 
@@ -196,20 +200,6 @@ fun AuthDialog(
                             Text("Save")
                         }
                     } else {
-                        Text("List sharing is enabled")
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text =
-                                "Signed in as " +
-                                    (authState.email ?: email),
-                            color =
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
                         Row(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -224,68 +214,97 @@ fun AuthDialog(
                                     AvatarCatalog.colourFor(
                                         profile!!.avatarColour
                                     ),
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clickable {
-                                        val currentName =
-                                            profile!!.displayName
-
-                                        displayNameEdit =
-                                            TextFieldValue(
-                                                text = currentName,
-                                                selection =
-                                                    TextRange(
-                                                        0,
-                                                        currentName.length
-                                                    )
-                                            )
-
-                                        selectedAvatarIcon =
-                                            profile!!.avatarIcon
-                                        selectedAvatarColour =
-                                            profile!!.avatarColour
-                                        editingAvatar = true
-                                        message = null
-                                    }
+                                modifier = Modifier.size(48.dp)
                             )
 
                             Spacer(modifier = Modifier.width(12.dp))
 
-                            Column(
+                            Text(
+                                text = profile!!.displayName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
-                            ) {
-                                Text(
-                                    text = profile!!.displayName,
-                                    style =
-                                        MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Medium
-                                )
+                            )
+                        }
 
-                                TextButton(
-                                    onClick = {
-                                        val currentName =
-                                            profile!!.displayName
+                        Spacer(modifier = Modifier.height(18.dp))
 
-                                        displayNameEdit =
-                                            TextFieldValue(
-                                                text = currentName,
-                                                selection =
-                                                    TextRange(
-                                                        0,
-                                                        currentName.length
-                                                    )
-                                            )
+                        Text(
+                            text = "Email address",
+                            style = MaterialTheme.typography.labelMedium,
+                            color =
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
-                                        selectedAvatarIcon =
-                                            profile!!.avatarIcon
-                                        selectedAvatarColour =
-                                            profile!!.avatarColour
-                                        editingAvatar = true
-                                        message = null
-                                    }
-                                ) {
-                                    Text("Edit profile")
+                        Spacer(modifier = Modifier.height(2.dp))
+
+                        Text(
+                            text = authState.email ?: email,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color =
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(
+                                    R.drawable.ic_cloud_connected
+                                ),
+                                contentDescription = null,
+                                tint =
+                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            Text(
+                                text = "Cloud connected",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color =
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    val currentName =
+                                        profile!!.displayName
+
+                                    displayNameEdit =
+                                        TextFieldValue(
+                                            text = currentName,
+                                            selection =
+                                                TextRange(
+                                                    0,
+                                                    currentName.length
+                                                )
+                                        )
+
+                                    selectedAvatarIcon =
+                                        profile!!.avatarIcon
+                                    selectedAvatarColour =
+                                        profile!!.avatarColour
+                                    editingDisplayName = false
+                                    editingAvatar = true
+                                    message = null
                                 }
+                            ) {
+                                Text("Edit profile")
                             }
                         }
                     }
@@ -488,6 +507,7 @@ fun AuthDialog(
         AlertDialog(
             onDismissRequest = {
                 if (!busy) {
+                    editingDisplayName = false
                     editingAvatar = false
                 }
             },
@@ -495,26 +515,59 @@ fun AuthDialog(
                 Text("Edit profile")
             },
             text = {
-                Column {
-                    Text(
-                        text = "Display name",
-                        fontWeight = FontWeight.Medium
+                Column(
+                    modifier = Modifier.verticalScroll(
+                        rememberScrollState()
                     )
+                ) {
+                    if (editingDisplayName) {
+                        OutlinedTextField(
+                            value = displayNameEdit,
+                            onValueChange = { value ->
+                                if (value.text.length <= 50) {
+                                    displayNameEdit = value
+                                    message = null
+                                }
+                            },
+                            singleLine = true,
+                            enabled = !busy,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(
+                                    displayNameFocusRequester
+                                )
+                        )
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .clickable {
+                                    editingDisplayName = true
+                                },
+                            verticalAlignment =
+                                Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = displayNameEdit.text,
+                                style =
+                                    MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.width(16.dp))
 
-                    OutlinedTextField(
-                        value = displayNameEdit,
-                        onValueChange = { value ->
-                            if (value.text.length <= 50) {
-                                displayNameEdit = value
-                                message = null
-                            }
-                        },
-                        singleLine = true,
-                        enabled = !busy,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                            Icon(
+                                painter = painterResource(
+                                    R.drawable.ic_edit_pencil
+                                ),
+                                contentDescription = "Edit display name",
+                                tint =
+                                    MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(18.dp))
 
@@ -545,11 +598,29 @@ fun AuthDialog(
                                     Arrangement.SpaceEvenly
                             ) {
                                 iconRow.forEach { option ->
+                                    val selected =
+                                        option.id ==
+                                            selectedAvatarIcon
+
                                     Box(
                                         contentAlignment =
                                             Alignment.Center,
                                         modifier = Modifier
                                             .size(50.dp)
+                                            .border(
+                                                width = 1.5.dp,
+                                                color =
+                                                    if (selected) {
+                                                        MaterialTheme
+                                                            .colorScheme
+                                                            .primary
+                                                    } else {
+                                                        Color.Transparent
+                                                    },
+                                                shape =
+                                                    MaterialTheme
+                                                        .shapes.small
+                                            )
                                             .clickable {
                                                 selectedAvatarIcon =
                                                     option.id
@@ -566,16 +637,7 @@ fun AuthDialog(
                                                     selectedAvatarColour
                                                 ),
                                             modifier =
-                                                Modifier.size(
-                                                    if (
-                                                        option.id ==
-                                                        selectedAvatarIcon
-                                                    ) {
-                                                        38.dp
-                                                    } else {
-                                                        32.dp
-                                                    }
-                                                )
+                                                Modifier.size(32.dp)
                                         )
                                     }
                                 }
@@ -597,11 +659,27 @@ fun AuthDialog(
                                     Arrangement.SpaceEvenly
                             ) {
                                 colourRow.forEach { option ->
+                                    val selected =
+                                        option.id ==
+                                            selectedAvatarColour
+
                                     Box(
                                         contentAlignment =
                                             Alignment.Center,
                                         modifier = Modifier
                                             .size(38.dp)
+                                            .border(
+                                                width = 2.dp,
+                                                color =
+                                                    if (selected) {
+                                                        MaterialTheme
+                                                            .colorScheme
+                                                            .primary
+                                                    } else {
+                                                        Color.Transparent
+                                                    },
+                                                shape = CircleShape
+                                            )
                                             .clickable {
                                                 selectedAvatarColour =
                                                     option.id
@@ -609,16 +687,7 @@ fun AuthDialog(
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .size(
-                                                    if (
-                                                        option.id ==
-                                                        selectedAvatarColour
-                                                    ) {
-                                                        34.dp
-                                                    } else {
-                                                        28.dp
-                                                    }
-                                                )
+                                                .size(28.dp)
                                                 .clip(CircleShape)
                                                 .background(option.colour)
                                         )
@@ -630,6 +699,11 @@ fun AuthDialog(
                                 modifier = Modifier.height(6.dp)
                             )
                         }
+
+                    message?.let {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(it)
+                    }
                 }
             },
             confirmButton = {
@@ -654,15 +728,18 @@ fun AuthDialog(
                                     profile?.displayName
                                         ?: displayName
 
+                                editingDisplayName = false
                                 editingAvatar = false
                             } catch (error: Exception) {
-                                message = "Could not save avatar"
+                                message = "Could not save profile"
                             } finally {
                                 busy = false
                             }
                         }
                     },
-                    enabled = !busy
+                    enabled =
+                        !busy &&
+                            displayNameEdit.text.trim().isNotEmpty()
                 ) {
                     Text("Save")
                 }
@@ -670,6 +747,7 @@ fun AuthDialog(
             dismissButton = {
                 TextButton(
                     onClick = {
+                        editingDisplayName = false
                         editingAvatar = false
                     },
                     enabled = !busy

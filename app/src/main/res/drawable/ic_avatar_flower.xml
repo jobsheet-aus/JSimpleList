@@ -8,16 +8,17 @@
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="1.8"
+        android:strokeWidth="1.9"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M12,9C12,6.2 10.7,4.5 9,4.5C7.3,4.5 6.5,6.4 7.4,8.1C5.4,7.4 3.8,8.5 3.8,10.2C3.8,11.9 5.6,12.8 7.4,12C6.5,13.9 7.4,15.5 9,15.5C10.7,15.5 12,13.8 12,11C12,13.8 13.3,15.5 15,15.5C16.6,15.5 17.5,13.9 16.6,12C18.4,12.8 20.2,11.9 20.2,10.2C20.2,8.5 18.6,7.4 16.6,8.1C17.5,6.4 16.7,4.5 15,4.5C13.3,4.5 12,6.2 12,9Z" />
+        android:pathData="M12,3.35 C14.35,3.35 15.25,5.15 14.9,7.1 C16.2,5.55 18.45,5.45 19.7,7 C21.15,8.8 20.15,10.8 18.35,11.65 C20.3,12.15 21.15,14.2 20.05,16 C18.95,17.8 16.75,17.95 15.25,16.65 C15.4,18.65 14,20.4 12,20.4 C10,20.4 8.6,18.65 8.75,16.65 C7.25,17.95 5.05,17.8 3.95,16 C2.85,14.2 3.7,12.15 5.65,11.65 C3.85,10.8 2.85,8.8 4.3,7 C5.55,5.45 7.8,5.55 9.1,7.1 C8.75,5.15 9.65,3.35 12,3.35 Z" />
+
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="#FFFFFFFF"
         android:strokeWidth="1.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M12,15V20" />
+        android:pathData="M12,8.9 C13.75,8.9 15.1,10.25 15.1,12 C15.1,13.75 13.75,15.1 12,15.1 C10.25,15.1 8.9,13.75 8.9,12 C8.9,10.25 10.25,8.9 12,8.9 Z" />
 
 </vector>

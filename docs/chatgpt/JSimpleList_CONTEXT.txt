@@ -185,7 +185,7 @@ Avatar architecture is code-defined and storage-light:
 - users assign only their own visual identity
 - reusable Friends/People sharing contacts are a separate future feature, not part of avatar identity
 
-Current icon catalogue IDs:
+Current final icon catalogue IDs:
 - person
 - flower
 - cat
@@ -201,6 +201,13 @@ Current icon catalogue IDs:
 - home
 - heart
 - star
+- wrench
+- camera
+- fish
+- football
+- smiley
+
+Removed from the catalogue:
 - starfish
 
 Current colour catalogue IDs:
@@ -240,13 +247,33 @@ Current Android resources:
 - `ic_avatar_home.xml`
 - `ic_avatar_heart.xml`
 - `ic_avatar_star.xml`
-- `ic_avatar_starfish.xml`
+- `ic_avatar_wrench.xml`
+- `ic_avatar_camera.xml`
+- `ic_avatar_fish.xml`
+- `ic_avatar_football.xml`
+- `ic_avatar_smiley.xml`
 
-Important visual status:
-- the current Android avatar vectors are first-pass approximations
-- they do NOT yet match the approved proof image closely enough
-- do not iterate them blindly from code
-- next redraw pass should visually proof the icons first, then implement vectors to match the approved proof
+Account profile UX completed and visually checked on a real phone:
+- account surface title is `Account profile`
+- identity row contains only the avatar and alias on one exact horizontal centreline
+- email is secondary metadata under a muted `Email address` label
+- account online status is compact `Cloud connected` with a small cloud/check icon
+- `Edit profile` is visually separated and right-aligned below the identity information
+- edit-profile default state shows the alias as ordinary text with a small pencil immediately after it
+- tapping the alias/pencil enters text-edit mode
+- avatar preview remains prominent
+- avatar grid and colour grid use fixed-size cells so selection does not resize or jump
+- edit-profile content is vertically scrollable
+- alias + avatar icon + avatar colour are saved together
+
+Important avatar visual status:
+- the 20-ID catalogue is settled
+- the current Android vector XML files are functional placeholders only
+- most current vectors do NOT match the approved PNG proof closely enough
+- do not refine them by guessing from the existing XML
+- the approved PNG proof is the visual source of truth for the redraw
+- next work must manually trace/redraw the approved designs into Android vectors in small visually checked batches
+- test the redraws at the actual app sizes used by the profile UI, not only enlarged previews
 - avatar itself is coloured line art with no coloured circular background
 - rich grey replaced the earlier second green/teal choice
 
@@ -259,22 +286,31 @@ The current directory contains the earlier ordered migration series plus later C
 Avatar migrations:
 - `20260909000100_add_profile_avatars.sql`
 - `20260909000200_replace_avatar_teal_with_grey.sql`
+- `20260909223000_update_avatar_icon_catalog.sql`
 
 `20260909000100_add_profile_avatars.sql`:
 - adds `avatar_icon` and `avatar_colour`
 - defaults to `person` / `blue`
-- constrains icon IDs to the 16-entry catalogue
+- initially constrained icon IDs to the earlier 16-entry catalogue
 - initially constrained colours to blue/purple/pink/orange/green/teal/red/brown
 - was explicitly pushed successfully during the 9 Sep session
 
 `20260909000200_replace_avatar_teal_with_grey.sql`:
 - converts any existing `teal` profile value to `grey`
 - replaces the colour constraint with blue/purple/pink/orange/green/grey/red/brown
-- exists locally
-- a `db push` command was run during the session but returned no visible terminal output
-- subsequent `migration list` and `db push --dry-run` also returned no visible terminal output
-- therefore hosted application of this second migration was not independently reconfirmed at closeout
-- verify hosted migration/database state before relying on `grey` in a production release
+- pushed successfully to the hosted Supabase database on 9 Sep 2026
+- subsequent `migration list` independently confirmed local and remote migration IDs match
+
+`20260909223000_update_avatar_icon_catalog.sql`:
+- replaces the profile avatar-icon constraint with the settled 20-ID catalogue
+- removes `starfish`
+- adds `wrench`, `camera`, `fish`, `football` and `smiley`
+- pushed successfully to the hosted Supabase database on 9 Sep 2026
+- subsequent `migration list` independently confirmed local and remote migration IDs match
+
+Supabase CLI note:
+- the generated Windows shim `node_modules\.bin\supabase.cmd` was found to be zero bytes and silently returned success
+- during this session the working invocation was `node D:\SimpleList\node_modules\supabase\dist\supabase.js ...`
 
 ONLINE ACCOUNT / OWNERSHIP
 --------------------------
@@ -505,50 +541,25 @@ Existing MIT releases retain their granted MIT rights if future versions use dif
 
 NEXT TASK
 ---------
-Begin the next session with the Android `Account profile` UX overhaul.
+Begin the next session as a dedicated Android avatar tracing/redraw session.
 
-Agreed design direction:
+The Account profile and Edit profile UX work described above is complete.
 
-1. Rename the account dialog/surface concept to `Account profile`.
+Immediate avatar workflow:
+1. Treat the approved 20-avatar PNG proof in `docs/chatgpt` as the visual source of truth.
+2. Do not use the current XML vectors as the design reference; they are placeholders.
+3. Trace/redraw the proof manually into Android VectorDrawable XML in small batches.
+4. Compare each batch visually against the proof before moving on.
+5. Test at the actual app sizes used by the profile UI, especially the 32dp grid rendering and 64dp profile preview.
+6. Preserve the settled catalogue IDs exactly:
+   `person`, `flower`, `cat`, `horse`, `lightning`, `coffee`, `helmet`, `paw`, `book`, `alien`, `f1car`, `music`, `home`, `heart`, `star`, `wrench`, `camera`, `fish`, `football`, `smiley`.
+7. Keep the flat-top lightning direction, recognisable front-on racing car, racing helmet, and cleaner fish silhouette from the approved proof.
+8. Do not re-add `starfish`, `tree`, `sun` or `bicycle`.
 
-2. Identity alignment is the highest-priority requirement:
-   - avatar and alias must share one exact horizontal centreline
-   - implement them in one dedicated Row with vertical centring
-   - nothing else belongs in that identity Row
-   - alias is plain information text, never a control/button
-   - if only one thing is fixed first, fix this alignment
-
-3. Account email is secondary metadata:
-   - remove `Signed in as`
-   - use a compact muted `Email address` presentation
-   - long addresses should remain compact, preferably one line with ellipsis rather than disruptive wrapping
-
-4. Replace the visually dominant `List sharing is enabled` wording:
-   - preferred direction is a compact cloud-status treatment such as `Cloud connected`
-   - use a small cloud/check-style pictorial status if practical
-   - the account-level status represents online-backed capabilities collectively: shared lists, cross-device access and server-backed online lists
-   - do not call it `Cloud backup`, because local-only lists are not necessarily uploaded
-
-5. `Edit profile` is a control and must be clearly separated from identity information:
-   - do not put it adjacent to avatar/alias
-   - preferred direction is right-aligned and lower in the account information block
-   - maintain a generous visual gap from the avatar/alias centreline
-   - control elements must not visually interfere with information elements
-
-6. Overhaul the Edit profile dialog:
-   - default state should be visually clean rather than dominated by a large text field
-   - show alias as ordinary text
-   - use a subtle edit affordance such as a small pencil icon
-   - tapping alias/edit affordance temporarily enters text-edit mode
-   - avatar icon and colour remain visually prominent
-   - alias + avatar icon + avatar colour save atomically
-   - selected-icon indication should be subtle and should not resize/jump the grid
-
-7. After Account profile UX is settled:
-   - redraw all 16 avatar vectors to match the approved visual proof much more closely
-   - add avatar rendering to sharing/member UI where profile data is already available
-   - inspect incoming-invitation data before assuming inviter avatar fields are available
-   - then align the browser client to the Android 2.1 visual language
+After the avatar vectors accurately match the approved proof:
+- add avatar rendering to sharing/member UI where profile data is already available
+- inspect incoming-invitation data before assuming inviter avatar fields are available
+- then align the browser client to the Android 2.1 visual language
 
 Do not reintroduce the removed JSimpleList in-app `Sharing update` notification fallback.
 

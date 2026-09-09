@@ -31,7 +31,11 @@ object AvatarCatalog {
         AvatarIconOption("home", "Home", R.drawable.ic_avatar_home),
         AvatarIconOption("heart", "Heart", R.drawable.ic_avatar_heart),
         AvatarIconOption("star", "Star", R.drawable.ic_avatar_star),
-        AvatarIconOption("starfish", "Starfish", R.drawable.ic_avatar_starfish)
+        AvatarIconOption("wrench", "Wrench", R.drawable.ic_avatar_wrench),
+        AvatarIconOption("camera", "Camera", R.drawable.ic_avatar_camera),
+        AvatarIconOption("fish", "Fish", R.drawable.ic_avatar_fish),
+        AvatarIconOption("football", "Football", R.drawable.ic_avatar_football),
+        AvatarIconOption("smiley", "Smiley", R.drawable.ic_avatar_smiley)
     )
 
     val colours = listOf(
