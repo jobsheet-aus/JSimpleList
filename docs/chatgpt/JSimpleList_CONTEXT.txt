@@ -268,13 +268,14 @@ Account profile UX completed and visually checked on a real phone:
 
 Important avatar visual status:
 - the 20-ID catalogue is settled
-- the current Android vector XML files are functional placeholders only
-- most current vectors do NOT match the approved PNG proof closely enough
-- do not refine them by guessing from the existing XML
-- the approved PNG proof is the visual source of truth for the redraw
-- next work must manually trace/redraw the approved designs into Android vectors in small visually checked batches
-- test the redraws at the actual app sizes used by the profile UI, not only enlarged previews
-- avatar itself is coloured line art with no coloured circular background
+- all 20 Android avatar vectors have been redrawn from the approved PNG proof and replaced the earlier placeholder XML resources
+- the approved PNG designs were recreated as transparent raster masters, then converted to alpha-derived black/white masks and traced with VTracer
+- reviewed SVG masters live under `artwork/avatars/svg`
+- SVGs are normalised with an explicit source-coordinate `viewBox` before conversion to Android VectorDrawable XML
+- generated Android vectors use black fill geometry; Compose `Icon` tint applies the selected avatar colour at runtime
+- the reusable conversion helper is `tools/avatar_trace_pipeline.py`
+- real-device validation passed for the complete catalogue in the 32dp avatar grid and 64dp profile preview, with the profile identity row also rendering correctly
+- avatar itself remains coloured line art with no coloured circular background
 - rich grey replaced the earlier second green/teal choice
 
 PROFILE MIGRATIONS
@@ -541,25 +542,15 @@ Existing MIT releases retain their granted MIT rights if future versions use dif
 
 NEXT TASK
 ---------
-Begin the next session as a dedicated Android avatar tracing/redraw session.
+The Account profile, Edit profile and 20-avatar vector redraw work are complete and real-device validated.
 
-The Account profile and Edit profile UX work described above is complete.
-
-Immediate avatar workflow:
-1. Treat the approved 20-avatar PNG proof in `docs/chatgpt` as the visual source of truth.
-2. Do not use the current XML vectors as the design reference; they are placeholders.
-3. Trace/redraw the proof manually into Android VectorDrawable XML in small batches.
-4. Compare each batch visually against the proof before moving on.
-5. Test at the actual app sizes used by the profile UI, especially the 32dp grid rendering and 64dp profile preview.
-6. Preserve the settled catalogue IDs exactly:
-   `person`, `flower`, `cat`, `horse`, `lightning`, `coffee`, `helmet`, `paw`, `book`, `alien`, `f1car`, `music`, `home`, `heart`, `star`, `wrench`, `camera`, `fish`, `football`, `smiley`.
-7. Keep the flat-top lightning direction, recognisable front-on racing car, racing helmet, and cleaner fish silhouette from the approved proof.
-8. Do not re-add `starfish`, `tree`, `sun` or `bicycle`.
-
-After the avatar vectors accurately match the approved proof:
-- add avatar rendering to sharing/member UI where profile data is already available
-- inspect incoming-invitation data before assuming inviter avatar fields are available
-- then align the browser client to the Android 2.1 visual language
+Immediate continuation:
+1. Add avatar rendering to sharing/member UI where profile avatar icon/colour data is already available.
+2. Inspect incoming-invitation data before assuming inviter avatar fields are available.
+3. Preserve the settled 20 avatar IDs and eight colour IDs exactly.
+4. Keep the reviewed SVG masters under `artwork/avatars/svg` as the vector artwork source.
+5. Use `tools/avatar_trace_pipeline.py` when regenerating Android avatar vectors from approved raster masters.
+6. Then align the browser client to the settled Android 2.1 visual language.
 
 Do not reintroduce the removed JSimpleList in-app `Sharing update` notification fallback.
 

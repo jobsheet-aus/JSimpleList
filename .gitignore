@@ -39,3 +39,4 @@ secrets/
 __pycache__/
 *.pyc
 /releases/
+echo # Generated avatar pipeline artefactsecho /artwork/avatars/android/echo /artwork/avatars/mask/echo /artwork/avatars/svg_normalized/echo /artwork/avatars/svg/index.htmlecho /tools/vtracer/
