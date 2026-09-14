@@ -428,9 +428,23 @@ Browser follow-up:
 ---------------------------------
 Current 2.1 direction is primarily visual/UX improvement, with functionality added alongside it where appropriate.
 
-Still planned:
-- Allow list renaming by tapping the visible list title.
+Completed 14 Sep 2026:
+- Unified open-list renaming for local and shared lists.
+- Every editable list title now uses the same title + pencil interaction.
+- Rename mode uses a wide inline field with explicit Cancel and Save actions; keyboard Done also saves.
+- Android Back cancels an active rename before navigating away, and opening another list clears abandoned rename state.
+- Shared-list information is separated from rename: the chain icon now sits on the left of the summary line and opens the information-only Shared list dialog.
+- The permanent `Share list` text button was replaced by a compact three-dot overflow action.
+- Shared-list members as well as owners can rename shared lists through the authoritative `rename_online_list` RPC.
+- Migration `20260914163500_allow_shared_member_rename.sql` was applied remotely.
+- My lists navigation now selects the target pager page synchronously before closing the selector, fixing the wrong-list-open behaviour observed during testing.
+- Release R8/resource shrinking was enabled with `isMinifyEnabled = true`, `isShrinkResources = true` and the standard optimised Android ProGuard configuration.
+- A minified release AAB/APK built successfully and passed a real-device smoke test before the later 2.1 rename/header changes; final release validation is still required before Play upload.
+
+NEXT TASK:
 - Detect equivalent existing items when adding and deliberately handle accidental duplicates while preserving legitimate duplicate use cases.
+
+Still planned:
 - Add finger drag-and-drop item reordering while preserving sensible incomplete/completed grouping.
 - Add `Delete all items` with confirmation, distinct from `Uncheck all`.
 - Detect `http://` and `https://` links in item descriptions and make URL portions tappable without previews initially.
@@ -442,10 +456,9 @@ Still planned:
 - Broader sharing/member controls, leave/remove semantics, authoritative foreground reconciliation and durable failed-write retry remain later sync work.
 
 Release optimisation / Google Play maintenance:
-- Google Play has warned about low optimisation/obfuscation and recommends R8/ProGuard, deobfuscation mapping and native debug symbols.
-- Do not enable shrinking casually on a previously tested release build.
-- In 2.1/maintenance, inspect release configuration, enable `isMinifyEnabled = true` and `isShrinkResources = true` with only necessary keep rules, build a release AAB, and real-device test auth, Room, Supabase sync/sharing, notifications, account deletion and linked flows.
-- Upload mapping/deobfuscation and native debug symbols where Play expects them.
+- R8/resource shrinking is now enabled for release builds.
+- Before the 2.1 Play upload, build the final release AAB and repeat critical real-device checks for auth, Room, Supabase sync/sharing, notifications, account deletion and linked flows.
+- Retain and upload the release mapping/deobfuscation output and native debug symbols where Play expects them.
 - Re-check Play Console optimisation status after the tested optimised release.
 
 PUBLIC WEBSITE / LEGAL / PLAY STORE

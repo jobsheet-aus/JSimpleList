@@ -109,7 +109,6 @@ import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -883,6 +882,15 @@ private fun SimpleListApp(
     var renameListName by remember {
         mutableStateOf(TextFieldValue(""))
     }
+    var editingOpenListNameId by remember {
+        mutableStateOf<String?>(null)
+    }
+    var openListNameEdit by remember {
+        mutableStateOf(TextFieldValue(""))
+    }
+    val openListNameFocusRequester = remember {
+        FocusRequester()
+    }
     var deleteListId by remember { mutableStateOf<String?>(null) }
     var makingOnlineListId by remember { mutableStateOf<String?>(null) }
     var sharingListId by remember { mutableStateOf<String?>(null) }
@@ -902,6 +910,68 @@ private fun SimpleListApp(
     var sendingInvitation by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
     val snackbarHostState = remember { SnackbarHostState() }
+
+    suspend fun renameList(
+        list: ListEntity,
+        requestedName: String
+    ): Boolean {
+        val name = requestedName.trim()
+
+        if (
+            name.isEmpty() ||
+            name.length > 100
+        ) {
+            return false
+        }
+
+        if (name == list.name) {
+            return true
+        }
+
+        return try {
+            val updatedAt =
+                if (list.onlineState != "LOCAL") {
+                    listSyncRepository.renameOnlineList(
+                        listId = list.id,
+                        name = name,
+                        originClientId = clientInstanceId
+                    )
+                } else {
+                    System.currentTimeMillis()
+                }
+
+            val updatedList =
+                list.copy(
+                    name = name,
+                    updatedAt = updatedAt
+                )
+
+            dao.updateList(updatedList)
+
+            val index =
+                lists.indexOfFirst {
+                    it.id == list.id
+                }
+
+            if (index >= 0) {
+                lists[index] = updatedList
+            }
+
+            true
+        } catch (exception: Exception) {
+            Log.e(
+                "JSimpleListSync",
+                "Could not rename list id=${list.id}",
+                exception
+            )
+
+            snackbarHostState.showSnackbar(
+                message = "Could not rename list"
+            )
+
+            false
+        }
+    }
 
     fun openSharedListInfo(listId: String) {
         sharedListInfoListId = listId
@@ -1044,7 +1114,11 @@ private fun SimpleListApp(
     }
 
     BackHandler(enabled = !showListSelector) {
-        showListSelector = true
+        if (editingOpenListNameId != null) {
+            editingOpenListNameId = null
+        } else {
+            showListSelector = true
+        }
     }
 
     LaunchedEffect(fontScale) {
@@ -2519,6 +2593,12 @@ private fun SimpleListApp(
             }
         }
 
+        LaunchedEffect(editingOpenListNameId) {
+            if (editingOpenListNameId != null) {
+                openListNameFocusRequester.requestFocus()
+            }
+        }
+
         if (renameList != null) {
             AlertDialog(
                 onDismissRequest = {
@@ -2544,24 +2624,17 @@ private fun SimpleListApp(
                     TextButton(
                         enabled = renameListName.text.trim().isNotEmpty(),
                         onClick = {
-                            val name = renameListName.text.trim()
-                            val index =
-                                lists.indexOfFirst {
-                                    it.id == renameList.id
-                                }
-
-                            if (index >= 0) {
-                                val updatedList =
-                                    renameList.copy(name = name)
-
-                                lists[index] = updatedList
-
-                                coroutineScope.launch {
-                                    dao.updateList(updatedList)
+                            coroutineScope.launch {
+                                if (
+                                    renameList(
+                                        list = renameList,
+                                        requestedName =
+                                            renameListName.text
+                                    )
+                                ) {
+                                    renameListId = null
                                 }
                             }
-
-                            renameListId = null
                         }
                     ) {
                         Text("Rename")
@@ -2881,67 +2954,230 @@ private fun SimpleListApp(
                     Spacer(modifier = Modifier.width(10.dp))
 
                     Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .then(
-                                if (currentList.onlineState != "LOCAL") {
-                                    Modifier.clickable {
-                                        openSharedListInfo(currentList.id)
-                                    }
-                                } else {
-                                    Modifier
-                                }
-                            )
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
+                        if (
+                            editingOpenListNameId == currentList.id
                         ) {
-                            Text(
-                                text = currentList.name,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.SemiBold
+                            OutlinedTextField(
+                                value = openListNameEdit,
+                                onValueChange = {
+                                    openListNameEdit = it
+                                },
+                                singleLine = true,
+                                keyboardOptions =
+                                    KeyboardOptions(
+                                        imeAction = ImeAction.Done
+                                    ),
+                                keyboardActions =
+                                    KeyboardActions(
+                                        onDone = {
+                                            coroutineScope.launch {
+                                                if (
+                                                    renameList(
+                                                        list = currentList,
+                                                        requestedName =
+                                                            openListNameEdit.text
+                                                    )
+                                                ) {
+                                                    editingOpenListNameId =
+                                                        null
+                                                }
+                                            }
+                                        }
+                                    ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(
+                                        openListNameFocusRequester
+                                    )
                             )
 
-                            if (currentList.onlineState != "LOCAL") {
-                                Spacer(modifier = Modifier.width(5.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment =
+                                    Alignment.CenterVertically
+                            ) {
+                                TextButton(
+                                    onClick = {
+                                        editingOpenListNameId = null
+                                        openListNameEdit =
+                                            TextFieldValue(
+                                                text = currentList.name,
+                                                selection =
+                                                    TextRange(
+                                                        0,
+                                                        currentList.name.length
+                                                    )
+                                            )
+                                    }
+                                ) {
+                                    Text("Cancel")
+                                }
+
+                                TextButton(
+                                    enabled =
+                                        openListNameEdit.text
+                                            .trim()
+                                            .isNotEmpty(),
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            if (
+                                                renameList(
+                                                    list = currentList,
+                                                    requestedName =
+                                                        openListNameEdit.text
+                                                )
+                                            ) {
+                                                editingOpenListNameId =
+                                                    null
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Text("Save")
+                                }
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        openListNameEdit =
+                                            TextFieldValue(
+                                                text = currentList.name,
+                                                selection =
+                                                    TextRange(
+                                                        0,
+                                                        currentList.name.length
+                                                    )
+                                            )
+
+                                        editingOpenListNameId =
+                                            currentList.id
+                                    },
+                                verticalAlignment =
+                                    Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = currentList.name,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow =
+                                        androidx.compose.ui.text.style
+                                            .TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(
+                                        1f,
+                                        fill = false
+                                    )
+                                )
+
+                                Spacer(
+                                    modifier = Modifier.width(16.dp)
+                                )
 
                                 Icon(
                                     painter = painterResource(
-                                        R.drawable.ic_online_list
+                                        R.drawable.ic_edit_pencil
                                     ),
-                                    contentDescription = "Online list",
+                                    contentDescription =
+                                        "Edit list name",
                                     tint =
-                                        MaterialTheme.colorScheme.onSurfaceVariant,
+                                        MaterialTheme.colorScheme.primary,
                                     modifier = Modifier
-                                        .width(15.dp)
-                                        .height(15.dp)
+                                        .width(20.dp)
+                                        .height(20.dp)
+                                )
+                            }
+
+                            Row(
+                                verticalAlignment =
+                                    Alignment.CenterVertically
+                            ) {
+                                if (
+                                    currentList.onlineState != "LOCAL"
+                                ) {
+                                    Icon(
+                                        painter = painterResource(
+                                            R.drawable.ic_online_list
+                                        ),
+                                        contentDescription =
+                                            "Shared list information",
+                                        tint =
+                                            MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier
+                                            .width(18.dp)
+                                            .height(18.dp)
+                                            .clickable {
+                                                openSharedListInfo(
+                                                    currentList.id
+                                                )
+                                            }
+                                    )
+
+                                    Spacer(
+                                        modifier = Modifier.width(6.dp)
+                                    )
+                                }
+
+                                Text(
+                                    text =
+                                        "${listKindLabel(currentKind)} · " +
+                                            "$currentItemCount " +
+                                            if (currentItemCount == 1) {
+                                                "item"
+                                            } else {
+                                                "items"
+                                            },
+                                    fontSize = 12.sp,
+                                    color =
+                                        MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
-
-                        Text(
-                            text =
-                                "${listKindLabel(currentKind)} · " +
-                                    "$currentItemCount " +
-                                    if (currentItemCount == 1) {
-                                        "item"
-                                    } else {
-                                        "items"
-                                    },
-                            fontSize = 12.sp,
-                            color =
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
                 }
 
-                if (!showListSelector) {
-                    TextButton(
-                        onClick = {
-                            sharingListId = currentList.id
+                if (
+                    !showListSelector &&
+                    editingOpenListNameId == null
+                ) {
+                    Box {
+                        androidx.compose.material3.IconButton(
+                            onClick = {
+                                openListMenuId = currentList.id
+                            }
+                        ) {
+                            Text(
+                                text = "⋮",
+                                fontSize = 24.sp
+                            )
                         }
-                    ) {
-                        Text("Share list")
+
+                        DropdownMenu(
+                            expanded =
+                                openListMenuId == currentList.id,
+                            onDismissRequest = {
+                                openListMenuId = null
+                            },
+                            modifier = Modifier.width(160.dp)
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "Share list",
+                                        fontSize = 16.sp
+                                    )
+                                },
+                                onClick = {
+                                    openListMenuId = null
+                                    sharingListId = currentList.id
+                                },
+                                modifier = Modifier.height(52.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -3053,11 +3289,9 @@ private fun SimpleListApp(
                                     .width(28.dp)
                                     .height(28.dp)
                                     .clickable {
+                                        editingOpenListNameId = null
+                                        pagerState.requestScrollToPage(index)
                                         showListSelector = false
-
-                                        coroutineScope.launch {
-                                            pagerState.animateScrollToPage(index)
-                                        }
                                     }
                             )
 
@@ -3067,11 +3301,9 @@ private fun SimpleListApp(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clickable {
+                                        editingOpenListNameId = null
+                                        pagerState.requestScrollToPage(index)
                                         showListSelector = false
-
-                                        coroutineScope.launch {
-                                            pagerState.animateScrollToPage(index)
-                                        }
                                     }
                                     .padding(vertical = 6.dp)
                             ) {

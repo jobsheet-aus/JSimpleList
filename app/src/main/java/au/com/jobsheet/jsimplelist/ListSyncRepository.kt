@@ -226,6 +226,31 @@ class ListSyncRepository(
         )
     }
 
+    suspend fun renameOnlineList(
+        listId: String,
+        name: String,
+        originClientId: String
+    ): Long {
+        requireSignedIn()
+
+        val updatedAt =
+            client.postgrest
+                .rpc(
+                    function = "rename_online_list",
+                    parameters = buildJsonObject {
+                        put("target_list_id", listId)
+                        put("target_name", name.trim())
+                        put(
+                            "target_origin_client_id",
+                            originClientId
+                        )
+                    }
+                )
+                .decodeAs<String>()
+
+        return Instant.parse(updatedAt).toEpochMilli()
+    }
+
     suspend fun deleteOnlineList(
         listId: String,
         originClientId: String
