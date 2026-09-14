@@ -109,7 +109,14 @@ fun AuthDialog(
         }
     }
 
-    LaunchedEffect(authState.userId) {
+    LaunchedEffect(
+        authState.initialized,
+        authState.userId
+    ) {
+        if (!authState.initialized) {
+            return@LaunchedEffect
+        }
+
         if (!authState.isSignedIn) {
             profile = null
             profileLoaded = false
@@ -142,7 +149,9 @@ fun AuthDialog(
         },
         text = {
             Column {
-                if (authState.isSignedIn) {
+                if (!authState.initialized) {
+                    Text("Loading account")
+                } else if (authState.isSignedIn) {
                     if (!profileLoaded) {
                         Text("Loading account profile")
                     } else if (profile == null) {
@@ -203,18 +212,11 @@ fun AuthDialog(
                         Row(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                painter = painterResource(
-                                    AvatarCatalog.drawableFor(
-                                        profile!!.avatarIcon
-                                    )
-                                ),
-                                contentDescription = "Profile avatar",
-                                tint =
-                                    AvatarCatalog.colourFor(
-                                        profile!!.avatarColour
-                                    ),
-                                modifier = Modifier.size(48.dp)
+                            ProfileAvatar(
+                                avatarIcon = profile!!.avatarIcon,
+                                avatarColour = profile!!.avatarColour,
+                                size = 48.dp,
+                                contentDescription = "Profile avatar"
                             )
 
                             Spacer(modifier = Modifier.width(12.dp))
@@ -571,20 +573,15 @@ fun AuthDialog(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    Icon(
-                        painter = painterResource(
-                            AvatarCatalog.drawableFor(
-                                selectedAvatarIcon
-                            )
-                        ),
+                    ProfileAvatar(
+                        avatarIcon = selectedAvatarIcon,
+                        avatarColour = selectedAvatarColour,
+                        size = 64.dp,
                         contentDescription = "Avatar preview",
-                        tint =
-                            AvatarCatalog.colourFor(
-                                selectedAvatarColour
-                            ),
-                        modifier = Modifier
-                            .size(64.dp)
-                            .align(Alignment.CenterHorizontally)
+                        modifier =
+                            Modifier.align(
+                                Alignment.CenterHorizontally
+                            )
                     )
 
                     Spacer(modifier = Modifier.height(18.dp))

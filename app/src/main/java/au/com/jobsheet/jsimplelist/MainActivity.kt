@@ -438,72 +438,29 @@ private fun SimpleListApp(
 
         store.saveActivePushUserId(accountId)
 
-        if (accountId != null) {
-            offerNotificationPermission()
-            try {
-                pushDeviceRepository.requestFirebaseRegistration()
-
-                pushDeviceRepository.registerStoredDevice(
-                    store = store,
-                    clientInstanceId = clientInstanceId
-                )
-            } catch (exception: Exception) {
-                Log.w(
-                    "JSimpleListPush",
-                    "Push-device registration failed at startup",
-                    exception
-                )
-            }
-
-            try {
-                profileRepository.loadOrCreateMyProfile()
-            } catch (exception: Exception) {
-                Log.e(
-                    "JSimpleListProfile",
-                    "Automatic profile creation failed",
-                    exception
-                )
-            }
-
-            try {
-                listSyncRepository.discoverOnlineLists(
-                    dao = dao
-                )
-            } catch (exception: Exception) {
-                Log.e(
-                    "JSimpleListSync",
-                    "Online list discovery failed at startup",
-                    exception
-                )
-            }
-
-            try {
-                pendingInvitations.clear()
-                pendingInvitations.addAll(
-                    invitationRepository.loadPendingInvitations()
-                )
-            } catch (exception: Exception) {
-                Log.e(
-                    "JSimpleListInvitation",
-                    "Invitation discovery failed at startup",
-                    exception
-                )
-            }
-
-        }
-
         val loadedLists =
             dao.loadVisibleLists(accountId)
 
-        lists.clear()
-        itemsByList.clear()
+        val loadedItems =
+            loadedLists.associate { loadedList ->
+                loadedList.id to dao.loadItems(loadedList.id)
+            }
 
-        loadedLists.forEach { list ->
-            lists.add(list)
-            itemsByList[list.id] =
-                mutableStateListOf<ItemEntity>().apply {
-                    addAll(dao.loadItems(list.id))
-                }
+        Snapshot.withMutableSnapshot {
+            lists.clear()
+            lists.addAll(loadedLists)
+
+            itemsByList.clear()
+
+            loadedLists.forEach { loadedList ->
+                itemsByList[loadedList.id] =
+                    mutableStateListOf<ItemEntity>().apply {
+                        addAll(
+                            loadedItems[loadedList.id]
+                                ?: emptyList()
+                        )
+                    }
+            }
         }
 
         if (lists.isNotEmpty()) {
@@ -521,6 +478,118 @@ private fun SimpleListApp(
         }
 
         activeListRestored = true
+
+        if (accountId == null) {
+            return@LaunchedEffect
+        }
+
+        offerNotificationPermission()
+
+        launch {
+            try {
+                pushDeviceRepository.requestFirebaseRegistration()
+
+                pushDeviceRepository.registerStoredDevice(
+                    store = store,
+                    clientInstanceId = clientInstanceId
+                )
+            } catch (exception: Exception) {
+                Log.w(
+                    "JSimpleListPush",
+                    "Push-device registration failed at startup",
+                    exception
+                )
+            }
+        }
+
+        launch {
+            try {
+                profileRepository.loadOrCreateMyProfile()
+            } catch (exception: Exception) {
+                Log.e(
+                    "JSimpleListProfile",
+                    "Automatic profile creation failed",
+                    exception
+                )
+            }
+        }
+
+        launch {
+            try {
+                listSyncRepository.discoverOnlineLists(
+                    dao = dao
+                )
+
+                val preservedListId =
+                    lists.getOrNull(
+                        pagerState.currentPage
+                    )?.id
+                        ?: store.loadLastActiveListId()
+
+                val refreshedLists =
+                    dao.loadVisibleLists(accountId)
+
+                val refreshedItems =
+                    refreshedLists.associate { loadedList ->
+                        loadedList.id to
+                            dao.loadItems(loadedList.id)
+                    }
+
+                val preservedIndex =
+                    preservedListId?.let { targetId ->
+                        refreshedLists.indexOfFirst {
+                            it.id == targetId
+                        }.takeIf { it >= 0 }
+                    }
+
+                Snapshot.withMutableSnapshot {
+                    lists.clear()
+                    lists.addAll(refreshedLists)
+
+                    itemsByList.clear()
+
+                    refreshedLists.forEach { loadedList ->
+                        itemsByList[loadedList.id] =
+                            mutableStateListOf<ItemEntity>().apply {
+                                addAll(
+                                    refreshedItems[loadedList.id]
+                                        ?: emptyList()
+                                )
+                            }
+                    }
+                }
+
+                if (lists.isNotEmpty()) {
+                    pagerState.requestScrollToPage(
+                        preservedIndex ?: 0
+                    )
+                }
+            } catch (exception: Exception) {
+                Log.e(
+                    "JSimpleListSync",
+                    "Online list discovery failed at startup",
+                    exception
+                )
+            }
+        }
+
+        launch {
+            try {
+                val refreshedInvitations =
+                    invitationRepository.loadPendingInvitations()
+
+                pendingInvitations.clear()
+                pendingInvitations.addAll(
+                    refreshedInvitations
+                )
+            } catch (exception: Exception) {
+                Log.e(
+                    "JSimpleListInvitation",
+                    "Invitation discovery failed at startup",
+                    exception
+                )
+            }
+        }
     }
 
     LaunchedEffect(
@@ -1439,16 +1508,44 @@ private fun SimpleListApp(
                     Text("List invitation")
                 },
                 text = {
-                    Text(
-                        "You have been invited by " +
-                            invitation.inviterDisplayName +
-                            " to join " +
-                            invitation.listName +
-                            ". This is a " +
-                            listTypeDescription +
-                            " that you can add items to and mark as done.\n\n" +
-                            "Accepting the invitation gives you access to the list."
-                    )
+                    Column {
+                        Row(
+                            verticalAlignment =
+                                Alignment.CenterVertically
+                        ) {
+                            ProfileAvatar(
+                                avatarIcon =
+                                    invitation.inviterAvatarIcon,
+                                avatarColour =
+                                    invitation.inviterAvatarColour,
+                                size = 32.dp,
+                                contentDescription =
+                                    "${invitation.inviterDisplayName} avatar"
+                            )
+
+                            Spacer(
+                                modifier = Modifier.width(10.dp)
+                            )
+
+                            Text(
+                                text = invitation.inviterDisplayName,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        Spacer(
+                            modifier = Modifier.height(12.dp)
+                        )
+
+                        Text(
+                            "You have been invited to join " +
+                                invitation.listName +
+                                ". This is a " +
+                                listTypeDescription +
+                                " that you can add items to and mark as done.\n\n" +
+                                "Accepting the invitation gives you access to the list."
+                        )
+                    }
                 },
                 confirmButton = {
                     TextButton(
@@ -1899,10 +1996,31 @@ private fun SimpleListApp(
 
                                     Spacer(modifier = Modifier.height(4.dp))
 
-                                    Text(
-                                        owner?.displayName
-                                            ?: "Unknown owner"
-                                    )
+                                    if (owner != null) {
+                                        Row(
+                                            verticalAlignment =
+                                                Alignment.CenterVertically
+                                        ) {
+                                            ProfileAvatar(
+                                                avatarIcon =
+                                                    owner.avatarIcon,
+                                                avatarColour =
+                                                    owner.avatarColour,
+                                                size = 32.dp,
+                                                contentDescription =
+                                                    "${owner.displayName} avatar"
+                                            )
+
+                                            Spacer(
+                                                modifier =
+                                                    Modifier.width(10.dp)
+                                            )
+
+                                            Text(owner.displayName)
+                                        }
+                                    } else {
+                                        Text("Unknown owner")
+                                    }
 
                                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -1917,7 +2035,31 @@ private fun SimpleListApp(
                                         Text("No other members")
                                     } else {
                                         members.forEach { member ->
-                                            Text(member.displayName)
+                                            Row(
+                                                verticalAlignment =
+                                                    Alignment.CenterVertically,
+                                                modifier =
+                                                    Modifier.padding(
+                                                        vertical = 3.dp
+                                                    )
+                                            ) {
+                                                ProfileAvatar(
+                                                    avatarIcon =
+                                                        member.avatarIcon,
+                                                    avatarColour =
+                                                        member.avatarColour,
+                                                    size = 32.dp,
+                                                    contentDescription =
+                                                        "${member.displayName} avatar"
+                                                )
+
+                                                Spacer(
+                                                    modifier =
+                                                        Modifier.width(10.dp)
+                                                )
+
+                                                Text(member.displayName)
+                                            }
                                         }
                                     }
 

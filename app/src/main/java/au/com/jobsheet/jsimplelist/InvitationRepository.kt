@@ -27,7 +27,15 @@ data class PendingInvitation(
     val listKind: String,
 
     @SerialName("inviter_display_name")
-    val inviterDisplayName: String
+    val inviterDisplayName: String,
+
+    @SerialName("inviter_avatar_icon")
+    val inviterAvatarIcon: String =
+        AvatarCatalog.DEFAULT_ICON_ID,
+
+    @SerialName("inviter_avatar_colour")
+    val inviterAvatarColour: String =
+        AvatarCatalog.DEFAULT_COLOUR_ID
 )
 
 class InvitationRepository(

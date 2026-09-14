@@ -15,6 +15,9 @@ data class AvatarColourOption(
 )
 
 object AvatarCatalog {
+    const val DEFAULT_ICON_ID = "person"
+    const val DEFAULT_COLOUR_ID = "blue"
+
     val icons = listOf(
         AvatarIconOption("person", "Person", R.drawable.ic_avatar_person),
         AvatarIconOption("flower", "Flower", R.drawable.ic_avatar_flower),
@@ -51,9 +54,13 @@ object AvatarCatalog {
 
     fun drawableFor(id: String): Int =
         icons.firstOrNull { it.id == id }?.drawableRes
-            ?: R.drawable.ic_avatar_person
+            ?: icons.first {
+                it.id == DEFAULT_ICON_ID
+            }.drawableRes
 
     fun colourFor(id: String): Color =
         colours.firstOrNull { it.id == id }?.colour
-            ?: colours.first().colour
+            ?: colours.first {
+                it.id == DEFAULT_COLOUR_ID
+            }.colour
 }

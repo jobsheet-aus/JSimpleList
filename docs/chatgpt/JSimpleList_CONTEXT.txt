@@ -33,6 +33,7 @@ Target SDK: 36
 Compile SDK: 36.1
 Android Studio bundled JDK 21
 AndroidX Core KTX pinned to 1.18.0 because 1.19.0 requires compile SDK 37
+AndroidX Fragment explicitly pinned to 1.9.0 because Firebase/Google Play Services otherwise resolved transitive Fragment 1.1.0, which Play Console flagged as outdated
 Room 3 / androidx.room3 with AndroidSQLiteDriver
 SharedPreferences retained for font scale, one-time legacy 1.1 JSON import, last active list ID and persistent per-install client UUID
 Supabase/PostgreSQL for optional online services
@@ -125,6 +126,9 @@ Legacy upgrade:
 - Pull-down refresh from `My lists` refreshes authoritative visible-list state.
 - Refresh preserves the selected list UUID rather than relying on stale numeric pager index.
 - Refresh uses snapshot-safe state replacement and pager `requestScrollToPage`, fixing the wrong-list flash/open bug after remote list discovery or rename.
+- Startup is now cached-first after auth identity initialisation: visible Room lists/items render immediately, while push registration, profile work, online discovery/reconciliation and pending-invitation loading run in background child coroutines.
+- Background discovery later reloads authoritative visible lists/items while preserving the currently selected list UUID.
+- Real-phone testing showed a large noticeable reduction in startup/list-loading delay.
 - Debug builds deliberately show app label `JSLDebug`; release remains `JSimpleList`.
 
 LIST-TYPE VISUAL LANGUAGE
@@ -165,6 +169,8 @@ AUTH / PROFILE / ACCOUNT
 - A clean Play Store install exposed duplicated UI auth-state handling: Supabase restored the session but MainActivity could still show a stale signed-out state.
 - The auth-state hotfix introduced authoritative `AuthState` from Supabase session state and removed the duplicated cached signed-in state from MainActivity/AuthDialog.
 - Commit: `0a88f09 Fix authoritative auth state for sharing`.
+- Auth UI now also respects `AuthState.initialized`; while Supabase session restoration is still Initializing, the account surface shows `Loading account` rather than briefly presenting a false signed-out state.
+- The initialisation guard was validated on device after reproducing the transient false-signed-out behaviour.
 
 Current profile model:
 - `jsimplelist.profiles` remains keyed by stable `auth.users.id`.
@@ -232,6 +238,7 @@ Android palette:
 
 Current Android resources:
 - `AvatarCatalog.kt`
+- `ProfileAvatar.kt` reusable Compose renderer
 - `ic_avatar_person.xml`
 - `ic_avatar_flower.xml`
 - `ic_avatar_cat.xml`
@@ -276,6 +283,10 @@ Important avatar visual status:
 - the reusable conversion helper is `tools/avatar_trace_pipeline.py`
 - real-device validation passed for the complete catalogue in the 32dp avatar grid and 64dp profile preview, with the profile identity row also rendering correctly
 - avatar itself remains coloured line art with no coloured circular background
+- `AvatarCatalog` now exposes explicit `DEFAULT_ICON_ID = "person"` and `DEFAULT_COLOUR_ID = "blue"` fallbacks.
+- `ProfileAvatar` centralises avatar rendering so profile, member and invitation surfaces share catalogue lookup, tinting and fallback behaviour.
+- Shared-list Owner and Members rows now render each user's avatar beside their display name; validated on a real phone with distinct member identities.
+- Incoming invitation UI now renders the inviter's avatar and display name; end-to-end testing with a separate remote account/install proved the inviter's actual avatar is returned and displayed.
 - rich grey replaced the earlier second green/teal choice
 
 PROFILE MIGRATIONS
@@ -308,6 +319,13 @@ Avatar migrations:
 - adds `wrench`, `camera`, `fish`, `football` and `smiley`
 - pushed successfully to the hosted Supabase database on 9 Sep 2026
 - subsequent `migration list` independently confirmed local and remote migration IDs match
+
+`20260913164100_add_inviter_avatar_to_pending_invitations.sql`:
+- extends `get_my_pending_invitations()` to return `inviter_avatar_icon` and `inviter_avatar_colour`
+- preserves `person` / `blue` fallbacks for missing profile avatar data
+- Android `PendingInvitation` carries backward-compatible defaults using `AvatarCatalog`
+- pushed successfully to hosted Supabase on 13 Sep 2026
+- subsequent `migration list` confirmed local and remote `20260913164100` match
 
 Supabase CLI note:
 - the generated Windows shim `node_modules\.bin\supabase.cmd` was found to be zero bytes and silently returned success
