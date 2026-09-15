@@ -3641,6 +3641,9 @@ private fun ListScreen(
     }
     var description by remember(kind) { mutableStateOf("") }
     var quantityText by remember(kind) { mutableStateOf("1") }
+    var pendingDuplicateItem by remember(listId) {
+        mutableStateOf<ItemEntity?>(null)
+    }
     var pendingScrollItemId by remember(listId) {
         mutableStateOf<String?>(null)
     }
@@ -3695,6 +3698,19 @@ private fun ListScreen(
         }
     }
 
+    fun commitItem(item: ItemEntity) {
+        pendingDuplicateItem = null
+        items.add(item)
+        onItemAdded(item)
+        pendingScrollItemId = item.id
+
+        description = ""
+
+        if (kind == ListKind.SHOPPING) {
+            quantityText = "1"
+        }
+    }
+
     fun addItem() {
         val trimmedDescription = description.trim()
 
@@ -3730,15 +3746,20 @@ private fun ListScreen(
             updatedByUserId = attributionUserId
         )
 
-        items.add(item)
-        onItemAdded(item)
-        pendingScrollItemId = item.id
+        val duplicateExists =
+            items.any { existingItem ->
+                existingItem.description.trim().equals(
+                    trimmedDescription,
+                    ignoreCase = true
+                )
+            }
 
-        description = ""
-
-        if (kind == ListKind.SHOPPING) {
-            quantityText = "1"
+        if (duplicateExists) {
+            pendingDuplicateItem = item
+            return
         }
+
+        commitItem(item)
     }
 
     Column(
@@ -3993,6 +4014,38 @@ private fun ListScreen(
                 }
             }
         }
+    }
+
+    pendingDuplicateItem?.let { duplicateItem ->
+        AlertDialog(
+            onDismissRequest = {
+                pendingDuplicateItem = null
+            },
+            title = {
+                Text("Item already exists")
+            },
+            text = {
+                Text("This item is already on the list")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        commitItem(duplicateItem)
+                    }
+                ) {
+                    Text("Add anyway")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        pendingDuplicateItem = null
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
