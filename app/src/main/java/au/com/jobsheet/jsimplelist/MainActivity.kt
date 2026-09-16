@@ -28,6 +28,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,6 +41,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicTextField
@@ -97,7 +100,6 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -3644,6 +3646,9 @@ private fun ListScreen(
     var pendingDuplicateItem by remember(listId) {
         mutableStateOf<ItemEntity?>(null)
     }
+    var editingItemId by remember(listId) {
+        mutableStateOf<String?>(null)
+    }
     var pendingScrollItemId by remember(listId) {
         mutableStateOf<String?>(null)
     }
@@ -3856,6 +3861,26 @@ private fun ListScreen(
             }
         }
 
+        LaunchedEffect(
+            editingItemId,
+            displayedItems
+        ) {
+            val targetId = editingItemId
+
+            if (targetId != null) {
+                delay(300)
+
+                val targetIndex =
+                    displayedItems.indexOfFirst {
+                        it.id == targetId
+                    }
+
+                if (targetIndex >= 0) {
+                    listState.animateScrollToItem(targetIndex)
+                }
+            }
+        }
+
         val resizeHintHeightPx =
             with(LocalDensity.current) {
                 48.dp.roundToPx()
@@ -3891,6 +3916,14 @@ private fun ListScreen(
         ) {
             LazyColumn(
                 state = listState,
+                contentPadding = PaddingValues(
+                    bottom =
+                        if (editingItemId != null) {
+                            180.dp
+                        } else {
+                            0.dp
+                        }
+                ),
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(
@@ -3912,6 +3945,16 @@ private fun ListScreen(
                                     null
                                 },
                             fontScale = fontScale,
+                            onEditingChange = { isEditing ->
+                                editingItemId =
+                                    if (isEditing) {
+                                        item.id
+                                    } else if (editingItemId == item.id) {
+                                        null
+                                    } else {
+                                        editingItemId
+                                    }
+                            },
                             onUpdate = { newDescription, newQuantity ->
                                 val index =
                                     items.indexOfFirst {
@@ -4225,11 +4268,13 @@ private fun ListItemRow(
     kind: ListKind,
     creatorName: String?,
     fontScale: Float,
+    onEditingChange: (Boolean) -> Unit,
     onUpdate: (String, Int?) -> Unit,
     onToggle: () -> Unit,
     onDelete: () -> Unit
 ) {
     var editing by remember(item.id) { mutableStateOf(false) }
+    var itemMenuExpanded by remember(item.id) { mutableStateOf(false) }
     var editDescription by remember(item.id, item.description) {
         mutableStateOf(
             TextFieldValue(
@@ -4253,7 +4298,14 @@ private fun ListItemRow(
     }
 
     var editQuantityFocused by remember { mutableStateOf(false) }
+    var focusQuantityOnEdit by remember(item.id) {
+        mutableStateOf(false)
+    }
     val editDescriptionFocusRequester = remember { FocusRequester() }
+    val editQuantityFocusRequester = remember { FocusRequester() }
+    val editBringIntoViewRequester = remember {
+        BringIntoViewRequester()
+    }
 
     LaunchedEffect(editQuantityFocused) {
         if (editQuantityFocused) {
@@ -4268,9 +4320,22 @@ private fun ListItemRow(
         }
     }
 
-    LaunchedEffect(editing) {
+    LaunchedEffect(
+        editing,
+        focusQuantityOnEdit
+    ) {
         if (editing) {
-            editDescriptionFocusRequester.requestFocus()
+            if (
+                focusQuantityOnEdit &&
+                kind == ListKind.SHOPPING
+            ) {
+                editQuantityFocusRequester.requestFocus()
+            } else {
+                editDescriptionFocusRequester.requestFocus()
+            }
+
+            delay(350)
+            editBringIntoViewRequester.bringIntoView()
         }
     }
 
@@ -4285,6 +4350,7 @@ private fun ListItemRow(
             selection = TextRange(editQuantity.length)
         )
         editing = false
+        onEditingChange(false)
     }
 
     BackHandler(enabled = editing) {
@@ -4307,6 +4373,7 @@ private fun ListItemRow(
 
         onUpdate(newDescription, newQuantity)
         editing = false
+        onEditingChange(false)
     }
 
     val editTextSize = (16f * fontScale).coerceAtMost(22f)
@@ -4321,6 +4388,7 @@ private fun ListItemRow(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .bringIntoViewRequester(editBringIntoViewRequester)
                 .padding(horizontal = 8.dp, vertical = 3.dp)
         ) {
             Row(
@@ -4365,6 +4433,7 @@ private fun ListItemRow(
                         modifier = Modifier
                             .width(editQuantityWidth)
                             .heightIn(min = editFieldHeight)
+                            .focusRequester(editQuantityFocusRequester)
                             .onFocusChanged { focusState ->
                                 editQuantityFocused = focusState.isFocused
                             }
@@ -4441,7 +4510,11 @@ private fun ListItemRow(
                     },
                     modifier = Modifier
                         .width(48.dp)
-                        .clickable { editing = true }
+                        .clickable {
+                            focusQuantityOnEdit = true
+                            editing = true
+                            onEditingChange(true)
+                        }
                 )
             }
 
@@ -4471,26 +4544,61 @@ private fun ListItemRow(
                                 text = item.description,
                                 selection = TextRange(item.description.length)
                             )
+                            focusQuantityOnEdit = false
                             editing = true
+                            onEditingChange(true)
                         }
                 )
 
-                if (creatorName != null) {
-                    Text(
-                        text = creatorName,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                        fontSize = 10.sp,
-                        textAlign = TextAlign.End,
-                        modifier = Modifier.padding(start = 6.dp)
-                    )
-                }
             }
 
-            TextButton(onClick = onDelete) {
-                Text(
-                    text = "Delete",
-                    fontSize = 12.sp
-                )
+            Box {
+                androidx.compose.material3.IconButton(
+                    onClick = {
+                        itemMenuExpanded = true
+                    }
+                ) {
+                    Text(
+                        text = "⋮",
+                        fontSize = 24.sp
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = itemMenuExpanded,
+                    onDismissRequest = {
+                        itemMenuExpanded = false
+                    },
+                    modifier = Modifier.width(180.dp)
+                ) {
+                    if (creatorName != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Added by $creatorName",
+                                    fontSize = 14.sp
+                                )
+                            },
+                            onClick = {},
+                            enabled = false,
+                            modifier = Modifier.height(44.dp)
+                        )
+                    }
+
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "Delete",
+                                fontSize = 16.sp
+                            )
+                        },
+                        onClick = {
+                            itemMenuExpanded = false
+                            onDelete()
+                        },
+                        modifier = Modifier.height(52.dp)
+                    )
+                }
             }
         }
     }
