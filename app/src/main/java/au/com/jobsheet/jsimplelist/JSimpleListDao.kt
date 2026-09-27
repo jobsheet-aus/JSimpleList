@@ -132,6 +132,9 @@ interface JSimpleListDao {
     @Update
     suspend fun updateItem(item: ItemEntity)
 
+    @Update
+    suspend fun updateItems(items: List<ItemEntity>)
+
     @Query("DELETE FROM lists WHERE id = :listId")
     suspend fun deleteList(listId: String)
 

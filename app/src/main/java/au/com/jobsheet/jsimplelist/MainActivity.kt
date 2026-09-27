@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -57,6 +58,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.animation.core.animateDpAsState
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -90,8 +95,11 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -3146,6 +3154,53 @@ private fun SimpleListApp(
                     !showListSelector &&
                     editingOpenListNameId == null
                 ) {
+                    if (currentList.onlineState != "LOCAL") {
+                        androidx.compose.material3.IconButton(
+                            enabled = refreshingListId == null,
+                            onClick = {
+                                if (refreshingListId == null) {
+                                    coroutineScope.launch {
+                                        refreshingListId = currentList.id
+                                        try {
+                                            if (authRepository.currentUserId() != null) {
+                                                refreshVisibleListSet(
+                                                    preservedListId = currentList.id
+                                                )
+                                            }
+                                        } catch (exception: Exception) {
+                                            Log.e(
+                                                "JSimpleListSync",
+                                                "Refresh button failed",
+                                                exception
+                                            )
+                                            Toast.makeText(
+                                                context,
+                                                "Could not refresh",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        } finally {
+                                            refreshingListId = null
+                                        }
+                                    }
+                                }
+                            }
+                        ) {
+                            if (refreshingListId == currentList.id) {
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    modifier = Modifier.width(22.dp).height(22.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Text(
+                                    text = "↻",
+                                    fontSize = 30.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.offset(y = (-2).dp)
+                                )
+                            }
+                        }
+                    }
+
                     Box {
                         androidx.compose.material3.IconButton(
                             onClick = {
@@ -3507,6 +3562,27 @@ private fun SimpleListApp(
                                     )
                                 }
                             },
+                            onReorderCommitted = { changedItems ->
+                                coroutineScope.launch {
+                                    dao.updateItems(changedItems)
+
+                                    if (list.onlineState != "LOCAL") {
+                                        for (item in changedItems) {
+                                            try {
+                                                listSyncRepository.upsertItem(
+                                                    item = item,
+                                                    originClientId = clientInstanceId
+                                                )
+                                            } catch (exception: Exception) {
+                                                Log.e(
+                                                    "JSimpleListSync",
+                                                    "Item reorder push failed id=${item.id} list=${list.id}: ${exception::class.simpleName}"
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            },
                             onItemDeleted = { item ->
                                 coroutineScope.launch {
                                     if (list.onlineState == "LOCAL") {
@@ -3609,7 +3685,9 @@ private fun ListScreen(
     onFontScaleChange: (Float) -> Unit,
     onItemAdded: (ItemEntity) -> Unit,
     onItemUpdated: (ItemEntity) -> Unit,
+    onReorderCommitted: (List<ItemEntity>) -> Unit,
     onItemDeleted: (ItemEntity) -> Unit
+
 ) {
     var creatorProfiles by remember {
         mutableStateOf<Map<String, Profile>>(emptyMap())
@@ -3649,6 +3727,10 @@ private fun ListScreen(
     var editingItemId by remember(listId) {
         mutableStateOf<String?>(null)
     }
+    // Only the visual order changes during a gesture. Room is updated on release.
+    var draggedItemId by remember(listId) { mutableStateOf<String?>(null) }
+    var dragOrderIds by remember(listId) { mutableStateOf<List<String>?>(null) }
+    var dragStartOrderIds by remember(listId) { mutableStateOf<List<String>>(emptyList()) }
     var pendingScrollItemId by remember(listId) {
         mutableStateOf<String?>(null)
     }
@@ -3663,6 +3745,7 @@ private fun ListScreen(
 
     val descriptionFocusRequester = remember { FocusRequester() }
     val listState = rememberLazyListState()
+    val hapticFeedback = LocalHapticFeedback.current
 
     val currentScale by rememberUpdatedState(fontScale)
     val currentOnScaleChange by rememberUpdatedState(onFontScaleChange)
@@ -3767,62 +3850,141 @@ private fun ListScreen(
         commitItem(item)
     }
 
+    fun finishDrag(commit: Boolean) {
+        val movedId = draggedItemId
+        val finalOrder = dragOrderIds
+        val originalOrder = dragStartOrderIds
+        val changed = mutableListOf<ItemEntity>()
+
+        if (commit && movedId != null && finalOrder != null &&
+            finalOrder != originalOrder
+        ) {
+            val moved = items.firstOrNull { it.id == movedId }
+            if (moved != null) {
+                val byId = items.associateBy { it.id }
+                // Keep the dragged item's relative position within its own
+                // group, even if it was visually dragged across the boundary.
+                // An unchecked item ends at the bottom of unchecked when
+                // dragged into checked; a checked item ends at the top of
+                // checked when dragged into unchecked.
+                val rawItems = finalOrder.mapNotNull(byId::get)
+                val boundedOrder = rawItems.filterNot { it.completed } +
+                    rawItems.filter { it.completed }
+                val group = boundedOrder.filter {
+                    it.completed == moved.completed
+                }
+                val now = System.currentTimeMillis()
+                group.forEachIndexed { index, original ->
+                    val position = (index + 1) * 10
+                    if (original.position != position) {
+                        changed.add(original.copy(
+                            position = position,
+                            updatedAt = now,
+                            updatedByUserId =
+                                if (onlineState != "LOCAL") currentUserId else null
+                        ))
+                    }
+                }
+            }
+        }
+
+        // Preserve a stationary visible item's screen position during drop.
+        val viewportAnchor = listState.layoutInfo.visibleItemsInfo
+            .firstOrNull { visible ->
+                visible.key is String && visible.key != movedId
+            }
+
+        val finalVisualIds = if (commit && finalOrder != null) {
+            val byId = items.associateBy { it.id }
+            finalOrder.filter { byId[it]?.completed == false } +
+                finalOrder.filter { byId[it]?.completed == true }
+        } else {
+            originalOrder
+        }
+
+        // One snapshot prevents a momentary return to the old visual ordering.
+        Snapshot.withMutableSnapshot {
+            changed.forEach { updated ->
+                val index = items.indexOfFirst { it.id == updated.id }
+                if (index >= 0) items[index] = updated
+            }
+            dragOrderIds = null
+            dragStartOrderIds = emptyList()
+            draggedItemId = null
+        }
+        if (viewportAnchor != null) {
+            val anchorIndex =
+                finalVisualIds.indexOf(viewportAnchor.key as String)
+
+            if (anchorIndex >= 0) {
+                listState.requestScrollToItem(
+                    index = anchorIndex,
+                    scrollOffset = -viewportAnchor.offset
+                )
+            }
+        }
+
+        if (changed.isNotEmpty()) onReorderCommitted(changed)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .then(pinchModifier)
     ) {
-        EntryRow(
-            kind = kind,
-            description = description,
-            onDescriptionChange = { description = it },
-            quantityText = quantityText,
-            onQuantityChange = { value ->
-                quantityText = value.filter(Char::isDigit)
-            },
-            descriptionFocusRequester = descriptionFocusRequester,
-            fontScale = fontScale,
-            onAdd = ::addItem
-        )
-
-        if (items.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Checkbox(
-                    checked = hasCompletedItems,
-                    enabled = hasCompletedItems,
-                    onCheckedChange = {
-                        onUncheckAll()
+        Column {
+            EntryRow(
+                    kind = kind,
+                    description = description,
+                    onDescriptionChange = { description = it },
+                    quantityText = quantityText,
+                    onQuantityChange = { value ->
+                        quantityText = value.filter(Char::isDigit)
                     },
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = MaterialTheme.colorScheme.primary,
-                        uncheckedColor = MaterialTheme.colorScheme.outline,
-                        checkmarkColor = MaterialTheme.colorScheme.onPrimary
-                    )
+                    descriptionFocusRequester = descriptionFocusRequester,
+                    fontScale = fontScale,
+                    onAdd = ::addItem
                 )
 
-                if (kind == ListKind.SHOPPING) {
-                    Text(
-                        text = "Qty",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.width(48.dp)
-                    )
+                if (items.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = hasCompletedItems,
+                            enabled = hasCompletedItems,
+                            onCheckedChange = {
+                                onUncheckAll()
+                            },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = MaterialTheme.colorScheme.primary,
+                                uncheckedColor = MaterialTheme.colorScheme.outline,
+                                checkmarkColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        )
+
+                        if (kind == ListKind.SHOPPING) {
+                            Text(
+                                text = "Qty",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.width(48.dp)
+                            )
+                        }
+
+                        Text(
+                            text = "Item",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    HorizontalDivider()
                 }
-
-                Text(
-                    text = "Item",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            HorizontalDivider()
         }
 
         val displayedItems =
@@ -3846,15 +4008,36 @@ private fun ListScreen(
                     }
             }
 
+        val visualItems = dragOrderIds?.let { order ->
+            val byId = displayedItems.associateBy { it.id }
+            order.mapNotNull(byId::get) +
+                displayedItems.filter { it.id !in order }
+        } ?: displayedItems
+        val latestVisualItems by rememberUpdatedState(visualItems)
+
+        // onMove must update the visible list synchronously. Never launch a
+        // coroutine from here: the library explicitly requires immediate updates.
+        val reorderableState = rememberReorderableLazyListState(listState) { from, to ->
+            val order = (dragOrderIds ?: latestVisualItems.map { it.id }).toMutableList()
+            val fromIndex = order.indexOf(from.key as? String)
+            val rawTarget = order.indexOf(to.key as? String)
+            if (fromIndex >= 0 && rawTarget >= 0 && fromIndex != rawTarget) {
+                // Let Reorderable track the finger without boundary corrections.
+                // The checked/unchecked boundary is enforced once, on release.
+                order.add(rawTarget, order.removeAt(fromIndex))
+                dragOrderIds = order
+            }
+        }
+
         LaunchedEffect(
             pendingScrollItemId,
-            displayedItems
+            visualItems
         ) {
             val targetId = pendingScrollItemId
 
             if (
                 targetId != null &&
-                displayedItems.firstOrNull()?.id == targetId
+                visualItems.firstOrNull()?.id == targetId
             ) {
                 listState.scrollToItem(0)
                 pendingScrollItemId = null
@@ -3871,7 +4054,7 @@ private fun ListScreen(
                 delay(300)
 
                 val targetIndex =
-                    displayedItems.indexOfFirst {
+                    visualItems.indexOfFirst {
                         it.id == targetId
                     }
 
@@ -3907,32 +4090,56 @@ private fun ListScreen(
             }
         }
 
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = onRefresh,
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .weight(1f)
         ) {
+            val defaultDragViewConfiguration =
+                androidx.compose.ui.platform.LocalViewConfiguration.current
+            val quickDragViewConfiguration = remember(defaultDragViewConfiguration) {
+                object : androidx.compose.ui.platform.ViewConfiguration by
+                    defaultDragViewConfiguration {
+                    override val longPressTimeoutMillis: Long = 150L
+                }
+            }
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalViewConfiguration provides
+                    quickDragViewConfiguration
+            ) {
             LazyColumn(
                 state = listState,
                 contentPadding = PaddingValues(
-                    bottom =
-                        if (editingItemId != null) {
-                            180.dp
-                        } else {
-                            0.dp
-                        }
+                    bottom = if (editingItemId != null) 180.dp else 0.dp
                 ),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(
-                    items = displayedItems,
-                    key = { item -> item.id }
-                ) { item ->
-                    Column(
-                        modifier = Modifier.animateItem()
-                    ) {
+                items(items = visualItems, key = { it.id }) { item ->
+                    ReorderableItem(reorderableState, key = item.id) { isDragging ->
+                        val elevation by animateDpAsState(
+                            targetValue = if (isDragging) 8.dp else 0.dp,
+                            label = "picked-up-item-elevation"
+                        )
+                        Surface(
+                            shadowElevation = elevation,
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .longPressDraggableHandle(
+                                    onDragStarted = {
+                                        draggedItemId = item.id
+                                        dragStartOrderIds = latestVisualItems.map { it.id }
+                                        dragOrderIds = dragStartOrderIds
+                                        hapticFeedback.performHapticFeedback(
+                                            HapticFeedbackType.LongPress
+                                        )
+                                    },
+                                    onDragStopped = {
+                                        if (draggedItemId == item.id) finishDrag(true)
+                                    }
+                                )
+                        ) {
+                            Column {
                         ListItemRow(
                             item = item,
                             kind = kind,
@@ -4037,8 +4244,11 @@ private fun ListScreen(
                         )
 
                         HorizontalDivider()
+                            }
+                        }
                     }
                 }
+            }
             }
 
             if (showResizeHint) {
@@ -4508,13 +4718,7 @@ private fun ListItemRow(
                     } else {
                         TextDecoration.None
                     },
-                    modifier = Modifier
-                        .width(48.dp)
-                        .clickable {
-                            focusQuantityOnEdit = true
-                            editing = true
-                            onEditingChange(true)
-                        }
+                    modifier = Modifier.width(48.dp)
                 )
             }
 
@@ -4537,17 +4741,7 @@ private fun ListItemRow(
                     } else {
                         MaterialTheme.colorScheme.onSurface
                     },
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable {
-                            editDescription = TextFieldValue(
-                                text = item.description,
-                                selection = TextRange(item.description.length)
-                            )
-                            focusQuantityOnEdit = false
-                            editing = true
-                            onEditingChange(true)
-                        }
+                    modifier = Modifier.weight(1f)
                 )
 
             }
@@ -4584,6 +4778,26 @@ private fun ListItemRow(
                             modifier = Modifier.height(44.dp)
                         )
                     }
+
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "Rename",
+                                fontSize = 16.sp
+                            )
+                        },
+                        onClick = {
+                            itemMenuExpanded = false
+                            editDescription = TextFieldValue(
+                                text = item.description,
+                                selection = TextRange(0, item.description.length)
+                            )
+                            focusQuantityOnEdit = false
+                            editing = true
+                            onEditingChange(true)
+                        },
+                        modifier = Modifier.height(52.dp)
+                    )
 
                     DropdownMenuItem(
                         text = {

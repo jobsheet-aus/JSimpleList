@@ -116,6 +116,7 @@ dependencies {
     implementation(libs.supabase.realtime)
     implementation(libs.supabase.functions)
     implementation(libs.ktor.client.cio)
+    implementation("sh.calvin.reorderable:reorderable:3.1.0")
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
