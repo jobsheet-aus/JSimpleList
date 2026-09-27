@@ -122,6 +122,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 @Serializable
@@ -816,6 +818,7 @@ private fun SimpleListApp(
     }
 
     val coroutineScope = rememberCoroutineScope()
+    val reorderWriteMutex = remember { Mutex() }
     var fontScale by remember { mutableFloatStateOf(store.loadFontScale()) }
     var showMenu by remember { mutableStateOf(false) }
     var openListMenuId by remember { mutableStateOf<String?>(null) }
@@ -3564,7 +3567,9 @@ private fun SimpleListApp(
                             },
                             onReorderCommitted = { changedItems ->
                                 coroutineScope.launch {
-                                    dao.updateItems(changedItems)
+                                    reorderWriteMutex.withLock {
+                                        dao.updateItems(changedItems)
+                                    }
 
                                     if (list.onlineState != "LOCAL") {
                                         for (item in changedItems) {
@@ -4100,7 +4105,7 @@ private fun ListScreen(
             val quickDragViewConfiguration = remember(defaultDragViewConfiguration) {
                 object : androidx.compose.ui.platform.ViewConfiguration by
                     defaultDragViewConfiguration {
-                    override val longPressTimeoutMillis: Long = 150L
+                    override val longPressTimeoutMillis: Long = 100L
                 }
             }
             androidx.compose.runtime.CompositionLocalProvider(
