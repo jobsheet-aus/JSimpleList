@@ -113,10 +113,12 @@ Legacy upgrade:
 - Zero lists is valid.
 - One current list fills the screen; horizontal swipe moves between lists.
 - Online/shared lists show the muted chain/link icon; local lists are unmarked.
-- Pull-to-refresh performs online discovery/reconciliation.
+- Open-list header has an online-only refresh icon that performs authoritative online reconciliation; `My lists` retains its own pull-to-refresh.
 - Bulk Uncheck all is implemented in the list column-heading row and has conservative Undo.
 - New items insert at the top; incomplete items display before completed items.
-- Existing items edit inline; item-description cursor starts at the end; Shopping Qty selects its existing value on focus.
+- Finger drag reordering uses `sh.calvin.reorderable:reorderable:3.1.0`; 100 ms pickup, haptic feedback and pickup shadow. Cross-group travel is allowed during drag, but release partitions the final order into unchecked then checked, so completion never changes. Release preserves a stationary visible item's key/offset with `requestScrollToItem` to prevent viewport jumping.
+- Reorder completion updates Compose item positions immediately and `onReorderCommitted` persists changed positions to Room under a remembered `Mutex`. Tested on real phone with both local and shared lists, including rapid dragging. Online reorder still pushes changed items individually; durable retry and multi-user order conflict detection are NOT implemented.
+- Existing items use their row overflow menu for Rename/Delete; Rename opens the inline edit form, with Shopping Qty editable; item-description cursor starts at the end and Shopping Qty selects its existing value on focus.
 - Large-text editing is capped at 22sp and fields can grow vertically.
 - `My lists` is now the Android startup/home surface.
 - Android Back from an open list returns to `My lists` before Android can exit the app.
@@ -441,11 +443,18 @@ Completed 14 Sep 2026:
 - Release R8/resource shrinking was enabled with `isMinifyEnabled = true`, `isShrinkResources = true` and the standard optimised Android ProGuard configuration.
 - A minified release AAB/APK built successfully and passed a real-device smoke test before the later 2.1 rename/header changes; final release validation is still required before Play upload.
 
-NEXT TASK:
-- Detect equivalent existing items when adding and deliberately handle accidental duplicates while preserving legitimate duplicate use cases.
+COMPLETED 27 SEP 2026 - REORDER/REFRESH:
+- `8d4c468` implemented Reorderable drag, checked/unchecked release boundary, stable viewport on release, row Rename overflow and open-list refresh icon.
+- `de308aa` adds remembered reorder Room-write Mutex and shortens pickup from 150 ms to 100 ms. Debug build/install and real-phone reordering passed on local and shared lists.
+- Reverted a failed in-memory FIFO writer attempt: it caused dragged items to snap back on the shared-list test. Do not restore `patch_reorder_fifo.py`; the mutex version is the tested checkpoint.
+
+IMMEDIATE NEXT TASK:
+- Design durable offline-first online reorder sync and concurrent-editor conflict handling. Start by inspecting actual `ListSyncRepository`, current Supabase item/list schema, existing RPCs/RLS and migration history BEFORE editing. Present the intended atomic server operation and retry/reconciliation strategy first.
+- Candidate design (not yet implemented): version/revision for a shared list's order; one transaction/RPC atomically compares expected revision and applies complete checked/unchecked order, returns conflict with authoritative order if stale; use unique operation IDs for idempotent retries. Define deliberate conflict policy, especially simultaneous moves of the same item, and interactions with completion, insertions and deletions.
+- Local changes should remain immediately visible and saved to Room promptly; durable pending sync must survive app restart/offline periods. Avoid unguarded per-item upserts that can expose partial reorder state on other devices. Keep the proven Reorderable onMove, release boundary, viewport anchoring and 100 ms pickup untouched.
+- A separate earlier roadmap item remains: detect equivalent existing items when adding, while allowing deliberate duplicates.
 
 Still planned:
-- Add finger drag-and-drop item reordering while preserving sensible incomplete/completed grouping.
 - Add `Delete all items` with confirmation, distinct from `Uncheck all`.
 - Detect `http://` and `https://` links in item descriptions and make URL portions tappable without previews initially.
 - Remove unnecessary left padding from inline edit rows.
@@ -509,8 +518,9 @@ Production 2.0:
 - Production 8 (2.0.1) was submitted to Google Play
 - Play review/publication status was not re-checked during the 9 Sep closeout
 
-Latest repository checkpoint before the current uncommitted 2.1 Android work:
-    b378bf5 Add browser list creation
+Latest verified 2.1 source checkpoint (27 Sep 2026):
+    de308aa Serialise reorder writes and reduce pickup delay
+    (earlier drag-and-refresh checkpoint: 8d4c468)
 
 Developer verification/app-signing-registration status should still be checked/completed before 30 September 2026 if still outstanding.
 
@@ -571,17 +581,17 @@ Copyright owner:
     21 TWELVE CONSULTING PTY LTD
 Existing MIT releases retain their granted MIT rights if future versions use different licensing terms.
 
-NEXT TASK
----------
-The Account profile, Edit profile and 20-avatar vector redraw work are complete and real-device validated.
+NEXT SESSION - ONLINE REORDER SYNC
+----------------------------------
+Working source checkpoint: `de308aa Serialise reorder writes and reduce pickup delay` (pushed to `main` 27 Sep 2026). Local/online dragging tested. Existing Room reorder writes use a `Mutex`; this does not implement durable retries or cross-device conflict protection. Online reorder currently issues individual item upserts after Room update; realtime refresh can race pending local changes.
 
-Immediate continuation:
-1. Add avatar rendering to sharing/member UI where profile avatar icon/colour data is already available.
-2. Inspect incoming-invitation data before assuming inviter avatar fields are available.
-3. Preserve the settled 20 avatar IDs and eight colour IDs exactly.
-4. Keep the reviewed SVG masters under `artwork/avatars/svg` as the vector artwork source.
-5. Use `tools/avatar_trace_pipeline.py` when regenerating Android avatar vectors from approved raster masters.
-6. Then align the browser client to the settled Android 2.1 visual language.
+1. Read `JSimpleList_RULES.txt` and this document; confirm current git status and exact source before changing anything.
+2. Inspect `ListSyncRepository.kt`, Supabase schema/migrations and the item update / realtime refresh paths. Establish actual deployed versus merely checked-in SQL state.
+3. Design a versioned, atomic list-order RPC with explicit concurrency semantics and a durable on-device pending queue/outbox. Agree on reconciliation for two editors, offline edits and changes to completion/membership before implementation.
+4. Implement and validate in stages: local durability, server revision/RPC, client conflict handling, two-device tests and restart/offline tests. Do not repeat the failed FIFO patch; preserve the tested drag/scroll code.
+5. Other deferred UI tasks include duplicate-item handling, avatar rendering in sharing/member UI, manual list ordering and browser visual alignment.
+
+Local workspace note: `drag_before_rework.patch` is an untracked backup; `patch_reorder_fifo.py` was deleted after failed test. Pull the new docs-only commit before editing local documents.
 
 Do not reintroduce the removed JSimpleList in-app `Sharing update` notification fallback.
 
