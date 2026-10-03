@@ -349,6 +349,54 @@ private val MIGRATION_5_6 = object : Migration(5, 6) {
     }
 }
 
+private val MIGRATION_6_7 = object : Migration(6, 7) {
+    override suspend fun migrate(
+        connection: androidx.sqlite.SQLiteConnection
+    ) {
+        connection.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS pending_reorders (
+                operationId TEXT NOT NULL PRIMARY KEY,
+                listId TEXT NOT NULL,
+                accountId TEXT NOT NULL,
+                expectedRevision INTEGER,
+                movedItemId TEXT NOT NULL,
+                beforeItemId TEXT,
+                afterItemId TEXT,
+                baseOrderJson TEXT NOT NULL,
+                targetOrderJson TEXT NOT NULL,
+                createdAt INTEGER NOT NULL,
+                state TEXT NOT NULL,
+                attemptCount INTEGER NOT NULL,
+                lastAttemptAt INTEGER,
+                FOREIGN KEY (listId)
+                    REFERENCES lists(id)
+                    ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
+        connection.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_pending_reorders_listId " +
+                "ON pending_reorders(listId)"
+        )
+        connection.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_pending_reorders_accountId_listId_createdAt " +
+                "ON pending_reorders(accountId, listId, createdAt)"
+        )
+    }
+}
+
+private val MIGRATION_7_8 = object : Migration(7, 8) {
+    override suspend fun migrate(
+        connection: androidx.sqlite.SQLiteConnection
+    ) {
+        connection.execSQL(
+            "ALTER TABLE pending_reorders " +
+                "ADD COLUMN movedCompleted INTEGER"
+        )
+    }
+}
+
 @Composable
 private fun SimpleListApp(
     authRefreshSignal: Int,
@@ -383,7 +431,9 @@ private fun SimpleListApp(
                 MIGRATION_2_3,
                 MIGRATION_3_4,
                 MIGRATION_4_5,
-                MIGRATION_5_6
+                MIGRATION_5_6,
+                MIGRATION_6_7,
+                MIGRATION_7_8
             )
             .build()
     }
@@ -397,6 +447,7 @@ private fun SimpleListApp(
         pageCount = { lists.size }
     )
     var activeListRestored by remember { mutableStateOf(false) }
+    var onlineDiscoveryGeneration by remember { mutableStateOf(0) }
     val authState by authRepository.authState.collectAsState(
         initial = AuthState()
     )
@@ -575,6 +626,8 @@ private fun SimpleListApp(
                         preservedIndex ?: 0
                     )
                 }
+
+                onlineDiscoveryGeneration += 1
             } catch (exception: Exception) {
                 Log.e(
                     "JSimpleListSync",
@@ -819,6 +872,7 @@ private fun SimpleListApp(
 
     val coroutineScope = rememberCoroutineScope()
     val reorderWriteMutex = remember { Mutex() }
+    val reorderSendMutex = remember { Mutex() }
     var fontScale by remember { mutableFloatStateOf(store.loadFontScale()) }
     var showMenu by remember { mutableStateOf(false) }
     var openListMenuId by remember { mutableStateOf<String?>(null) }
@@ -1032,6 +1086,458 @@ private fun SimpleListApp(
         }
     }
 
+    fun decodeReorderIds(json: String): List<String> {
+        val array = org.json.JSONArray(json)
+
+        return buildList {
+            for (index in 0 until array.length()) {
+                add(array.getString(index))
+            }
+        }
+    }
+
+    fun encodeReorderIds(ids: List<String>): String =
+        org.json.JSONArray(ids).toString()
+
+    fun rebaseReorderTarget(
+        queued: PendingReorderEntity,
+        remoteItems: List<OnlineOrderItem>
+    ): List<String>? {
+        val moved =
+            remoteItems.firstOrNull {
+                it.id == queued.movedItemId
+            } ?: return null
+
+        val originalCompleted =
+            queued.movedCompleted
+                ?: return null
+
+        if (moved.completed != originalCompleted) {
+            return null
+        }
+
+        val remoteOrder =
+            remoteItems.map { it.id }
+
+        val remoteCompletedById =
+            remoteItems.associate {
+                it.id to it.completed
+            }
+
+        val withoutMoved =
+            remoteOrder.filterNot {
+                it == queued.movedItemId
+            }.toMutableList()
+
+        fun validAnchor(itemId: String?): String? {
+            if (itemId == null) {
+                return null
+            }
+
+            return itemId.takeIf {
+                remoteCompletedById[it] ==
+                    moved.completed &&
+                    it in withoutMoved
+            }
+        }
+
+        val before =
+            validAnchor(queued.beforeItemId)
+
+        val after =
+            validAnchor(queued.afterItemId)
+
+        val insertionIndex =
+            when {
+                // Original intent was the top edge of the
+                // moved item's checked/unchecked group.
+                queued.beforeItemId == null -> {
+                    withoutMoved.indexOfFirst {
+                        remoteCompletedById[it] ==
+                            moved.completed
+                    }.let { index ->
+                        if (index >= 0) {
+                            index
+                        } else if (moved.completed) {
+                            withoutMoved.size
+                        } else {
+                            withoutMoved.indexOfFirst {
+                                remoteCompletedById[it] == true
+                            }.let { checkedIndex ->
+                                if (checkedIndex >= 0) {
+                                    checkedIndex
+                                } else {
+                                    withoutMoved.size
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Original intent was the bottom edge of the
+                // moved item's checked/unchecked group.
+                queued.afterItemId == null -> {
+                    val lastSameGroup =
+                        withoutMoved.indexOfLast {
+                            remoteCompletedById[it] ==
+                                moved.completed
+                        }
+
+                    if (lastSameGroup >= 0) {
+                        lastSameGroup + 1
+                    } else if (moved.completed) {
+                        withoutMoved.size
+                    } else {
+                        withoutMoved.indexOfFirst {
+                            remoteCompletedById[it] == true
+                        }.let { checkedIndex ->
+                            if (checkedIndex >= 0) {
+                                checkedIndex
+                            } else {
+                                withoutMoved.size
+                            }
+                        }
+                    }
+                }
+
+                // Prefer the item that was immediately before
+                // the moved item in the user's target order.
+                before != null -> {
+                    withoutMoved.indexOf(before) + 1
+                }
+
+                // If that item was deleted remotely, the item
+                // that followed the move still preserves intent.
+                after != null -> {
+                    withoutMoved.indexOf(after)
+                }
+
+                else -> {
+                    return null
+                }
+            }
+
+        if (insertionIndex !in 0..withoutMoved.size) {
+            return null
+        }
+
+        withoutMoved.add(
+            insertionIndex,
+            queued.movedItemId
+        )
+
+        // Preserve the server's checked/unchecked partition.
+        var seenCompleted = false
+
+        withoutMoved.forEach { itemId ->
+            val completed =
+                remoteCompletedById[itemId]
+                    ?: return null
+
+            if (completed) {
+                seenCompleted = true
+            } else if (seenCompleted) {
+                return null
+            }
+        }
+
+        return withoutMoved
+    }
+
+    suspend fun drainPendingReorders(accountId: String) {
+        reorderSendMutex.withLock {
+            val blockedLists =
+                dao.loadConflictReorderListIds(
+                    accountId
+                ).toMutableSet()
+
+            val refreshCandidates =
+                mutableSetOf<String>()
+
+            dao.loadSendableReorders(accountId)
+                .forEach { queued ->
+                    if (queued.listId in blockedLists) {
+                        return@forEach
+                    }
+
+                    try {
+                        var expectedRevision =
+                            queued.expectedRevision
+
+                        if (expectedRevision == null) {
+                            val serverState =
+                                listSyncRepository
+                                    .getListOrderState(
+                                        queued.listId
+                                    )
+
+                            val serverOrder =
+                                serverState.items.map {
+                                    it.id
+                                }
+
+                            val baseOrder =
+                                decodeReorderIds(
+                                    queued.baseOrderJson
+                                )
+
+                            // There was no authoritative revision
+                            // bound when this operation was created.
+                            // If its base is already stale, we cannot
+                            // prove whether this same item was moved.
+                            if (serverOrder != baseOrder) {
+                                dao.recordReorderAttempt(
+                                    operationId =
+                                        queued.operationId,
+                                    accountId = accountId,
+                                    state = "CONFLICT",
+                                    attemptAt =
+                                        System.currentTimeMillis()
+                                )
+
+                                blockedLists.add(
+                                    queued.listId
+                                )
+
+                                return@forEach
+                            }
+
+                            expectedRevision =
+                                serverState.revision
+
+                            dao.bindReorderRevision(
+                                operationId =
+                                    queued.operationId,
+                                accountId = accountId,
+                                revision =
+                                    expectedRevision
+                            )
+                        }
+
+                        val targetOrder =
+                            decodeReorderIds(
+                                queued.targetOrderJson
+                            )
+
+                        val result =
+                            listSyncRepository
+                                .applyOnlineReorder(
+                                    listId =
+                                        queued.listId,
+                                    operationId =
+                                        queued.operationId,
+                                    expectedRevision =
+                                        expectedRevision,
+                                    targetOrder =
+                                        targetOrder,
+                                    movedItemId =
+                                        queued.movedItemId,
+                                    originClientId =
+                                        clientInstanceId
+                                )
+
+                        when (result.status) {
+                            "applied",
+                            "already_applied" -> {
+                                dao.deleteAcknowledgedReorder(
+                                    operationId =
+                                        queued.operationId,
+                                    accountId =
+                                        accountId
+                                )
+
+                                refreshCandidates.add(
+                                    queued.listId
+                                )
+                            }
+
+                            "conflict" -> {
+                                val conflictRevision =
+                                    result.revision
+
+                                val rebasedTarget =
+                                    if (
+                                        result.historyComplete &&
+                                        !result.sameItemMoved &&
+                                        conflictRevision != null &&
+                                        result.items.isNotEmpty()
+                                    ) {
+                                        rebaseReorderTarget(
+                                            queued =
+                                                queued,
+                                            remoteItems =
+                                                result.items
+                                        )
+                                    } else {
+                                        null
+                                    }
+
+                                val rebaseRevision =
+                                    conflictRevision
+
+                                if (
+                                    rebasedTarget == null ||
+                                    rebaseRevision == null
+                                ) {
+                                    dao.recordReorderAttempt(
+                                        operationId =
+                                            queued.operationId,
+                                        accountId =
+                                            accountId,
+                                        state = "CONFLICT",
+                                        attemptAt =
+                                            System.currentTimeMillis()
+                                    )
+
+                                    blockedLists.add(
+                                        queued.listId
+                                    )
+
+                                    return@forEach
+                                }
+
+                                // Persist the new revision and target
+                                // before retrying. A process death after
+                                // this point remains restart-safe.
+                                dao.rebasePendingReorder(
+                                    operationId =
+                                        queued.operationId,
+                                    accountId =
+                                        accountId,
+                                    revision =
+                                        rebaseRevision,
+                                    targetOrderJson =
+                                        encodeReorderIds(
+                                            rebasedTarget
+                                        )
+                                )
+
+                                val retryResult =
+                                    listSyncRepository
+                                        .applyOnlineReorder(
+                                            listId =
+                                                queued.listId,
+                                            operationId =
+                                                queued.operationId,
+                                            expectedRevision =
+                                                rebaseRevision,
+                                            targetOrder =
+                                                rebasedTarget,
+                                            movedItemId =
+                                                queued.movedItemId,
+                                            originClientId =
+                                                clientInstanceId
+                                        )
+
+                                when (retryResult.status) {
+                                    "applied",
+                                    "already_applied" -> {
+                                        dao.deleteAcknowledgedReorder(
+                                            operationId =
+                                                queued.operationId,
+                                            accountId =
+                                                accountId
+                                        )
+
+                                        refreshCandidates.add(
+                                            queued.listId
+                                        )
+                                    }
+
+                                    else -> {
+                                        // A second conflict means the
+                                        // list changed again during the
+                                        // rebase window. Do not guess.
+                                        dao.recordReorderAttempt(
+                                            operationId =
+                                                queued.operationId,
+                                            accountId =
+                                                accountId,
+                                            state = "CONFLICT",
+                                            attemptAt =
+                                                System.currentTimeMillis()
+                                        )
+
+                                        blockedLists.add(
+                                            queued.listId
+                                        )
+                                    }
+                                }
+                            }
+
+                            else -> {
+                                dao.recordReorderAttempt(
+                                    operationId =
+                                        queued.operationId,
+                                    accountId =
+                                        accountId,
+                                    state = "RETRY",
+                                    attemptAt =
+                                        System.currentTimeMillis()
+                                )
+
+                                blockedLists.add(
+                                    queued.listId
+                                )
+                            }
+                        }
+                    } catch (
+                        exception: CancellationException
+                    ) {
+                        throw exception
+                    } catch (exception: Exception) {
+                        Log.e(
+                            "JSimpleListSync",
+                            "Reorder send failed operation=${queued.operationId} list=${queued.listId}: ${exception::class.simpleName}"
+                        )
+
+                        dao.recordReorderAttempt(
+                            operationId =
+                                queued.operationId,
+                            accountId = accountId,
+                            state = "RETRY",
+                            attemptAt =
+                                System.currentTimeMillis()
+                        )
+
+                        blockedLists.add(
+                            queued.listId
+                        )
+                    }
+                }
+
+            // A remote refresh may have been deliberately
+            // suppressed while an operation was unresolved.
+            // Once the list's outbox is clear, merge the
+            // authoritative server state.
+            refreshCandidates.forEach { listId ->
+                if (
+                    dao.loadListReorders(
+                        listId = listId,
+                        accountId = accountId
+                    ).isEmpty()
+                ) {
+                    try {
+                        listSyncRepository.refreshList(
+                            listId = listId,
+                            dao = dao
+                        )
+                    } catch (
+                        exception: CancellationException
+                    ) {
+                        throw exception
+                    } catch (exception: Exception) {
+                        Log.w(
+                            "JSimpleListSync",
+                            "Post-reorder refresh failed list=$listId",
+                            exception
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     suspend fun makeListAvailableOnline(
         list: ListEntity,
         listItems: List<ItemEntity>
@@ -1131,6 +1637,76 @@ private fun SimpleListApp(
             editingOpenListNameId = null
         } else {
             showListSelector = true
+        }
+    }
+
+    LaunchedEffect(
+        onlineDiscoveryGeneration
+    ) {
+        if (onlineDiscoveryGeneration == 0) {
+            return@LaunchedEffect
+        }
+
+        val accountId =
+            authRepository.currentUserId()
+                ?: return@LaunchedEffect
+
+        drainPendingReorders(
+            accountId
+        )
+
+        // The drain may have merged fresh authoritative item
+        // state after clearing an outbox. Rebuild visible state
+        // from Room so Compose reflects that reconciliation.
+        val preservedListId =
+            lists.getOrNull(
+                pagerState.currentPage
+            )?.id
+                ?: store.loadLastActiveListId()
+
+        val refreshedLists =
+            dao.loadVisibleLists(
+                accountId
+            )
+
+        val refreshedItems =
+            refreshedLists.associate { loadedList ->
+                loadedList.id to
+                    dao.loadItems(
+                        loadedList.id
+                    )
+            }
+
+        val preservedIndex =
+            preservedListId?.let { targetId ->
+                refreshedLists.indexOfFirst {
+                    it.id == targetId
+                }.takeIf { it >= 0 }
+            }
+
+        Snapshot.withMutableSnapshot {
+            lists.clear()
+            lists.addAll(
+                refreshedLists
+            )
+
+            itemsByList.clear()
+
+            refreshedLists.forEach { loadedList ->
+                itemsByList[loadedList.id] =
+                    mutableStateListOf<ItemEntity>().apply {
+                        addAll(
+                            refreshedItems[loadedList.id]
+                                ?: emptyList()
+                        )
+                    }
+            }
+        }
+
+        if (lists.isNotEmpty()) {
+            pagerState.requestScrollToPage(
+                preservedIndex ?: 0
+            )
         }
     }
 
@@ -3565,27 +4141,100 @@ private fun SimpleListApp(
                                     )
                                 }
                             },
-                            onReorderCommitted = { changedItems ->
+                            onReorderCommitted = {
+                                changedItems, movedItemId, baseOrderIds, targetOrderIds ->
+                                check(movedItemId in baseOrderIds)
+                                check(movedItemId in targetOrderIds)
+
                                 coroutineScope.launch {
-                                    reorderWriteMutex.withLock {
-                                        dao.updateItems(changedItems)
+                                    if (list.onlineState == "LOCAL") {
+                                        reorderWriteMutex.withLock {
+                                            dao.updateItems(
+                                                changedItems
+                                            )
+                                        }
+
+                                        return@launch
                                     }
 
-                                    if (list.onlineState != "LOCAL") {
-                                        for (item in changedItems) {
-                                            try {
-                                                listSyncRepository.upsertItem(
-                                                    item = item,
-                                                    originClientId = clientInstanceId
-                                                )
-                                            } catch (exception: Exception) {
-                                                Log.e(
-                                                    "JSimpleListSync",
-                                                    "Item reorder push failed id=${item.id} list=${list.id}: ${exception::class.simpleName}"
-                                                )
-                                            }
+                                    val accountId =
+                                        authRepository.currentUserId()
+
+                                    if (accountId == null) {
+                                        Log.e(
+                                            "JSimpleListSync",
+                                            "Cannot enqueue online reorder without an active account list=${list.id}"
+                                        )
+
+                                        reorderWriteMutex.withLock {
+                                            dao.updateItems(
+                                                changedItems
+                                            )
                                         }
+
+                                        return@launch
                                     }
+
+                                    val byId =
+                                        items.associateBy { it.id }
+
+                                    val movedItem =
+                                        byId[movedItemId]
+                                            ?: return@launch
+
+                                    val targetGroup =
+                                        targetOrderIds.filter { itemId ->
+                                            byId[itemId]?.completed ==
+                                                movedItem.completed
+                                        }
+
+                                    val movedIndex =
+                                        targetGroup.indexOf(
+                                            movedItemId
+                                        )
+
+                                    val operation =
+                                        PendingReorderEntity(
+                                            operationId =
+                                                UUID.randomUUID().toString(),
+                                            listId = list.id,
+                                            accountId = accountId,
+                                            expectedRevision = null,
+                                            movedItemId = movedItemId,
+                                            movedCompleted =
+                                                movedItem.completed,
+                                            beforeItemId =
+                                                targetGroup.getOrNull(
+                                                    movedIndex - 1
+                                                ),
+                                            afterItemId =
+                                                targetGroup.getOrNull(
+                                                    movedIndex + 1
+                                                ),
+                                            baseOrderJson =
+                                                encodeReorderIds(
+                                                    baseOrderIds
+                                                ),
+                                            targetOrderJson =
+                                                encodeReorderIds(
+                                                    targetOrderIds
+                                                ),
+                                            createdAt =
+                                                System.currentTimeMillis()
+                                        )
+
+                                    reorderWriteMutex.withLock {
+                                        dao.saveReorderAndEnqueue(
+                                            changedItems =
+                                                changedItems,
+                                            operation =
+                                                operation
+                                        )
+                                    }
+
+                                    drainPendingReorders(
+                                        accountId
+                                    )
                                 }
                             },
                             onItemDeleted = { item ->
@@ -3690,7 +4339,12 @@ private fun ListScreen(
     onFontScaleChange: (Float) -> Unit,
     onItemAdded: (ItemEntity) -> Unit,
     onItemUpdated: (ItemEntity) -> Unit,
-    onReorderCommitted: (List<ItemEntity>) -> Unit,
+    onReorderCommitted: (
+        changedItems: List<ItemEntity>,
+        movedItemId: String,
+        baseOrderIds: List<String>,
+        targetOrderIds: List<String>
+    ) -> Unit,
     onItemDeleted: (ItemEntity) -> Unit
 
 ) {
@@ -3929,7 +4583,14 @@ private fun ListScreen(
             }
         }
 
-        if (changed.isNotEmpty()) onReorderCommitted(changed)
+        if (changed.isNotEmpty() && movedId != null) {
+            onReorderCommitted(
+                changed,
+                movedId,
+                originalOrder.toList(),
+                finalVisualIds.toList()
+            )
+        }
     }
 
     Column(

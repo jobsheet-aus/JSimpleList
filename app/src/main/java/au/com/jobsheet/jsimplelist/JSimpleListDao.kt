@@ -135,6 +135,118 @@ interface JSimpleListDao {
     @Update
     suspend fun updateItems(items: List<ItemEntity>)
 
+    @Insert
+    suspend fun insertPendingReorder(operation: PendingReorderEntity)
+
+    @Query(
+        """
+        SELECT * FROM pending_reorders
+        WHERE accountId = :accountId
+          AND state IN ('PENDING', 'RETRY')
+        ORDER BY createdAt, operationId
+        """
+    )
+    suspend fun loadSendableReorders(accountId: String): List<PendingReorderEntity>
+
+    @Query(
+        """
+        SELECT * FROM pending_reorders
+        WHERE listId = :listId
+          AND accountId = :accountId
+        ORDER BY createdAt, operationId
+        """
+    )
+    suspend fun loadListReorders(
+        listId: String,
+        accountId: String
+    ): List<PendingReorderEntity>
+
+    @Query(
+        """
+        SELECT DISTINCT listId
+        FROM pending_reorders
+        WHERE accountId = :accountId
+          AND state = 'CONFLICT'
+        """
+    )
+    suspend fun loadConflictReorderListIds(
+        accountId: String
+    ): List<String>
+
+    @Query(
+        """
+        UPDATE pending_reorders
+        SET expectedRevision = :revision,
+            targetOrderJson = :targetOrderJson,
+            state = 'PENDING'
+        WHERE operationId = :operationId
+          AND accountId = :accountId
+        """
+    )
+    suspend fun rebasePendingReorder(
+        operationId: String,
+        accountId: String,
+        revision: Long,
+        targetOrderJson: String
+    )
+
+    @Query(
+        """
+        UPDATE pending_reorders
+        SET expectedRevision = :revision,
+            state = 'PENDING'
+        WHERE operationId = :operationId
+          AND accountId = :accountId
+        """
+    )
+    suspend fun bindReorderRevision(
+        operationId: String,
+        accountId: String,
+        revision: Long
+    )
+
+    @Query(
+        """
+        UPDATE pending_reorders
+        SET state = :state,
+            attemptCount = attemptCount + 1,
+            lastAttemptAt = :attemptAt
+        WHERE operationId = :operationId
+          AND accountId = :accountId
+        """
+    )
+    suspend fun recordReorderAttempt(
+        operationId: String,
+        accountId: String,
+        state: String,
+        attemptAt: Long
+    )
+
+    @Query(
+        """
+        DELETE FROM pending_reorders
+        WHERE operationId = :operationId
+          AND accountId = :accountId
+        """
+    )
+    suspend fun deleteAcknowledgedReorder(
+        operationId: String,
+        accountId: String
+    )
+
+    /** The user-visible order and durable operation must never be saved separately. */
+    @Transaction
+    suspend fun saveReorderAndEnqueue(
+        changedItems: List<ItemEntity>,
+        operation: PendingReorderEntity
+    ) {
+        require(changedItems.isNotEmpty())
+        require(changedItems.all { it.listId == operation.listId })
+        require(loadListAccountState(operation.listId, operation.accountId) != null)
+        updateItems(changedItems)
+        insertPendingReorder(operation)
+    }
+
     @Query("DELETE FROM lists WHERE id = :listId")
     suspend fun deleteList(listId: String)
 

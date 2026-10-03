@@ -134,6 +134,37 @@ data class OnlineItemSnapshot(
     val updatedByUserId: String? = null
 )
 
+@Serializable
+data class OnlineOrderItem(
+    val id: String,
+    val completed: Boolean
+)
+
+@Serializable
+data class ListOrderState(
+    val revision: Long,
+    val items: List<OnlineOrderItem> = emptyList()
+)
+
+@Serializable
+data class ApplyOnlineReorderResult(
+    val status: String,
+    val revision: Long? = null,
+
+    @SerialName("applied_revision")
+    val appliedRevision: Long? = null,
+
+    val reason: String? = null,
+
+    @SerialName("same_item_moved")
+    val sameItemMoved: Boolean = false,
+
+    @SerialName("history_complete")
+    val historyComplete: Boolean = false,
+
+    val items: List<OnlineOrderItem> = emptyList()
+)
+
 class ListSyncRepository(
     private val client: SupabaseClient = JSimpleListSupabase.client
 ) {
@@ -209,6 +240,63 @@ class ListSyncRepository(
                     originClientId = originClientId
                 )
             )
+    }
+
+    suspend fun getListOrderState(
+        listId: String
+    ): ListOrderState {
+        requireSignedIn()
+
+        return client.postgrest
+            .rpc(
+                function = "get_list_order_state",
+                parameters = buildJsonObject {
+                    put("target_list_id", listId)
+                }
+            )
+            .decodeAs<ListOrderState>()
+    }
+
+    suspend fun applyOnlineReorder(
+        listId: String,
+        operationId: String,
+        expectedRevision: Long,
+        targetOrder: List<String>,
+        movedItemId: String,
+        originClientId: String
+    ): ApplyOnlineReorderResult {
+        requireSignedIn()
+
+        return client.postgrest
+            .rpc(
+                function = "apply_online_reorder",
+                parameters = buildJsonObject {
+                    put("target_list_id", listId)
+                    put("target_operation_id", operationId)
+                    put("target_expected_revision", expectedRevision)
+                    put(
+                        "target_order",
+                        kotlinx.serialization.json.buildJsonArray {
+                            targetOrder.forEach { itemId ->
+                                add(
+                                    kotlinx.serialization.json.JsonPrimitive(
+                                        itemId
+                                    )
+                                )
+                            }
+                        }
+                    )
+                    put(
+                        "target_moved_item_id",
+                        movedItemId
+                    )
+                    put(
+                        "target_origin_client_id",
+                        originClientId
+                    )
+                }
+            )
+            .decodeAs<ApplyOnlineReorderResult>()
     }
 
     suspend fun deleteOnlineItem(
@@ -445,10 +533,22 @@ class ListSyncRepository(
                 )
             }
 
-        dao.mergeRemoteItems(
-            listId = listId,
-            remoteItems = remoteItems
-        )
+        val accountId =
+            client.auth.currentSessionOrNull()?.user?.id
+
+        val hasUnresolvedReorder =
+            accountId != null &&
+                dao.loadListReorders(
+                    listId = listId,
+                    accountId = accountId
+                ).isNotEmpty()
+
+        if (!hasUnresolvedReorder) {
+            dao.mergeRemoteItems(
+                listId = listId,
+                remoteItems = remoteItems
+            )
+        }
 
         return snapshot
     }

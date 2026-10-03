@@ -69,7 +69,12 @@ Google Play production signing-certificate SHA-256:
 
 2.0 LOCAL DATA MODEL
 --------------------
-Room schema version 6 contains `lists`, `items` and `list_accounts`.
+Room schema version 8 contains `lists`, `items`, `list_accounts` and `pending_reorders`.
+
+Room reorder durability:
+- Room 7 added the `pending_reorders` durable outbox.
+- Room 8 added nullable `movedCompleted` so reorder intent records the checked/unchecked group in which the drag was committed.
+- Existing Room 7 operations migrate safely with `movedCompleted = null`; those older operations are deliberately ineligible for automatic conflict rebase.
 
 ListEntity:
 - UUID id
@@ -117,7 +122,11 @@ Legacy upgrade:
 - Bulk Uncheck all is implemented in the list column-heading row and has conservative Undo.
 - New items insert at the top; incomplete items display before completed items.
 - Finger drag reordering uses `sh.calvin.reorderable:reorderable:3.1.0`; 100 ms pickup, haptic feedback and pickup shadow. Cross-group travel is allowed during drag, but release partitions the final order into unchecked then checked, so completion never changes. Release preserves a stationary visible item's key/offset with `requestScrollToItem` to prevent viewport jumping.
-- Reorder completion updates Compose item positions immediately and `onReorderCommitted` persists changed positions to Room under a remembered `Mutex`. Tested on real phone with both local and shared lists, including rapid dragging. Online reorder still pushes changed items individually; durable retry and multi-user order conflict detection are NOT implemented.
+- Reorder completion updates Compose immediately while preserving the tested drag mechanics, 100 ms pickup, checked/unchecked release boundary and viewport anchoring.
+- Local-list reorder writes remain immediate Room updates under the reorder write Mutex.
+- Online/shared-list reorder now saves changed item positions and a durable `pending_reorders` operation in one Room transaction before any network send.
+- Pending operations carry operation UUID, account/list identity, moved item, original completion group, target neighbours, base order, target order, expected server revision when known, retry state and attempt metadata.
+- Online reorder no longer uses the old per-item position-upsert loop.
 - Existing items use their row overflow menu for Rename/Delete; Rename opens the inline edit form, with Shopping Qty editable; item-description cursor starts at the end and Shopping Qty selects its existing value on focus.
 - Large-text editing is capped at 22sp and fields can grow vertically.
 - `My lists` is now the Android startup/home surface.
@@ -387,7 +396,49 @@ LIST SYNC / REALTIME
 - Per-list private realtime topic: `jsimplelist:list:<list UUID>`.
 - Realtime payloads signal `list_changed`; clients reload authoritative state rather than trusting payload rows.
 - Origin client UUID suppresses own-origin refresh loops.
-- Failed ordinary online writes retain the Room change; durable retry/reconciliation remains future work.
+- Failed ordinary non-reorder online writes retain the Room change; general durable retry/reconciliation for those writes remains future work.
+- Reorder writes have a dedicated durable Room outbox. PENDING/RETRY operations are serialised by a reorder sender Mutex and survive offline periods, force-stop and app restart.
+- Startup online discovery triggers reorder-outbox draining after discovery completes; the drain is keyed only by completed discovery rather than directly by auth-refresh state.
+- Authoritative item refresh is suppressed for a list while that account has unresolved reorder work, preventing realtime/startup refresh from overwriting pending local order.
+- After a reorder list's outbox clears, authoritative server state is refreshed back into Room and Compose.
+- A stored CONFLICT currently blocks later queued reorder operations for the same list. This is a conservative temporary state, not the intended final product behaviour.
+
+ONLINE REORDER PROTOCOL - 1 OCT 2026
+------------------------------------
+Deployed hosted migrations:
+- `20260927100000_atomic_online_reorder.sql`
+- `20261001112000_reorder_conflict_metadata.sql`
+
+Server foundation now includes:
+- `jsimplelist.list_order_state` with a monotonic per-list order revision.
+- `jsimplelist.reorder_operations` durable operation ledger for idempotency.
+- `get_list_order_state(list_id)` returning revision plus canonical active-item order.
+- Atomic `apply_online_reorder(...)` RPC which locks the list/items, verifies membership, compares expected revision, validates the complete active-item set and checked/unchecked partition, writes positions transactionally and records the operation.
+- Original 5-argument reorder RPC remains for staged compatibility.
+- New 6-argument overload additionally accepts/stores `moved_item_id` and can report whether that same item appears in newer recorded reorder operations.
+- `list_order_state.protected` remains FALSE. Older Android/browser clients can therefore still submit direct position writes while staged rollout is incomplete.
+- Because direct legacy position writes are not guaranteed to appear in `reorder_operations`, the server cannot yet truthfully declare reorder history complete.
+- Android `ApplyOnlineReorderResult.historyComplete` therefore defaults FALSE when the current server omits `history_complete`.
+- Automatic client rebase is gated on `historyComplete == true`, so it is intentionally disabled at this checkpoint rather than guessing from incomplete history.
+- Client rebase code also refuses to replay an operation if the moved item's checked/unchecked group changed remotely.
+
+Real-device validation completed 1 Oct 2026:
+- online shared-list reorder reached the server and persisted across force-stop/reopen;
+- offline reorder remained visible and durable across force-stop/reopen;
+- reconnect drained the queued reorder successfully;
+- the reconciled server order remained correct after another restart.
+- deliberate two-device reorder conflict testing has NOT yet been performed because the current conservative CONFLICT state can intentionally block that list until the next protocol phase is implemented.
+
+Agreed final concurrency policy for the next phase:
+- ordering is collaborative lightweight state; ordinary reorder races should not produce permanent user-facing conflict dialogs;
+- the server serialises move operations;
+- moves of different items should be replayed/merged against the latest canonical order where possible;
+- if two users move the same item, the later server-accepted move wins;
+- deletion wins over reorder and a reorder must never resurrect a deleted item;
+- checked/unchecked state is authoritative; reorder must not silently change completion state;
+- when a target neighbour disappears, preserve intent using the surviving neighbour or the appropriate completion-group edge;
+- a stale full-list snapshot must never blindly overwrite newer server order;
+- the current durable CONFLICT mechanism is a safe temporary barrier only and should be replaced by the server-serialised move-operation semantics above.
 
 ANDROID INVITATION FOLLOW-UP
 ----------------------------
@@ -443,15 +494,31 @@ Completed 14 Sep 2026:
 - Release R8/resource shrinking was enabled with `isMinifyEnabled = true`, `isShrinkResources = true` and the standard optimised Android ProGuard configuration.
 - A minified release AAB/APK built successfully and passed a real-device smoke test before the later 2.1 rename/header changes; final release validation is still required before Play upload.
 
-COMPLETED 27 SEP 2026 - REORDER/REFRESH:
+COMPLETED 27 SEP - 1 OCT 2026 - REORDER DURABILITY FOUNDATION:
 - `8d4c468` implemented Reorderable drag, checked/unchecked release boundary, stable viewport on release, row Rename overflow and open-list refresh icon.
-- `de308aa` adds remembered reorder Room-write Mutex and shortens pickup from 150 ms to 100 ms. Debug build/install and real-phone reordering passed on local and shared lists.
-- Reverted a failed in-memory FIFO writer attempt: it caused dragged items to snap back on the shared-list test. Do not restore `patch_reorder_fifo.py`; the mutex version is the tested checkpoint.
+- `de308aa` added the remembered reorder Room-write Mutex and shortened pickup from 150 ms to 100 ms.
+- Room 7 introduced the durable reorder outbox; Room 8 added original completion-group metadata.
+- Drag completion now passes moved-item ID plus complete base/target order into persistence.
+- Online reorder uses the atomic server reorder RPC transport rather than individual position upserts.
+- Retry state survives restart/offline periods and startup discovery drains queued work.
+- Remote refresh cannot overwrite a list while unresolved local reorder work exists.
+- Atomic server revision/idempotency migrations `20260927100000` and `20261001112000` are deployed.
+- Single-device online/offline/restart/reconnect durability was validated successfully on a real phone on 1 Oct 2026.
+- Reverted failed FIFO writer remains abandoned; do not restore `patch_reorder_fifo.py`.
+- `drag_before_rework.patch` remains an intentionally untracked backup for now.
 
-IMMEDIATE NEXT TASK:
-- Design durable offline-first online reorder sync and concurrent-editor conflict handling. Start by inspecting actual `ListSyncRepository`, current Supabase item/list schema, existing RPCs/RLS and migration history BEFORE editing. Present the intended atomic server operation and retry/reconciliation strategy first.
-- Candidate design (not yet implemented): version/revision for a shared list's order; one transaction/RPC atomically compares expected revision and applies complete checked/unchecked order, returns conflict with authoritative order if stale; use unique operation IDs for idempotent retries. Define deliberate conflict policy, especially simultaneous moves of the same item, and interactions with completion, insertions and deletions.
-- Local changes should remain immediately visible and saved to Room promptly; durable pending sync must survive app restart/offline periods. Avoid unguarded per-item upserts that can expose partial reorder state on other devices. Keep the proven Reorderable onMove, release boundary, viewport anchoring and 100 ms pickup untouched.
+IMMEDIATE NEXT TASK - SERVER-SERIALISED MOVE SEMANTICS:
+- Replace the current terminal/conservative CONFLICT behaviour with server-serialised move operations.
+- Preserve the already-tested local Room/outbox/restart foundation and the proven drag/scroll code.
+- Represent a reorder primarily as move intent: moved item plus target neighbours/completion group, not as authority to replace the entire stale list snapshot.
+- Rebase/merge moves of different items against the latest canonical order.
+- For concurrent moves of the same item, later server-accepted move wins.
+- Deletion wins and completed state remains authoritative; reorder must never resurrect an item or change its completion state.
+- If one target neighbour disappeared, use the surviving neighbour; if necessary use the intended completion-group edge.
+- Decide the staged legacy/browser cutover before enabling `list_order_state.protected` and before claiming reorder history is complete.
+- Once direct legacy position writes are prevented or routed through the move protocol, make the server explicitly return trustworthy history/protocol completeness and remove the conservative client barrier.
+- Then perform deliberate two-device simultaneous-reorder tests, including same-item, different-item, deletion, completion-change, offline/reconnect and restart cases.
+- Do not add a permanent user-facing reorder-conflict dialog unless testing proves a genuinely unresolvable case exists.
 - A separate earlier roadmap item remains: detect equivalent existing items when adding, while allowing deliberate duplicates.
 
 Still planned:
@@ -518,9 +585,10 @@ Production 2.0:
 - Production 8 (2.0.1) was submitted to Google Play
 - Play review/publication status was not re-checked during the 9 Sep closeout
 
-Latest verified 2.1 source checkpoint (27 Sep 2026):
-    de308aa Serialise reorder writes and reduce pickup delay
-    (earlier drag-and-refresh checkpoint: 8d4c468)
+Latest pushed 2.1 source checkpoint before the current reorder work:
+    2cf04fc Update JSimpleList context for reorder checkpoint and sync handoff
+
+Current local working tree on 1 Oct 2026 contains the Room v8 durable reorder/outbox implementation, RPC transport, restart retry, conservative conflict barrier, two deployed reorder migrations and the updated project documents. It is intentionally awaiting closeout commit/push after final validation.
 
 Developer verification/app-signing-registration status should still be checked/completed before 30 September 2026 if still outstanding.
 
@@ -581,17 +649,30 @@ Copyright owner:
     21 TWELVE CONSULTING PTY LTD
 Existing MIT releases retain their granted MIT rights if future versions use different licensing terms.
 
-NEXT SESSION - ONLINE REORDER SYNC
-----------------------------------
-Working source checkpoint: `de308aa Serialise reorder writes and reduce pickup delay` (pushed to `main` 27 Sep 2026). Local/online dragging tested. Existing Room reorder writes use a `Mutex`; this does not implement durable retries or cross-device conflict protection. Online reorder currently issues individual item upserts after Room update; realtime refresh can race pending local changes.
+NEXT SESSION - SERVER-SERIALISED REORDER MOVES
+----------------------------------------------
+Starting state:
+- Room schema version 8 with durable `pending_reorders`.
+- Atomic reorder revision/idempotency backend is deployed.
+- 6-argument reorder RPC records `moved_item_id`.
+- `list_order_state.protected` is still FALSE for staged compatibility.
+- Android automatic rebase is deliberately gated off because the server cannot yet guarantee complete reorder history.
+- Single-device online/offline/restart/reconnect durability is proven on a real phone.
+- Current conservative CONFLICT rows block later reorders for that list; this is temporary implementation scaffolding, not the final UX.
+- No deliberate two-device conflict test has yet been run.
+- `drag_before_rework.patch` remains untracked intentionally.
 
-1. Read `JSimpleList_RULES.txt` and this document; confirm current git status and exact source before changing anything.
-2. Inspect `ListSyncRepository.kt`, Supabase schema/migrations and the item update / realtime refresh paths. Establish actual deployed versus merely checked-in SQL state.
-3. Design a versioned, atomic list-order RPC with explicit concurrency semantics and a durable on-device pending queue/outbox. Agree on reconciliation for two editors, offline edits and changes to completion/membership before implementation.
-4. Implement and validate in stages: local durability, server revision/RPC, client conflict handling, two-device tests and restart/offline tests. Do not repeat the failed FIFO patch; preserve the tested drag/scroll code.
-5. Other deferred UI tasks include duplicate-item handling, avatar rendering in sharing/member UI, manual list ordering and browser visual alignment.
-
-Local workspace note: `drag_before_rework.patch` is an untracked backup; `patch_reorder_fifo.py` was deleted after failed test. Pull the new docs-only commit before editing local documents.
+Exact next work:
+1. Read `JSimpleList_RULES.txt` and this document; inspect git status and the exact current reorder sender/RPC SQL before editing.
+2. Design the next RPC/protocol around server-serialised move intent rather than stale complete-order replacement.
+3. Preserve operation UUID idempotency and durable Room retry.
+4. Merge different-item moves automatically against current canonical state.
+5. Same-item concurrent move rule: later server-accepted move wins.
+6. Deletion wins; completion state remains authoritative; neighbour disappearance falls back to surviving neighbour/group edge.
+7. Plan browser/older-client position-write cutover, then enable server protection/history completeness only when truthful.
+8. Remove or repurpose terminal CONFLICT handling so ordinary reorder races do not require a user-facing conflict dialog.
+9. Run deliberate two-device concurrency tests only after the new semantics are implemented.
+10. Preserve the proven Reorderable onMove, release boundary, viewport anchoring and 100 ms pickup.
 
 Do not reintroduce the removed JSimpleList in-app `Sharing update` notification fallback.
 

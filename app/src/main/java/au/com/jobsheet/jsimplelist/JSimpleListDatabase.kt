@@ -7,9 +7,10 @@ import androidx.room3.RoomDatabase
     entities = [
         ListEntity::class,
         ItemEntity::class,
-        ListAccountEntity::class
+        ListAccountEntity::class,
+        PendingReorderEntity::class
     ],
-    version = 6
+    version = 8
 )
 abstract class JSimpleListDatabase : RoomDatabase() {
     abstract fun dao(): JSimpleListDao

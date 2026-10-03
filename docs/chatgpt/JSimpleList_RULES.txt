@@ -1,5 +1,5 @@
 JSimpleList durable working rules
-Updated: 2026-09-05
+Updated: 2026-10-01
 
 REPOSITORY AND SHELL
 --------------------
@@ -18,6 +18,7 @@ SOURCE-EDITING WORKFLOW
 - Use audit before source edits.
 - Prefer focused audit ranges/functions/searches over broad source dumps.
 - Use absolute paths with audit when practical.
+- Whenever asking the user to create or manually edit a file in VS Code, provide a directly pasteable `code <path>` command first. This applies equally to new files, existing source files, scripts, migrations and project documents; do not merely state the filename or path in prose.
 - When supplying literal find/replace text, reproduce the inspected source exactly, including indentation, whitespace and line breaks.
 - For VS Code search/replace, always include the exact leading indentation from the inspected source in both the search and replacement blocks; unindented search text is not reliable and may not be found.
 - Never provide an approximate source block as an exact replacement.
