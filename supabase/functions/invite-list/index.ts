@@ -638,24 +638,29 @@ Deno.serve(async (req: Request) => {
                 invitationError?.message ??
                 "Could not create invitation";
 
+            const normalisedMessage = message.toLowerCase();
             const alreadyMember =
-                message
-                    .toLowerCase()
-                    .includes(
-                        "already a member"
-                    );
+                normalisedMessage.includes("already a member");
+            const alreadyPending =
+                normalisedMessage.includes("invitation is already pending");
 
             return Response.json(
                 {
-                    error:
-                        alreadyMember
-                            ? "This person is already a member of the list"
+                    error: alreadyMember
+                        ? "This user is already a member of the list"
+                        : alreadyPending
+                            ? "An invitation is already pending for this email address"
                             : "Could not create invitation",
+                    code: alreadyMember
+                        ? "ALREADY_MEMBER"
+                        : alreadyPending
+                            ? "INVITATION_PENDING"
+                            : "INVITATION_FAILED",
                 },
                 {
                     status:
-                        alreadyMember
-                            ? 400
+                        alreadyMember || alreadyPending
+                            ? 409
                             : 500,
                 }
             );

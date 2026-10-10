@@ -3,6 +3,9 @@ package au.com.jobsheet.jsimplelist
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -11,7 +14,8 @@ data class SharedListMember(
     val displayName: String,
     val avatarIcon: String,
     val avatarColour: String,
-    val role: String
+    val role: String,
+    val email: String? = null
 )
 
 data class SentInvitationSummary(
@@ -52,6 +56,13 @@ private data class SentInvitationRow(
     val cancelledAt: String? = null
 )
 
+@Serializable
+private data class OwnerMemberEmailRow(
+    @SerialName("user_id")
+    val userId: String,
+    val email: String
+)
+
 class SharingRepository(
     private val profileRepository: ProfileRepository,
     private val client: SupabaseClient = JSimpleListSupabase.client
@@ -83,6 +94,29 @@ class SharingRepository(
                     .toSet()
             )
 
+        val currentUserIsOwner =
+            memberRows.any { member ->
+                member.userId == currentUserId &&
+                    member.role == "owner"
+            }
+
+        // Only list owners may request verified emails from auth.users.
+        // The server RPC independently enforces this restriction.
+        val ownerMemberEmails =
+            if (currentUserIsOwner) {
+                client.postgrest
+                    .rpc(
+                        function = "get_owner_list_member_emails",
+                        parameters = buildJsonObject {
+                            put("target_list_id", listId)
+                        }
+                    )
+                    .decodeList<OwnerMemberEmailRow>()
+                    .associate { it.userId to it.email }
+            } else {
+                emptyMap()
+            }
+
         val members =
             memberRows
                 .map { member ->
@@ -99,7 +133,8 @@ class SharingRepository(
                         avatarColour =
                             profile?.avatarColour
                                 ?: "blue",
-                        role = member.role
+                        role = member.role,
+                        email = ownerMemberEmails[member.userId]
                     )
                 }
                 .sortedWith(
@@ -109,12 +144,6 @@ class SharingRepository(
                         it.displayName.lowercase()
                     }
                 )
-
-        val currentUserIsOwner =
-            memberRows.any { member ->
-                member.userId == currentUserId &&
-                    member.role == "owner"
-            }
 
         val pendingInvitations =
             if (currentUserIsOwner) {

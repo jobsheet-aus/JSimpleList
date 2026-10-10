@@ -1,6 +1,7 @@
 package au.com.jobsheet.jsimplelist
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -23,6 +24,7 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +37,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -73,6 +77,7 @@ import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -112,6 +117,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import au.com.jobsheet.jsimplelist.ui.theme.SimpleListTheme
 import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.realtime.broadcastFlow
@@ -144,6 +150,7 @@ private data class SharingNotificationRoute(
 
 class MainActivity : ComponentActivity() {
     private var authRefreshSignal by mutableStateOf(0)
+    private var foregroundResumeSignal by mutableStateOf(0)
 
     private var sharingNotificationRoute by
         mutableStateOf<SharingNotificationRoute?>(null)
@@ -166,6 +173,7 @@ class MainActivity : ComponentActivity() {
             SimpleListTheme {
                 SimpleListApp(
                     authRefreshSignal = authRefreshSignal,
+                    foregroundResumeSignal = foregroundResumeSignal,
                     sharingNotificationRoute =
                         sharingNotificationRoute,
                     sharingNotificationRouteSignal =
@@ -173,6 +181,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        foregroundResumeSignal += 1
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -400,6 +413,7 @@ private val MIGRATION_7_8 = object : Migration(7, 8) {
 @Composable
 private fun SimpleListApp(
     authRefreshSignal: Int,
+    foregroundResumeSignal: Int,
     sharingNotificationRoute: SharingNotificationRoute?,
     sharingNotificationRouteSignal: Int
 ) {
@@ -485,6 +499,66 @@ private fun SimpleListApp(
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             showNotificationPermissionExplanation = true
+        }
+    }
+
+    val invitationRefreshMutex = remember { Mutex() }
+
+    suspend fun refreshInvitationsForAccount(
+        expectedAccountId: String
+    ): List<PendingInvitation>? = invitationRefreshMutex.withLock {
+        if (authRepository.currentUserId() != expectedAccountId) {
+            return@withLock null
+        }
+
+        // Do not replace the invitation list while an accept/decline
+        // operation is in progress. The network response may be stale.
+        if (acceptingInvitationId != null || decliningInvitationId != null) {
+            return@withLock null
+        }
+
+        val refreshed = invitationRepository.loadPendingInvitations()
+
+        if (
+            authRepository.currentUserId() != expectedAccountId ||
+            acceptingInvitationId != null ||
+            decliningInvitationId != null
+        ) {
+            return@withLock null
+        }
+
+        pendingInvitations.clear()
+        pendingInvitations.addAll(refreshed)
+        refreshed
+    }
+
+    LaunchedEffect(
+        foregroundResumeSignal,
+        activeListRestored,
+        authState.initialized,
+        authState.userId
+    ) {
+        // Startup already loads invitations; only refresh subsequent returns.
+        if (
+            foregroundResumeSignal <= 1 ||
+            !activeListRestored ||
+            !authState.initialized
+        ) {
+            return@LaunchedEffect
+        }
+
+        val accountId = authState.userId ?: return@LaunchedEffect
+
+        try {
+            refreshInvitationsForAccount(accountId)
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            Log.e(
+                "JSimpleListInvitation",
+                "Invitation discovery failed on foreground return",
+                exception
+            )
         }
     }
 
@@ -639,13 +713,7 @@ private fun SimpleListApp(
 
         launch {
             try {
-                val refreshedInvitations =
-                    invitationRepository.loadPendingInvitations()
-
-                pendingInvitations.clear()
-                pendingInvitations.addAll(
-                    refreshedInvitations
-                )
+                refreshInvitationsForAccount(accountId)
             } catch (exception: Exception) {
                 Log.e(
                     "JSimpleListInvitation",
@@ -691,13 +759,8 @@ private fun SimpleListApp(
 
                 try {
                     val refreshedInvitations =
-                        invitationRepository
-                            .loadPendingInvitations()
-
-                    pendingInvitations.clear()
-                    pendingInvitations.addAll(
-                        refreshedInvitations
-                    )
+                        refreshInvitationsForAccount(activeAccountId)
+                            ?: return@LaunchedEffect
 
                     targetedInvitationId =
                         refreshedInvitations
@@ -961,9 +1024,6 @@ private fun SimpleListApp(
     var deleteListId by remember { mutableStateOf<String?>(null) }
     var makingOnlineListId by remember { mutableStateOf<String?>(null) }
     var sharingListId by remember { mutableStateOf<String?>(null) }
-    var sharedListInfoListId by remember {
-        mutableStateOf<String?>(null)
-    }
     var sharedListInfo by remember {
         mutableStateOf<SharedListInfo?>(null)
     }
@@ -1041,26 +1101,49 @@ private fun SimpleListApp(
     }
 
     fun openSharedListInfo(listId: String) {
-        sharedListInfoListId = listId
+        sharingListId = listId
+    }
+
+    LaunchedEffect(sharingListId, authState.userId) {
+        val listId = sharingListId
         sharedListInfo = null
         sharedListInfoError = null
+        sharedListInfoLoading = false
+        if (listId == null) return@LaunchedEffect
+        val list = lists.firstOrNull { it.id == listId }
+            ?: return@LaunchedEffect
+        if (list.onlineState == "LOCAL" || !authState.isSignedIn) {
+            return@LaunchedEffect
+        }
         sharedListInfoLoading = true
+        try {
+            sharedListInfo = sharingRepository.loadSharedListInfo(listId)
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            Log.e("JSimpleListSharing", "Could not load sharing details", exception)
+            sharedListInfoError = "Could not load sharing details"
+        } finally {
+            sharedListInfoLoading = false
+        }
+    }
 
+    fun reloadSharingInfo(listId: String) {
+        sharedListInfoLoading = true
+        sharedListInfoError = null
         coroutineScope.launch {
             try {
-                sharedListInfo =
-                    sharingRepository.loadSharedListInfo(listId)
+                val result = sharingRepository.loadSharedListInfo(listId)
+                if (sharingListId == listId) sharedListInfo = result
+            } catch (exception: CancellationException) {
+                throw exception
             } catch (exception: Exception) {
-                Log.e(
-                    "JSimpleListSharing",
-                    "Could not load shared list info",
-                    exception
-                )
-
-                sharedListInfoError =
-                    "Could not load sharing details"
+                Log.e("JSimpleListSharing", "Could not refresh sharing details", exception)
+                if (sharingListId == listId) {
+                    sharedListInfoError = "Could not load sharing details"
+                }
             } finally {
-                sharedListInfoLoading = false
+                if (sharingListId == listId) sharedListInfoLoading = false
             }
         }
     }
@@ -1632,7 +1715,14 @@ private fun SimpleListApp(
         }
     }
 
-    BackHandler(enabled = !showListSelector) {
+    BackHandler(enabled = sharingListId != null) {
+        if (!sendingInvitation && makingOnlineListId == null) {
+            sharingListId = null
+            invitationEmail = ""
+        }
+    }
+
+    BackHandler(enabled = !showListSelector && sharingListId == null) {
         if (editingOpenListNameId != null) {
             editingOpenListNameId = null
         } else {
@@ -2588,449 +2678,6 @@ private fun SimpleListApp(
             )
         }
 
-        sharedListInfoListId?.let { listId ->
-            val infoList =
-                lists.firstOrNull {
-                    it.id == listId
-                }
-
-            if (infoList == null) {
-                sharedListInfoListId = null
-                sharedListInfo = null
-                sharedListInfoError = null
-                sharedListInfoLoading = false
-            } else {
-                AlertDialog(
-                    onDismissRequest = {
-                        sharedListInfoListId = null
-                        sharedListInfo = null
-                        sharedListInfoError = null
-                        sharedListInfoLoading = false
-                    },
-                    title = {
-                        Text("Shared list")
-                    },
-                    text = {
-                        Column {
-                            Text(
-                                text = infoList.name,
-                                fontWeight = FontWeight.Medium
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            when {
-                                sharedListInfoLoading -> {
-                                    Text("Loading sharing details")
-                                }
-
-                                sharedListInfoError != null -> {
-                                    Text(
-                                        sharedListInfoError
-                                            ?: "Could not load sharing details"
-                                    )
-
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    TextButton(
-                                        onClick = {
-                                            openSharedListInfo(listId)
-                                        }
-                                    ) {
-                                        Text("Retry")
-                                    }
-                                }
-
-                                sharedListInfo != null -> {
-                                    val info = sharedListInfo!!
-                                    val owner =
-                                        info.members.firstOrNull {
-                                            it.role == "owner"
-                                        }
-                                    val members =
-                                        info.members.filter {
-                                            it.role != "owner"
-                                        }
-
-                                    Text(
-                                        text = "Owner",
-                                        fontWeight = FontWeight.Medium
-                                    )
-
-                                    Spacer(modifier = Modifier.height(4.dp))
-
-                                    if (owner != null) {
-                                        Row(
-                                            verticalAlignment =
-                                                Alignment.CenterVertically
-                                        ) {
-                                            ProfileAvatar(
-                                                avatarIcon =
-                                                    owner.avatarIcon,
-                                                avatarColour =
-                                                    owner.avatarColour,
-                                                size = 32.dp,
-                                                contentDescription =
-                                                    "${owner.displayName} avatar"
-                                            )
-
-                                            Spacer(
-                                                modifier =
-                                                    Modifier.width(10.dp)
-                                            )
-
-                                            Text(owner.displayName)
-                                        }
-                                    } else {
-                                        Text("Unknown owner")
-                                    }
-
-                                    Spacer(modifier = Modifier.height(16.dp))
-
-                                    Text(
-                                        text = "Members",
-                                        fontWeight = FontWeight.Medium
-                                    )
-
-                                    Spacer(modifier = Modifier.height(4.dp))
-
-                                    if (members.isEmpty()) {
-                                        Text("No other members")
-                                    } else {
-                                        members.forEach { member ->
-                                            Row(
-                                                verticalAlignment =
-                                                    Alignment.CenterVertically,
-                                                modifier =
-                                                    Modifier.padding(
-                                                        vertical = 3.dp
-                                                    )
-                                            ) {
-                                                ProfileAvatar(
-                                                    avatarIcon =
-                                                        member.avatarIcon,
-                                                    avatarColour =
-                                                        member.avatarColour,
-                                                    size = 32.dp,
-                                                    contentDescription =
-                                                        "${member.displayName} avatar"
-                                                )
-
-                                                Spacer(
-                                                    modifier =
-                                                        Modifier.width(10.dp)
-                                                )
-
-                                                Text(member.displayName)
-                                            }
-                                        }
-                                    }
-
-                                    if (
-                                        info.pendingInvitations.isNotEmpty()
-                                    ) {
-                                        Spacer(
-                                            modifier =
-                                                Modifier.height(16.dp)
-                                        )
-
-                                        Text(
-                                            text = "Pending invitations",
-                                            fontWeight = FontWeight.Medium
-                                        )
-
-                                        Spacer(
-                                            modifier =
-                                                Modifier.height(4.dp)
-                                        )
-
-                                        info.pendingInvitations.forEach {
-                                            invitation ->
-                                            Text(invitation.invitedEmail)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                sharedListInfoListId = null
-                                sharedListInfo = null
-                                sharedListInfoError = null
-                                sharedListInfoLoading = false
-                            }
-                        ) {
-                            Text("Close")
-                        }
-                    }
-                )
-            }
-        }
-
-
-        sharingListId?.let { listId ->
-            val sharingList =
-                lists.firstOrNull {
-                    it.id == listId
-                }
-
-            if (sharingList == null) {
-                sharingListId = null
-            } else {
-                val sharingItems =
-                    itemsByList[sharingList.id]?.toList()
-                        ?: emptyList()
-
-                AlertDialog(
-                    onDismissRequest = {
-                        if (
-                            makingOnlineListId == null &&
-                            !sendingInvitation
-                        ) {
-                            sharingListId = null
-                            invitationEmail = ""
-                        }
-                    },
-                    title = {
-                        Text("Share list")
-                    },
-                    text = {
-                        Column {
-                            Text(
-                                text = sharingList.name,
-                                fontWeight = FontWeight.Medium
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            if (!authState.isSignedIn) {
-                                Text(
-                                    "Sign in before making this list available " +
-                                        "online or sharing it with someone"
-                                )
-                            } else if (sharingList.onlineState == "LOCAL") {
-                                Text("Use this list on my other devices")
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Text(
-                                    "Make this list available online wherever " +
-                                        "${authState.email ?: "this account"} is signed in"
-                                )
-
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                Button(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            try {
-                                                makeListAvailableOnline(
-                                                    list = sharingList,
-                                                    listItems = sharingItems
-                                                )
-                                            } catch (_: Exception) {
-                                            }
-                                        }
-                                    },
-                                    enabled = makingOnlineListId == null
-                                ) {
-                                    Text(
-                                        if (
-                                            makingOnlineListId ==
-                                            sharingList.id
-                                        ) {
-                                            "Making available"
-                                        } else {
-                                            "Make available online"
-                                        }
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(20.dp))
-
-                                Text(
-                                    text = "Invite someone",
-                                    fontWeight = FontWeight.Medium
-                                )
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                OutlinedTextField(
-                                    value = invitationEmail,
-                                    onValueChange = {
-                                        invitationEmail = it
-                                    },
-                                    label = {
-                                        Text("Email address")
-                                    },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(
-                                        keyboardType = KeyboardType.Email,
-                                        imeAction = ImeAction.Done
-                                    ),
-                                    enabled = !sendingInvitation,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Button(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            sendingInvitation = true
-
-                                            try {
-                                                makeListAvailableOnline(
-                                                    list = sharingList,
-                                                    listItems = sharingItems
-                                                )
-
-                                                invitationRepository.sendInvitation(
-                                                    listId = sharingList.id,
-                                                    email = invitationEmail
-                                                )
-
-                                                Toast.makeText(
-                                                    context,
-                                                    "Invitation sent",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-
-                                                invitationEmail = ""
-                                                sharingListId = null
-                                            } catch (error: Exception) {
-                                                Log.e(
-                                                    "JSimpleList",
-                                                    "Could not send invitation",
-                                                    error
-                                                )
-
-                                                Toast.makeText(
-                                                    context,
-                                                    "Could not send invitation",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            } finally {
-                                                sendingInvitation = false
-                                            }
-                                        }
-                                    },
-                                    enabled =
-                                        !sendingInvitation &&
-                                        invitationEmail.trim().isNotEmpty()
-                                ) {
-                                    Text(
-                                        if (sendingInvitation) {
-                                            "Sending"
-                                        } else {
-                                            "Send invitation"
-                                        }
-                                    )
-                                }
-                            } else {
-                                Text(
-                                    "This list is available wherever " +
-                                        "${authState.email ?: "this account"} is signed in"
-                                )
-
-                                Spacer(modifier = Modifier.height(20.dp))
-
-                                Text(
-                                    text = "Invite someone",
-                                    fontWeight = FontWeight.Medium
-                                )
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                OutlinedTextField(
-                                    value = invitationEmail,
-                                    onValueChange = {
-                                        invitationEmail = it
-                                    },
-                                    label = {
-                                        Text("Email address")
-                                    },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(
-                                        keyboardType = KeyboardType.Email,
-                                        imeAction = ImeAction.Done
-                                    ),
-                                    enabled = !sendingInvitation,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Button(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            sendingInvitation = true
-
-                                            try {
-                                                invitationRepository.sendInvitation(
-                                                    listId = sharingList.id,
-                                                    email = invitationEmail
-                                                )
-
-                                                Toast.makeText(
-                                                    context,
-                                                    "Invitation sent",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-
-                                                invitationEmail = ""
-                                                sharingListId = null
-                                            } catch (error: Exception) {
-                                                Log.e(
-                                                    "JSimpleList",
-                                                    "Could not send invitation",
-                                                    error
-                                                )
-
-                                                Toast.makeText(
-                                                    context,
-                                                    "Could not send invitation",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            } finally {
-                                                sendingInvitation = false
-                                            }
-                                        }
-                                    },
-                                    enabled =
-                                        !sendingInvitation &&
-                                        invitationEmail.trim().isNotEmpty()
-                                ) {
-                                    Text(
-                                        if (sendingInvitation) {
-                                            "Sending"
-                                        } else {
-                                            "Send invitation"
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                sharingListId = null
-                                invitationEmail = ""
-                            },
-                            enabled =
-                                makingOnlineListId == null &&
-                                !sendingInvitation
-                        ) {
-                            Text("Close")
-                        }
-                    }
-                )
-            }
-        }
-
         val newListFocusRequester = remember { FocusRequester() }
 
         LaunchedEffect(showNewListDialog) {
@@ -3630,24 +3277,8 @@ private fun SimpleListApp(
                             }
                         } else {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        openListNameEdit =
-                                            TextFieldValue(
-                                                text = currentList.name,
-                                                selection =
-                                                    TextRange(
-                                                        0,
-                                                        currentList.name.length
-                                                    )
-                                            )
-
-                                        editingOpenListNameId =
-                                            currentList.id
-                                    },
-                                verticalAlignment =
-                                    Alignment.CenterVertically
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = currentList.name,
@@ -3663,22 +3294,6 @@ private fun SimpleListApp(
                                     )
                                 )
 
-                                Spacer(
-                                    modifier = Modifier.width(16.dp)
-                                )
-
-                                Icon(
-                                    painter = painterResource(
-                                        R.drawable.ic_edit_pencil
-                                    ),
-                                    contentDescription =
-                                        "Edit list name",
-                                    tint =
-                                        MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier
-                                        .width(20.dp)
-                                        .height(20.dp)
-                                )
                             }
 
                             Row(
@@ -3801,15 +3416,59 @@ private fun SimpleListApp(
                             modifier = Modifier.width(160.dp)
                         ) {
                             DropdownMenuItem(
+                                text = { Text("Rename", fontSize = 16.sp) },
+                                onClick = {
+                                    openListMenuId = null
+                                    openListNameEdit = TextFieldValue(
+                                        text = currentList.name,
+                                        selection = TextRange(0, currentList.name.length)
+                                    )
+                                    editingOpenListNameId = currentList.id
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_action_edit),
+                                        contentDescription = null,
+                                        modifier = Modifier.width(20.dp).height(20.dp)
+                                    )
+                                },
+                                modifier = Modifier.height(52.dp)
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Share list", fontSize = 16.sp) },
+                                onClick = {
+                                    openListMenuId = null
+                                    sharingListId = currentList.id
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_action_share),
+                                        contentDescription = null,
+                                        modifier = Modifier.width(20.dp).height(20.dp)
+                                    )
+                                },
+                                modifier = Modifier.height(52.dp)
+                            )
+                            DropdownMenuItem(
                                 text = {
                                     Text(
-                                        text = "Share list",
+                                        if (currentList.onlineState == "ONLINE_MEMBER")
+                                            "Leave"
+                                        else
+                                            "Delete",
                                         fontSize = 16.sp
                                     )
                                 },
                                 onClick = {
                                     openListMenuId = null
-                                    sharingListId = currentList.id
+                                    deleteListId = currentList.id
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_action_delete),
+                                        contentDescription = null,
+                                        modifier = Modifier.width(20.dp).height(20.dp)
+                                    )
                                 },
                                 modifier = Modifier.height(52.dp)
                             )
@@ -4025,7 +3684,30 @@ private fun SimpleListApp(
                                                 )
                                             renameListId = list.id
                                         },
-                                        modifier = Modifier.height(52.dp)
+                                        leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_action_edit),
+                                        contentDescription = null,
+                                        modifier = Modifier.width(20.dp).height(20.dp)
+                                    )
+                                },
+                                modifier = Modifier.height(52.dp)
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = { Text("Share list", fontSize = 16.sp) },
+                                        onClick = {
+                                            openListMenuId = null
+                                            sharingListId = list.id
+                                        },
+                                        leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_action_share),
+                                        contentDescription = null,
+                                        modifier = Modifier.width(20.dp).height(20.dp)
+                                    )
+                                },
+                                modifier = Modifier.height(52.dp)
                                     )
 
                                     DropdownMenuItem(
@@ -4047,7 +3729,14 @@ private fun SimpleListApp(
                                             openListMenuId = null
                                             deleteListId = list.id
                                         },
-                                        modifier = Modifier.height(52.dp)
+                                        leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_action_delete),
+                                        contentDescription = null,
+                                        modifier = Modifier.width(20.dp).height(20.dp)
+                                    )
+                                },
+                                modifier = Modifier.height(52.dp)
                                     )
                                 }
                             }
@@ -4305,6 +3994,316 @@ private fun SimpleListApp(
             }
         }
     }
+
+        sharingListId?.let { listId ->
+            val list = lists.firstOrNull { it.id == listId }
+            if (list != null) {
+                val isLocal = list.onlineState == "LOCAL"
+                val isOwner = isLocal || list.onlineState == "ONLINE_OWNER"
+                val busy = sendingInvitation || makingOnlineListId != null
+                val info = sharedListInfo
+                val email = invitationEmail.trim().lowercase()
+                val duplicateMember = info?.members?.any {
+                    it.email?.trim()?.equals(email, ignoreCase = true) == true
+                } == true
+                val duplicatePending = info?.pendingInvitations?.any {
+                    it.invitedEmail.trim().equals(email, ignoreCase = true)
+                } == true
+                val duplicateSelf = authState.email?.trim()
+                    ?.equals(email, ignoreCase = true) == true
+                val duplicateError = when {
+                    email.isEmpty() -> null
+                    duplicateSelf -> "You cannot invite yourself"
+                    duplicateMember -> "This user already has access"
+                    duplicatePending -> "An invitation is already pending"
+                    else -> null
+                }
+
+                val shareActivity = context as? Activity
+                DisposableEffect(shareActivity) {
+                    shareActivity?.let { activity ->
+                        WindowInsetsControllerCompat(
+                            activity.window, activity.window.decorView
+                        ).isAppearanceLightStatusBars = true
+                    }
+                    onDispose {
+                        shareActivity?.let { activity ->
+                            WindowInsetsControllerCompat(
+                                activity.window, activity.window.decorView
+                            ).isAppearanceLightStatusBars = false
+                        }
+                    }
+                }
+                val invitationActionRequester = remember { BringIntoViewRequester() }
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding()
+                            .navigationBarsPadding()
+                            .imePadding()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.IconButton(
+                                enabled = !busy,
+                                onClick = {
+                                    sharingListId = null
+                                    invitationEmail = ""
+                                }
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_share_back),
+                                    contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    list.name,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    "Share this list",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        HorizontalDivider()
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                                .padding(20.dp)
+                        ) {
+                            if (!isLocal) Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(
+                                        if (isLocal) R.drawable.ic_share_device
+                                        else R.drawable.ic_share_cloud
+                                    ),
+                                    contentDescription = null,
+                                    tint = if (isLocal)
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    else MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    if (isLocal) "On this device"
+                                    else "Available online",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (isLocal) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_share_device),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text("Not shared yet", fontWeight = FontWeight.SemiBold)
+                                }
+                            } else {
+                                Text("People with access", fontWeight = FontWeight.SemiBold)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            when {
+                                !authState.isSignedIn -> Text("Sign in to share this list")
+                                isLocal -> Text(
+                                    "Invite someone to use this list with you",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                sharedListInfoLoading && info == null -> Text("Loading members")
+                                sharedListInfoError != null -> {
+                                    Text(sharedListInfoError ?: "Could not load sharing details")
+                                    TextButton(onClick = { reloadSharingInfo(list.id) }) {
+                                        Text("Retry")
+                                    }
+                                }
+                                info != null -> {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 6.dp)
+                                    ) {
+                                        info.members.forEach { member ->
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .border(
+                                                        width = 1.dp,
+                                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                                                        shape = RoundedCornerShape(14.dp)
+                                                    )
+                                                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                                            ) {
+                                                ProfileAvatar(
+                                                    avatarIcon = member.avatarIcon,
+                                                    avatarColour = member.avatarColour,
+                                                    size = 36.dp,
+                                                    contentDescription = "${member.displayName} avatar"
+                                                )
+                                                Spacer(Modifier.width(12.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                    ) {
+                                                        Text(
+                                                            member.displayName,
+                                                            fontWeight = FontWeight.Medium
+                                                        )
+                                                        Text(
+                                                            if (member.role == "owner") "Owner" else "Member",
+                                                            fontSize = 11.sp,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                    member.email?.let { memberEmail ->
+                                                        Text(
+                                                            memberEmail,
+                                                            fontSize = 13.sp,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (isOwner && info != null && info.pendingInvitations.isNotEmpty()) {
+                                Spacer(Modifier.height(20.dp))
+                                Text("Pending invitations", fontWeight = FontWeight.SemiBold)
+                                info.pendingInvitations.forEach { pending ->
+                                    Text(
+                                        pending.invitedEmail,
+                                        modifier = Modifier.padding(vertical = 6.dp)
+                                    )
+                                }
+                            }
+                            if (isOwner && authState.isSignedIn) {
+                                Spacer(Modifier.height(if (isLocal) 14.dp else 24.dp))
+                                HorizontalDivider()
+                                Spacer(Modifier.height(if (isLocal) 12.dp else 20.dp))
+                                Text("Invite someone", fontWeight = FontWeight.SemiBold)
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = invitationEmail,
+                                    onValueChange = { invitationEmail = it },
+                                    label = { Text("Email address") },
+                                    singleLine = true,
+                                    enabled = !busy,
+                                    keyboardOptions = KeyboardOptions(
+                                        keyboardType = KeyboardType.Email,
+                                        imeAction = ImeAction.Done
+                                    ),
+                                    isError = duplicateError != null,
+                                    supportingText = {
+                                        if (duplicateError != null) Text(duplicateError)
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .onFocusChanged { focus ->
+                                            if (focus.isFocused) {
+                                                coroutineScope.launch {
+                                                    delay(350)
+                                                    invitationActionRequester.bringIntoView()
+                                                }
+                                            }
+                                        }
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                if (authState.isSignedIn && isOwner) {
+                                    Button(
+                                        modifier = Modifier
+                                            .align(Alignment.End)
+                                            .bringIntoViewRequester(invitationActionRequester),
+                                        enabled = !busy && email.isNotBlank() &&
+                                            email.contains('@') &&
+                                            email.substringAfter('@').contains('.') &&
+                                            duplicateError == null &&
+                                            (isLocal || (!sharedListInfoLoading &&
+                                                sharedListInfoError == null && info != null)),
+                                        onClick = {
+                                            if (sendingInvitation) return@Button
+                                            val targetEmail = invitationEmail.trim().lowercase()
+                                            // Re-check the current state on tap before any network call.
+                                            if (targetEmail.isBlank() ||
+                                                info?.pendingInvitations?.any {
+                                                    it.invitedEmail.equals(targetEmail, true)
+                                                } == true ||
+                                                info?.members?.any {
+                                                    it.email?.equals(targetEmail, true) == true
+                                                } == true ||
+                                                authState.email?.equals(targetEmail, true) == true
+                                            ) return@Button
+                                            sendingInvitation = true
+                                            coroutineScope.launch {
+                                                try {
+                                                    if (isLocal) {
+                                                        makeListAvailableOnline(
+                                                            list,
+                                                            itemsByList[list.id]?.toList()
+                                                                ?: emptyList()
+                                                        )
+                                                    }
+                                                    invitationRepository.sendInvitation(
+                                                        listId = list.id,
+                                                        email = targetEmail
+                                                    )
+                                                    invitationEmail = ""
+                                                    Toast.makeText(
+                                                        context, "Invitation sent", Toast.LENGTH_SHORT
+                                                    ).show()
+                                                } catch (exception: CancellationException) {
+                                                    throw exception
+                                                } catch (exception: Exception) {
+                                                    Log.e(
+                                                        "JSimpleListSharing",
+                                                        "Could not send invitation", exception
+                                                    )
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Could not send invitation. Check sharing details",
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
+                                                } finally {
+                                                    sendingInvitation = false
+                                                    reloadSharingInfo(list.id)
+                                                }
+                                            }
+                                        }
+                                    ) { Text(if (busy) "Sending" else "Send invitation") }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         SnackbarHost(
             hostState = snackbarHostState,
@@ -5448,7 +5447,7 @@ private fun ListItemRow(
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = "Rename",
+                                text = "Edit",
                                 fontSize = 16.sp
                             )
                         },
@@ -5462,7 +5461,14 @@ private fun ListItemRow(
                             editing = true
                             onEditingChange(true)
                         },
-                        modifier = Modifier.height(52.dp)
+                        leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_action_edit),
+                                        contentDescription = null,
+                                        modifier = Modifier.width(20.dp).height(20.dp)
+                                    )
+                                },
+                                modifier = Modifier.height(52.dp)
                     )
 
                     DropdownMenuItem(
@@ -5476,7 +5482,14 @@ private fun ListItemRow(
                             itemMenuExpanded = false
                             onDelete()
                         },
-                        modifier = Modifier.height(52.dp)
+                        leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_action_delete),
+                                        contentDescription = null,
+                                        modifier = Modifier.width(20.dp).height(20.dp)
+                                    )
+                                },
+                                                        modifier = Modifier.height(52.dp)
                     )
                 }
             }
