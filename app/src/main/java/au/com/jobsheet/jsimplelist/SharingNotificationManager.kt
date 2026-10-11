@@ -175,7 +175,7 @@ class SharingNotificationManager(
                 CHANNEL_ID
             )
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("JSimpleList")
+                .setContentTitle("GoListGo")
                 .setContentText(message)
                 .setStyle(
                     NotificationCompat.BigTextStyle()

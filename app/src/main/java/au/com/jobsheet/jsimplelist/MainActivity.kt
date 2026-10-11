@@ -1826,13 +1826,13 @@ private fun SimpleListApp(
             )
         ) {
             Image(
-                painter = painterResource(R.drawable.jsimplelist_logo),
+                painter = painterResource(R.drawable.golistgo_logo),
                 contentDescription = null,
                 modifier = Modifier.width(38.dp)
             )
 
             Text(
-                text = "JSimpleList",
+                text = "GoListGo",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.SemiBold
             )
@@ -2167,7 +2167,7 @@ private fun SimpleListApp(
                 },
                 text = {
                     Text(
-                        "JSimpleList uses notifications for list invitations " +
+                        "GoListGo uses notifications for list invitations " +
                             "and important sharing updates. Enable notifications " +
                             "so you do not miss activity on shared lists"
                     )
@@ -2474,7 +2474,7 @@ private fun SimpleListApp(
                 text = {
                     Column {
                         Text(
-                            "This permanently removes your JSimpleList online account."
+                            "This permanently removes your GoListGo online account."
                         )
 
                         Spacer(modifier = Modifier.height(12.dp))
@@ -2599,7 +2599,7 @@ private fun SimpleListApp(
                 onDismissRequest = { showAbout = false },
                 title = {
                     Text(
-                        text = "JSimpleList",
+                        text = "GoListGo",
                         fontWeight = FontWeight.SemiBold
                     )
                 },
