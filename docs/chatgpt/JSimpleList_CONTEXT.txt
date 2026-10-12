@@ -10,11 +10,11 @@ Purpose: Small local-first native Android list app. Version 2.0 generalises the 
 Intrinsic list kinds: TODO, SHOPPING and DISCUSSION. Shopping differs by having a Qty field.
 Google Play is the intended public distribution channel.
 
-GO LIST GO CLOSEOUT - 11 OCT 2026
----------------------------------
+GO LIST GO RELEASE CHECKPOINT - 12 OCT 2026
+----------------------------------------
 Product rebrand decision:
 - GoListGo is the new public product name (one word; capitals G, L, G).
-- golistgo.net was registered through VentraIP; website is not yet live.
+- golistgo.net is live on Cloudflare Pages, with SSL/HTTPS, a WWW-to-root 301 redirect and Always Use HTTPS enabled; VentraIP remains registrar, Cloudflare manages DNS.
 - Keep package/applicationId au.com.jobsheet.jsimplelist, Kotlin packages/class names, Room database, Supabase schema, Firebase routing, signing keys and existing jslist.jobsheet.com.au authentication/App Links unchanged for 2.1.
 - Current Android user-facing strings and notifications were changed from JSimpleList to GoListGo locally and verified on a debug device.
 - The new glossy checklist mark uses blue, orange and green circular checks and three white list lines. Approved Play Store icon: GoListGo_Play_Icon_Final_512.png (512x512 transparent PNG); approved feature graphic: Glossy GoListGo Checklist Banner.png (1024x500 opaque PNG). Exact local image filenames may be retained as branding source assets.
@@ -31,13 +31,20 @@ Verified server / sharing checkpoint (Git commit a21693f, pushed):
 - Android sharing tested successfully on two phones, including local-to-online sharing and receiving invitation.
 - Separate investigation of duplicate FCM notifications, stale push token 404s, durable sync retries and reorder concurrency remains future work, not a 2.1 rebrand prerequisite unless testing identifies a blocking defect.
 
+Completed 12 Oct 2026:
+- Commit 62bde01 rebranded Android artwork and app identity to GoListGo.
+- Commit 3b70ec6 added golistgo-site static public site to the existing GitHub repository, deployed via Cloudflare Pages from branch main with build output golistgo-site.
+- Public landing and support pages use existing verified privacy/terms/account-deletion URLs; browser authentication and invitation routes remain unchanged at jslist.jobsheet.com.au.
+- Play Console default store listing was edited to GoListGo: app name, short/full descriptions, branded icon and feature graphic, and three updated phone screenshots. AI-created/edited asset declaration completed. Publishing overview showed six changes ready for review; final submission/approval not independently confirmed. Managed publishing was OFF at that checkpoint.
+- Temporary root patch_*.py scripts were deleted; keep drag_before_rework.patch. Keep original artwork and ZIP assets until no longer needed.
+
 Version 2.1 remaining work:
-1. Finish staging/committing/pushing verified GoListGo visible strings and Android artwork, and this documentation. Do not stage temporary patch scripts or drag_before_rework.patch.
-2. Check Google Play icon/banner originals are tracked as source branding files; screenshot and inspect the final adaptive launcher and in-app logo.
-3. Publish a basic independent golistgo.net website with landing page, privacy policy and support information. Free static hosting (Cloudflare Pages) preferred; preserve existing auth/invite URLs for 2.1.
-4. Update Play Store product name, description, listing graphics and screenshots for GoListGo. Review privacy policy/account deletion links (existing URLs may remain until separately tested).
-5. Increment Android versionCode above existing published/uploaded codes; use versionName 2.1. Build a signed release AAB; verify app update/install, local lists, authentication, invited sharing, notifications and Play Console compliance before production.
-6. Keep the already-working package ID and signing identity; do not rename backend database identifiers for cosmetic reasons.
+1. Confirm Play listing review/publication status and check highest uploaded Play versionCode (previously documented production 2.0.1 code 8).
+2. Inspect local git status and pull the latest main (including remote documentation closeout) before editing. Keep unrelated untracked artwork and backup files unstaged.
+3. Set Android versionName 2.1 and choose a versionCode above all Play uploads; preserve package ID, signing identity, auth URLs and existing database identifiers.
+4. Build the signed release AAB, verify release/signing outputs, mapping and symbols where applicable; test upgrade/data preservation, local lists, account/auth, invites/sharing, notifications and account deletion on real device.
+5. Submit release bundle to Play production after checking Play Console compliance and any pending listing-review changes. Do not assume store listing updates release the Android app.
+6. Defer web cosmetic polish, Android launcher 15-20 percent scale refinement, reorder-concurrency and push duplication backlog.
 
 Version 2.2 UI TODO - Android launcher icon:
 - Increase central checklist artwork by approximately 15-20 percent relative to the current adaptive icon.
@@ -611,11 +618,11 @@ Store listing (existing production listing; to update for 2.1):
 
 RELEASE CHECKPOINT - 11 OCT 2026
 --------------------------------
-- Published Play release last documented: 2.0.1 (versionCode 8), original internal identity JSimpleList. Check Play Console for any later uploaded code before choosing 2.1 versionCode.
-- Pushed Git checkpoint: a21693f Unify list sharing and improve invitation handling. Two invitation migrations and invite-list Edge Function are deployed.
-- Current local working tree contains uncommitted tested GoListGo visible-text and Android launcher/in-app artwork modifications. Commit/push before changing further code.
-- 2.1 has NOT yet been released or confirmed uploaded; production Play Store name/icon still reflect JSimpleList until listing and bundle publication.
-- Pending 2.1: website, Play listing, screenshots, version bump, release bundle and release validation. See current closeout section above.
+- Published Play release last documented: 2.0.1 (versionCode 8); confirm later uploaded codes in Play Console before setting 2.1 versionCode.
+- Pushed Git checkpoint: 3b70ec6 Add GoListGo public website for Cloudflare Pages, following 62bde01 Android rebrand and a21693f sharing checkpoint.
+- Last known local tracked tree was clean at commit 3b70ec6 after website push; untracked artwork archives/source and drag_before_rework.patch remained. Pull the new context-document commit from GitHub at next session start.
+- Android 2.1 AAB has NOT yet been confirmed uploaded or released; Play listing changes were prepared but final submission/review outcome was not independently confirmed.
+- Pending 2.1: check Play listing review, version bump, signed release bundle, real-device validation, Play upload/submission. See current closeout section above.
 
 FUNDING / COST FUTURE-PROOFING
 ------------------------------
@@ -674,13 +681,14 @@ Copyright owner:
     21 TWELVE CONSULTING PTY LTD
 Existing MIT releases retain their granted MIT rights if future versions use different licensing terms.
 
-NEXT SESSION - FINISH GOLISTGO 2.1 REBRAND / RELEASE
------------------------------------------------------
-1. Read JSimpleList_RULES.txt and this updated context. Inspect git status/log before editing; never stage all untracked files indiscriminately.
-2. Complete the 11 Oct local GoListGo Android branding commit and document checkpoint; validate Play 512x512 image and banner 1024x500 remain available.
-3. Set up basic golistgo.net static website on free hosting, with appropriate legal/support links; preserve old auth links.
-4. Update Google Play Store title/assets/screenshots, increment version safely, validate a signed release AAB, then release 2.1 after real-device checks.
-5. Defer 2.2 launcher 15-20 percent scale refinement and reorder concurrency / push duplication backlog as specified above.
+NEXT SESSION - GOLISTGO 2.1 ANDROID RELEASE
+------------------------------------------
+1. Read JSimpleList_RULES.txt and this updated context. In D:\SimpleList run git status --short and git --no-pager log -1 --oneline; git pull to receive this remote context update, after checking for local edits.
+2. Check Google Play listing changes' submission/review status, then inspect Play Console latest uploaded versionCode. Last confirmed released code was 8, not necessarily latest uploaded.
+3. Inspect exact Gradle version fields before editing; set versionName 2.1 and a safe higher versionCode. Preserve Android package ID, signing and jslist.jobsheet.com.au auth/App Links.
+4. Build signed release AAB; verify bundle, signing/mapping, in-place upgrade and core real-device cases: Room local data, auth, online sharing/invites, notifications, account deletion.
+5. Upload to production and submit GoListGo 2.1 after validation. Store listing and Android release are separate submissions.
+6. Cosmetic website polishing and 2.2 launcher enlargement, reorder concurrency and push repairs remain deferred.
 
 SOURCE-EDITING REMINDER FOR NEXT SESSION
 ----------------------------------------
