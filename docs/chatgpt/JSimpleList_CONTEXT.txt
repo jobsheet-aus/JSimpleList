@@ -31,20 +31,23 @@ Verified server / sharing checkpoint (Git commit a21693f, pushed):
 - Android sharing tested successfully on two phones, including local-to-online sharing and receiving invitation.
 - Separate investigation of duplicate FCM notifications, stale push token 404s, durable sync retries and reorder concurrency remains future work, not a 2.1 rebrand prerequisite unless testing identifies a blocking defect.
 
-Completed 12 Oct 2026:
-- Commit 62bde01 rebranded Android artwork and app identity to GoListGo.
-- Commit 3b70ec6 added golistgo-site static public site to the existing GitHub repository, deployed via Cloudflare Pages from branch main with build output golistgo-site.
-- Public landing and support pages use existing verified privacy/terms/account-deletion URLs; browser authentication and invitation routes remain unchanged at jslist.jobsheet.com.au.
-- Play Console default store listing was edited to GoListGo: app name, short/full descriptions, branded icon and feature graphic, and three updated phone screenshots. AI-created/edited asset declaration completed. Publishing overview showed six changes ready for review; final submission/approval not independently confirmed. Managed publishing was OFF at that checkpoint.
-- Temporary root patch_*.py scripts were deleted; keep drag_before_rework.patch. Keep original artwork and ZIP assets until no longer needed.
+Completed / submitted 12 Oct 2026:
+- Commit 62bde01 rebranded Android artwork and app identity. Commit 3b70ec6 created golistgo-site on Cloudflare Pages. Commit 5c471c9 updated the release handoff.
+- GoListGo store listing, branded icon/banner and three screenshots were approved and published on 12 Oct (Submission 4); managed publishing OFF.
+- Play App Bundle Explorer confirmed highest pre-2.1 uploaded code 8 (2.0.1). Android Gradle changed to versionCode 9, versionName 2.1 and BUILD_DATE 12 October 2026; About dialog website changed to golistgo.net.
+- Android navigation changes: UUID-derived index lookup for My lists, stable HorizontalPager UUID keys, deletion index resolved at completion, and refresh/startup/reorder-reconciliation selection logic adjusted. This is an improvement, NOT proof that the intermittent wrong-list race is fully eliminated.
+- Optimised signed release AAB built with gradlew.bat bundleRelease; certificate verified with keytool. Release APK built with assembleRelease; apksigner v2 verification passed with the expected local upload certificate.
+- Real phone: locally signed release APK installed after uninstalling Play-signed 2.0.1 (therefore not an in-place upgrade test). GoListGo branding, Supabase email sign-in, cloud account and online list discovery worked. Invitation send/pending/accept/member flow worked once on release build. Debug build after navigation changes compiled; My lists tapping and horizontal swiping worked.
+- Later test found delayed invitation delivery, Kate's old 2.0.1 Accept/Decline buttons disabled, duplicate notification observations, and deletion navigating to Pharmacy instead of remaining in My lists. The intermittent wrong-list bug remains not conclusively regression-tested.
+- Commit 9523dd3 pushed Android 2.1 version/About and navigation source. A newly rebuilt and signature-verified version 9 AAB was uploaded to Production, with zero blocking errors and one non-blocking native debug-symbol warning. Play production full rollout 9 (2.1) submitted for review on 12 Oct; screenshot confirmed CHANGES IN REVIEW, not yet published. Managed publishing OFF means approval may publish automatically.
+- No further testing on Kate's phone at this checkpoint. Preserve currently submitted build unless a critical new defect requires a new versionCode. Release source currently pushed, docs being updated separately.
 
-Version 2.1 remaining work:
-1. Confirm Play listing review/publication status and check highest uploaded Play versionCode (previously documented production 2.0.1 code 8).
-2. Inspect local git status and pull the latest main (including remote documentation closeout) before editing. Keep unrelated untracked artwork and backup files unstaged.
-3. Set Android versionName 2.1 and choose a versionCode above all Play uploads; preserve package ID, signing identity, auth URLs and existing database identifiers.
-4. Build the signed release AAB, verify release/signing outputs, mapping and symbols where applicable; test upgrade/data preservation, local lists, account/auth, invites/sharing, notifications and account deletion on real device.
-5. Submit release bundle to Play production after checking Play Console compliance and any pending listing-review changes. Do not assume store listing updates release the Android app.
-6. Defer web cosmetic polish, Android launcher 15-20 percent scale refinement, reorder-concurrency and push duplication backlog.
+Next actions:
+1. Check Google Play Publishing overview / Submission activity for production 9 (2.1) approval and rollout; do not claim it is live until confirmed.
+2. Pull the latest documentation-only commit, then assess 2.1 production behaviour using normal Play delivery. Do not assume locally signed release APK can update a Play-signed installation.
+3. Investigate navigation selection/deletion race and old-app invitation-state problems early in 2.2; capture controlled repro before modifying sensitive flows.
+4. Preserve and investigate duplicate FCM notifications/stale registrations; verify one notification event vs one per device install.
+5. Investigate Play App Signing key upgrade eligibility separately, without altering the in-review 2.1 release. Distinguish upload key from Google app-signing key. A new key may not enable updates to all previously signed installations.
 
 Version 2.2 UI TODO - Android launcher icon:
 - Increase central checklist artwork by approximately 15-20 percent relative to the current adaptive icon.
@@ -52,10 +55,17 @@ Version 2.2 UI TODO - Android launcher icon:
 - Stay entirely within the Android adaptive icon safe area so Samsung rounded-square and other circular/system masks do not crop artwork.
 - Validate on an actual launcher at normal size; compare with the 11 Oct screenshots. Do not apply the no-padding rule used for the separate Google Play 512x512 icon to Android adaptive foregrounds.
 
-Post-2.1 backlog:
-- Server-serialised reorder move intent; durable Room outbox and UUID idempotency must be preserved. Support merging different-item moves, last-server-accepted same-item move, deletion wins, and surviving-neighbour fallback. Old list_order_state.protected remained FALSE at the 1 Oct checkpoint; audit implementation before new changes and test deliberate two-device conflicts.
-- Review duplicate push notifications / stale UNREGISTERED FCM devices, real-time online auto-pull, durable item sync retry and ONLINE_MEMBER behaviour.
-- Later separately migrate old jslist.jobsheet.com.au public/auth URLs to golistgo.net, including Supabase redirect configuration and Android verified App Links; do not rush into 2.1.
+Version 2.2 priority backlog:
+- Navigation: establish selected UUID as authoritative across tap, settled horizontal swipe, list creation/deletion, sign-in/out, incoming invitation and async discovery/reconciliation. Regression-test create -> share -> accept -> delete -> open another list, including deletion from My lists staying in My lists.
+- Manually reorder lists via drag-and-drop in My lists. Persist order; derive UUID-to-index mapping from the new order; define device/account ownership and shared-list ordering policy before implementing sync.
+- Redesign Account profile layout: remove excessive spacing; compact identity, email, cloud status, notification settings and delete action while preserving existing account functionality.
+- Share screen should refresh authoritative Pending -> Member state on recipient acceptance while open, without adding duplicate in-app notification delivery.
+- Investigate duplicate FCM notifications and UNREGISTERED device tokens; separate independent debug/release installs from duplicated events.
+- Diagnose greyed-out Accept/Decline on Kate's older 2.0.1 build without assuming keyboard obstruction; verify in updated production app.
+- Increase adaptive launcher central checklist approximately 15-20 percent within Android safe area; maintain separate Play Store icon artwork rules.
+- Server-serialised reorder move intent: preserve durable Room outbox and UUID idempotency; merge different-item moves, last-server-accepted same-item move, deletion wins and surviving-neighbour fallback. Inspect list_order_state.protected before enabling automated conflict rebase.
+- General durable sync retries, authoritative remote auto-pull, online membership edge cases and deferred browser/web polish.
+- Separately plan migration from jslist.jobsheet.com.au auth/App Links to golistgo.net, with Supabase and Android verified-link testing.
 
 CORE PRODUCT PRINCIPLES
 -----------------------
@@ -610,19 +620,12 @@ Google Play App Links:
 - production `assetlinks.json` includes the Play signing certificate SHA-256 plus local release certificate
 - Android `pm get-app-links au.com.jobsheet.jsimplelist` reports `jslist.jobsheet.com.au: verified`
 
-Store listing (existing production listing; to update for 2.1):
-- Current published app name is `JSimpleList`; planned public name is `GoListGo`.
-- Short description: `Simple list manager with optional private sharing and browser access`.
-- Full description covers dynamic To-do/Shopping/Discussion lists, local-first use, optional online sync/sharing/browser access and recurring-list reuse with Uncheck all.
-- Play assets/screenshots/Data Safety were updated for 2.0.
-
-RELEASE CHECKPOINT - 11 OCT 2026
---------------------------------
-- Published Play release last documented: 2.0.1 (versionCode 8); confirm later uploaded codes in Play Console before setting 2.1 versionCode.
-- Pushed Git checkpoint: 3b70ec6 Add GoListGo public website for Cloudflare Pages, following 62bde01 Android rebrand and a21693f sharing checkpoint.
-- Last known local tracked tree was clean at commit 3b70ec6 after website push; untracked artwork archives/source and drag_before_rework.patch remained. Pull the new context-document commit from GitHub at next session start.
-- Android 2.1 AAB has NOT yet been confirmed uploaded or released; Play listing changes were prepared but final submission/review outcome was not independently confirmed.
-- Pending 2.1: check Play listing review, version bump, signed release bundle, real-device validation, Play upload/submission. See current closeout section above.
+Store listing / latest release status (12 Oct 2026):
+- GoListGo title, descriptions, new icon, feature graphic and screenshots published after listing-only submission 4.
+- Version 2.0.1 (code 8) was last confirmed available publicly before the 2.1 submission.
+- Version 2.1 (code 9) production full rollout was submitted for review on 12 Oct 2026. Publishing overview explicitly displayed Changes in review. Approval/live availability not yet confirmed.
+- Google reported no blocking bundle issues, zero lost device compatibility, and a non-blocking native debug-symbol warning.
+- Android native debug-symbol upload and R8 mapping retention should be reviewed at the next maintenance checkpoint.
 
 FUNDING / COST FUTURE-PROOFING
 ------------------------------
@@ -641,33 +644,42 @@ PROJECT WORKING PROTOCOL / DOCUMENTS
 - Remove/rewrite stale current-state and NEXT TASK material instead of accumulating contradictory history.
 - Session closeout follows `JSimpleList_RULES.txt`.
 
-CMD / TOOLING
--------------
-Assume Windows CMD, normally from:
-    D:\SimpleList>
-
-Use CMD-compatible one-line commands and `&&` when dependent commands should run sequentially.
-Always use `git --no-pager` where applicable.
-Normal debug workflow:
-    build_debug && install_debug
-Underlying debug build if needed:
-    gradlew.bat assembleDebug
-Release AAB:
+CMD / VERIFIED DEVELOPMENT AND RELEASE OPERATIONS
+------------------------------------------------
+Project root: D:\SimpleList, Windows CMD. Prefer one inspection command at a time; audit needs --path PLUS --range/--contains, e.g.:
+    audit --path D:\SimpleList\app\build.gradle.kts --range 1:130
+    audit --path D:\SimpleList\app\src --contains BUILD_DATE
+For Git: git status --short --branch; git fetch origin; inspect diff before git pull --ff-only. Use git --no-pager; stage only named files; run git --no-pager diff --check.
+Available root helper batch files: build_debug.bat, install_debug.bat, reset-adb.bat, gradlew.bat.
+Debug build / separate debug app installation:
+    build_debug
+    install_debug
+Debug package uses .debug suffix and JSLDebug launcher; release uses production package ID.
+Version fields are in app/build.gradle.kts: versionCode 9, versionName 2.1, BUILD_DATE 12 October 2026 at release. Confirm the maximum uploaded Play versionCode before incrementing for the next release.
+Release bundle and local signed APK:
     gradlew.bat bundleRelease
-Real phone remains preferred over emulator.
-Use `audit` before source edits and exact source blocks/indentation for manual replacements.
-Explicitly stage intended files; avoid broad `git add .`.
+    gradlew.bat assembleRelease
+Outputs:
+    app\build\outputs\bundle\release\app-release.aab
+    app\build\outputs\apk\release\app-release.apk
+Gradle Java 21 location verified through JAVA_HOME=C:\Program Files\Android Studio\jbr (not C:\Program Files\Android\Android Studio\jbr); check with gradlew.bat --version.
+Verify AAB upload-signing certificate:
+    "%JAVA_HOME%\bin\keytool.exe" -printcert -jarfile app\build\outputs\bundle\release\app-release.aab
+Verify APK v2 signature and certificate (keytool -jarfile is not suitable for an APK signed only with v2):
+    "%LOCALAPPDATA%\Android\Sdk\build-tools\36.1.0\apksigner.bat" verify --verbose --print-certs app\build\outputs\apk\release\app-release.apk
+Local signing.properties and keys\jsimplelist-release.jks are Git-ignored. Never expose or commit private key/passwords.
+Release upload cert SHA-256: fc11217128f365366d4c3f988a2536d40251f6e71b5275b611896c749206af59
+Google Play's app-signing certificate differs from the local UPLOAD certificate. A locally signed APK cannot update a Play-installed copy in place with different signing certs. Uninstalling deletes app-private Room data and stored authentication; using normal Play updates preserves it. Do not uninstall if local-only lists or sessions must be retained. Play App Signing key-upgrade feasibility requires separate verification.
+Real-device checks before production: data-preserving upgrade if possible; local lists; startup; tap/swipe after collection changes; auth restoration; online list discovery; invitation acceptance/membership; notification delivery; app links/account deletion. Successful compilation is not a substitute for these checks.
+Play Console release flow: Production -> Create new release -> upload versioned AAB -> release notes -> Next -> review warnings/device support -> Save -> Publishing overview -> submit for review. Managed publishing OFF may publish automatically after approval.
+Keep R8 mapping outputs and investigate native debug symbols separately. Avoid CPU-intensive FFmpeg encoding concurrently with release builds on the older desktop.
 
 SIGNING / FILE SAFETY
 ---------------------
-Permanent local signing key:
-    D:\SimpleList\keys\jsimplelist-release.jks
-Alias:
-    jsimplelist
-Local release certificate SHA-256:
-    fc11217128f365366d4c3f988a2536d40251f6e71b5275b611896c749206af59
-
-Never commit .jks files, signing.properties, signing passwords, Supabase secret/service-role keys, Resend API keys, Firebase service-account secrets or generated release output.
+Permanent local upload signing key: D:\SimpleList\keys\jsimplelist-release.jks
+Alias: jsimplelist
+Local upload certificate SHA-256: fc11217128f365366d4c3f988a2536d40251f6e71b5275b611896c749206af59
+Never commit .jks files, signing.properties, signing passwords, Supabase service-role keys, Resend API keys, Firebase service-account secrets or generated release outputs.
 
 PUBLIC REPOSITORY / LICENCE
 ---------------------------
@@ -681,14 +693,13 @@ Copyright owner:
     21 TWELVE CONSULTING PTY LTD
 Existing MIT releases retain their granted MIT rights if future versions use different licensing terms.
 
-NEXT SESSION - GOLISTGO 2.1 ANDROID RELEASE
-------------------------------------------
-1. Read JSimpleList_RULES.txt and this updated context. In D:\SimpleList run git status --short and git --no-pager log -1 --oneline; git pull to receive this remote context update, after checking for local edits.
-2. Check Google Play listing changes' submission/review status, then inspect Play Console latest uploaded versionCode. Last confirmed released code was 8, not necessarily latest uploaded.
-3. Inspect exact Gradle version fields before editing; set versionName 2.1 and a safe higher versionCode. Preserve Android package ID, signing and jslist.jobsheet.com.au auth/App Links.
-4. Build signed release AAB; verify bundle, signing/mapping, in-place upgrade and core real-device cases: Room local data, auth, online sharing/invites, notifications, account deletion.
-5. Upload to production and submit GoListGo 2.1 after validation. Store listing and Android release are separate submissions.
-6. Cosmetic website polishing and 2.2 launcher enlargement, reorder concurrency and push repairs remain deferred.
+NEXT SESSION - GOLISTGO 2.1 REVIEW / 2.2 TRIAGE
+-------------------------------------------------
+1. Read JSimpleList_RULES.txt and this context; inspect Git status first and pull the documentation-only checkpoint after verifying no conflicting local tracked edits.
+2. Check Play Production 2.1 (code 9) review/published status before describing it as live.
+3. Investigate reported navigation race using active UUID and delete/refresh semantics. The patches compiled and basic swipe/tap test passed, but full race reproduction was not conclusively resolved.
+4. Capture Share screen member-refresh, duplicate FCM notifications and Kate's disabled 2.0.1 invitation controls as separate issues; avoid intrusive testing while Kate is unavailable.
+5. Start 2.2 scope: manual drag-to-reorder lists, Account profile redesign, launcher scale refinement and signing-key upgrade feasibility. Maintain current package ID, backend authority, auth links and signing identity unless an independently validated migration is chosen.
 
 SOURCE-EDITING REMINDER FOR NEXT SESSION
 ----------------------------------------
