@@ -457,6 +457,13 @@ private fun SimpleListApp(
     val itemsByList = remember {
         mutableStateMapOf<String, SnapshotStateList<ItemEntity>>()
     }
+    val indexByListId by remember {
+        derivedStateOf {
+            lists.withIndex().associate { (index, list) ->
+                list.id to index
+            }
+        }
+    }
     val pagerState = rememberPagerState(
         pageCount = { lists.size }
     )
@@ -671,8 +678,12 @@ private fun SimpleListApp(
                             dao.loadItems(loadedList.id)
                     }
 
+                val currentSelectionId =
+                    lists.getOrNull(pagerState.currentPage)?.id
+                        ?: preservedListId
+
                 val preservedIndex =
-                    preservedListId?.let { targetId ->
+                    currentSelectionId?.let { targetId ->
                         refreshedLists.indexOfFirst {
                             it.id == targetId
                         }.takeIf { it >= 0 }
@@ -978,8 +989,12 @@ private fun SimpleListApp(
                 loadedList.id to dao.loadItems(loadedList.id)
             }
 
+        val currentSelectionId =
+            lists.getOrNull(pagerState.currentPage)?.id
+                ?: preservedListId
+
         val preservedIndex =
-            preservedListId?.let { targetId ->
+            currentSelectionId?.let { targetId ->
                 loadedLists.indexOfFirst {
                     it.id == targetId
                 }.takeIf { it >= 0 }
@@ -1767,8 +1782,12 @@ private fun SimpleListApp(
                     )
             }
 
+        val currentSelectionId =
+            lists.getOrNull(pagerState.currentPage)?.id
+                ?: preservedListId
+
         val preservedIndex =
-            preservedListId?.let { targetId ->
+            currentSelectionId?.let { targetId ->
                 refreshedLists.indexOfFirst {
                     it.id == targetId
                 }.takeIf { it >= 0 }
@@ -2634,12 +2653,12 @@ private fun SimpleListApp(
 
                         Text("Produced by JobSheet")
                         Text(
-                            text = "www.jobsheet.com.au",
+                            text = "golistgo.net",
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .padding(top = 4.dp)
                                 .clickable {
-                                    uriHandler.openUri("https://www.jobsheet.com.au")
+                                    uriHandler.openUri("https://golistgo.net")
                                 }
                         )
 
@@ -2922,11 +2941,6 @@ private fun SimpleListApp(
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            val deleteIndex =
-                                lists.indexOfFirst {
-                                    it.id == deleteList.id
-                                }
-
                             coroutineScope.launch {
                                 try {
                                     when (deleteList.onlineState) {
@@ -2960,6 +2974,15 @@ private fun SimpleListApp(
 
                                     dao.deleteList(deleteList.id)
 
+                                    val selectedListId =
+                                        lists.getOrNull(
+                                            pagerState.currentPage
+                                        )?.id
+                                    val deleteIndex =
+                                        lists.indexOfFirst {
+                                            it.id == deleteList.id
+                                        }
+
                                     itemsByList.remove(deleteList.id)
 
                                     if (deleteIndex >= 0) {
@@ -2969,11 +2992,16 @@ private fun SimpleListApp(
                                     deleteListId = null
 
                                     if (lists.isNotEmpty()) {
+                                        val preservedIndex =
+                                            selectedListId?.let { id ->
+                                                indexByListId[id]
+                                            }
                                         val targetIndex =
-                                            deleteIndex.coerceIn(
-                                                0,
-                                                lists.lastIndex
-                                            )
+                                            preservedIndex
+                                                ?: deleteIndex.coerceIn(
+                                                    0,
+                                                    lists.lastIndex
+                                                )
 
                                         pagerState.scrollToPage(
                                             targetIndex
@@ -3537,7 +3565,7 @@ private fun SimpleListApp(
                         val kind = ListKind.valueOf(list.kind)
                         val itemCount =
                             listItems?.size ?: 0
-                        val index = lists.indexOf(list)
+                        val targetListId = list.id
 
                         Row(
                             modifier = Modifier
@@ -3584,9 +3612,15 @@ private fun SimpleListApp(
                                     .width(28.dp)
                                     .height(28.dp)
                                     .clickable {
-                                        editingOpenListNameId = null
-                                        pagerState.requestScrollToPage(index)
-                                        showListSelector = false
+                                        val targetIndex =
+                                            indexByListId[targetListId]
+                                        if (targetIndex != null) {
+                                            editingOpenListNameId = null
+                                            pagerState.requestScrollToPage(
+                                                targetIndex
+                                            )
+                                            showListSelector = false
+                                        }
                                     }
                             )
 
@@ -3596,9 +3630,15 @@ private fun SimpleListApp(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clickable {
-                                        editingOpenListNameId = null
-                                        pagerState.requestScrollToPage(index)
-                                        showListSelector = false
+                                        val targetIndex =
+                                            indexByListId[targetListId]
+                                        if (targetIndex != null) {
+                                            editingOpenListNameId = null
+                                            pagerState.requestScrollToPage(
+                                                targetIndex
+                                            )
+                                            showListSelector = false
+                                        }
                                     }
                                     .padding(vertical = 6.dp)
                             ) {
@@ -3749,6 +3789,7 @@ private fun SimpleListApp(
             } else {
                 HorizontalPager(
                     state = pagerState,
+                    key = { page -> lists[page].id },
                     modifier = Modifier.weight(1f)
                 ) { page ->
                     val list = lists[page]
